@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PARA Admin Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=33">
+</head>
+<body>
+<div class="app-background">
+    <div class="bg-shape shape-left"></div>
+    <div class="bg-shape shape-right"></div>
+
+    <main id="dashboardMain" class="admin-container" style="display:none;">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-container">
+                <img src="logo.png" alt="PARA Logo" class="logo-img">
+            </div>
+
+            <div class="menu-group" style="margin-top:18px;">
+                <span class="menu-label">Menu</span>
+                <nav class="nav-links">
+                    <a href="#dashboard" class="nav-link" data-view="dashboard">
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                        <span>Dashboard</span>
+                    </a>
+                    <a href="#driver-verification" class="nav-link" data-view="driver-verification">
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>
+                        <span>Driver Verification</span>
+                        <span class="nav-badge">2</span>
+                    </a>
+                    <a href="#driver-management" class="nav-link" data-view="driver-management">
+                        <svg class="nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                        <span>Driver Management</span>
+                    </a>
+                    <a href="#passenger-management" class="nav-link" data-view="passenger-management">
+                        <svg class="nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                        <span>Passenger Management</span>
+                    </a>
+                    <a href="#admin" class="nav-link" data-view="admin">
+                        <svg class="nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        <span>TODA Pres Management</span>
+                    </a>
+                    <a href="#complaints" class="nav-link" data-view="complaints">
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        <span>Complaints</span>
+                        <span class="nav-badge">3</span>
+                    </a>
+                    <a href="#pricing" class="nav-link" data-view="pricing">
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        <span>Fare Management</span>
+                    </a>
+                    <a href="#bookings" class="nav-link" data-view="bookings">
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span>Booking Records</span>
+                    </a>
+                    <a href="#reports" class="nav-link" data-view="reports">
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                        <span>Reports & Analytics</span>
+                    </a>
+                    <a href="#driver-prediction" class="nav-link" data-view="driver-prediction">
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 13v8"/><path d="M8 13v8"/><path d="M12 15v8"/><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/></svg>
+                        <span>Driver Prediction</span>
+                    </a>
+                    <a href="#notifications" class="nav-link" data-view="notifications">
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                        <span>Notifications</span>
+                    </a>
+                    <a href="#settings" class="nav-link" data-view="settings">
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.4 15a1.7 1.7 0 0 0 .4 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.4 1.7 1.7 0 0 0-1 1.6V21a2 2 0 0 1-4 0v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.8.4l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .4-1.8 1.7 1.7 0 0 0-1.6-1H3a2 2 0 0 1 0-4h.2a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.4-1.8l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.4h.1a1.7 1.7 0 0 0 1-1.6V3a2 2 0 0 1 4 0v.2a1.7 1.7 0 0 0 1 1.6h.1a1.7 1.7 0 0 0 1.8-.4l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.4 1.8v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 0 1 0 4h-.2a1.7 1.7 0 0 0-1.6 1z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <span>Settings</span>
+                    </a>
+                </nav>
+            </div>
+
+            <a href="#" class="nav-link" style="color:#EE5D50; margin-top:12px; flex-shrink:0;" onclick="openSignOutModal()">
+                <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                <span>Sign Out</span>
+            </a>
+        </aside>
+
+        <!-- Main Content -->
+        <section class="main-content">
+            <header class="topbar">
+                <div style="position:relative; flex:1; max-width:340px;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input type="text" id="globalSearchInput" class="form-input" placeholder="Search drivers, passengers, bookings…" autocomplete="off" style="width:100%; padding-left:36px; padding-top:9px; padding-bottom:9px;">
+                    <div class="dropdown-menu" id="globalSearchResults" style="left:0; right:auto; top:calc(100% + 8px); min-width:320px; max-height:360px; overflow-y:auto;"></div>
+                </div>
+                <div class="topbar-right">
+                    <div class="topbar-actions">
+                    </div>
+                    <div class="admin-profile" onclick="document.querySelector('[data-view=settings]').click()">
+                        <div class="admin-avatar" id="adminAvatar">A</div>
+                        <span class="admin-name" id="adminNameLabel">Admin</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- ══ DASHBOARD ══════════════════════════════════════════ -->
+            <div class="view-section active" id="view-dashboard">
+                <div class="page-header">
+                    <h1>Dashboard Summary</h1>
+                    <div class="header-controls">
+                        <div class="dropdown-wrapper">
+                            <button class="filter-btn date-btn" id="dashboardDateBtn">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                <span id="dashboardDateText">Today</span>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            <div class="dropdown-menu" id="dashboardDateDropdown">
+                                <div class="dropdown-content">
+                                    <div class="dropdown-item" onclick="selectDashboardDate('Today')"><span class="item-text">Today</span></div>
+                                    <div class="dropdown-item" onclick="selectDashboardDate('Weekly')"><span class="item-text">Weekly</span></div>
+                                    <div class="dropdown-item" onclick="selectDashboardDate('Monthly')"><span class="item-text">Monthly</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon icon-blue"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+                        <div class="stat-info"><h3>Total Bookings</h3><h2>1,284</h2><span class="stat-change positive">↑ +12% from last week</span></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon icon-green"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+                        <div class="stat-info"><h3>Total Earnings</h3><h2>₱45,231</h2><span class="stat-change positive">↑ +8% from last week</span></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon icon-orange"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+                        <div class="stat-info"><h3>Active Drivers</h3><h2>342</h2><span class="stat-change neutral">→ Stable</span></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon icon-purple"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+                        <div class="stat-info"><h3>Active Passengers</h3><h2>8,902</h2><span class="stat-change positive">↑ +24% from last month</span></div>
+                    </div>
+                </div>
+
+                <div class="dashboard-row">
+                    <div class="dashboard-chart-container">
+                        <div class="section-header">
+                            <h2>Revenue &amp; Bookings Trend</h2>
+                            <div class="dropdown-wrapper">
+                                <button class="filter-btn" id="chartFilterBtn">
+                                    <span id="chartFilterText">This Week</span>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <div class="dropdown-menu" id="chartFilterDropdown">
+                                    <div class="dropdown-content">
+                                        <div class="dropdown-item" onclick="selectChartFilter('This Week')"><span class="item-text">This Week</span></div>
+                                        <div class="dropdown-item" onclick="selectChartFilter('This Month')"><span class="item-text">This Month</span></div>
+                                        <div class="dropdown-item" onclick="selectChartFilter('This Year')"><span class="item-text">This Year</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="position:relative; flex:1; min-height:260px; width:100%;">
+                            <canvas id="dashboardChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="dashboard-areas-container">
+                        <div class="section-header"><h2>High Demand Areas</h2><span style="font-size:12px; color:var(--text-muted); font-weight:500;">Last 7 days</span></div>
+                        <div class="table-container" style="padding:0; border:none; box-shadow:none;">
+                            <table class="data-table compact-table">
+                                <thead><tr><th>Location</th><th>Level</th><th>Rides</th></tr></thead>
+                                <tbody id="highDemandBody">
+                                    <tr><td><div class="detail-main">Carillo</div></td><td><span class="status-badge declined">VERY HIGH</span></td><td>342</td></tr>
+                                    <tr><td><div class="detail-main">Abulalas</div></td><td><span class="status-badge processing">HIGH</span></td><td>289</td></tr>
+                                    <tr><td><div class="detail-main">Iba</div></td><td><span class="status-badge approved">MODERATE</span></td><td>156</td></tr>
+                                    <tr><td><div class="detail-main">Palapat</div></td><td><span class="status-badge approved">MODERATE</span></td><td>112</td></tr>
+                                    <tr><td><div class="detail-main">San Roque</div></td><td><span class="status-badge approved">LOW</span></td><td>64</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-header">
+                    <h2>Recent Activity</h2>
+                    <a href="#bookings" class="view-all-link" data-view="bookings">View all →</a>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Activity</th><th>Status</th><th>User / Reference</th><th>Time</th></tr></thead>
+                        <tbody id="recentActivityBody">
+                            <tr>
+                                <td><div class="book-id">New Booking</div><div class="book-time">Tricycle Ride</div></td>
+                                <td><span class="status-badge processing">ONGOING</span></td>
+                                <td><div class="detail-main">Maria Santos</div><div class="detail-sub">Driver: Juan dela Cruz</div></td>
+                                <td style="color:var(--text-muted); font-size:13px;">2 mins ago</td>
+                            </tr>
+                            <tr>
+                                <td><div class="book-id">Driver Registration</div><div class="book-time">Pending Approval</div></td>
+                                <td><span class="status-badge processing">PENDING</span></td>
+                                <td><div class="detail-main">Pedro Penduko</div><div class="detail-sub">Honda TMX 155</div></td>
+                                <td style="color:var(--text-muted); font-size:13px;">15 mins ago</td>
+                            </tr>
+                            <tr>
+                                <td><div class="book-id">New Complaint</div><div class="book-time">Overcharging Report</div></td>
+                                <td><span class="status-badge declined">REVIEW</span></td>
+                                <td><div class="detail-main">Jane Doe</div><div class="detail-sub">Ref: CPL-2938</div></td>
+                                <td style="color:var(--text-muted); font-size:13px;">1 hour ago</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ══ DRIVER VERIFICATION ════════════════════════════════ -->
+            <div class="view-section" id="view-driver-verification">
+                <div class="page-header">
+                    <h1>Driver Verification</h1>
+                    <div class="header-controls">
+                        <div class="dropdown-wrapper">
+                            <button class="filter-btn" id="driverVerificationStatusBtn">
+                                Status: <span class="filter-val" id="driverVerificationStatusText">Pending</span>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            <div class="dropdown-menu" id="driverVerificationStatusDropdown">
+                                <div class="dropdown-content">
+                                    <div class="dropdown-item" onclick="selectVerificationStatus('Pending')"><span class="item-text">Pending</span></div>
+                                    <div class="dropdown-item" onclick="selectVerificationStatus('Approved')"><span class="item-text">Approved</span></div>
+                                    <div class="dropdown-item" onclick="selectVerificationStatus('Rejected')"><span class="item-text">Rejected</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Driver Name</th><th>Vehicle Details</th><th>Submitted On</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                <td><div class="detail-main">Juan dela Cruz</div><div class="detail-sub">Lic: N12-34-56789</div></td>
+                                <td><div class="detail-main">Honda TMX 155</div><div class="detail-sub">Plate: XYZ-1234</div></td>
+                                <td style="font-size:13px; color:var(--text-muted);">March 21, 2026 · 10:30 AM</td>
+                                <td><span class="status-badge processing">PENDING</span></td>
+                                <td><button class="action-btn" onclick="openVerificationModal('Juan dela Cruz','N12-34-56789','Honda TMX 155','XYZ-1234')">Review</button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="detail-main">Pedro Penduko</div><div class="detail-sub">Lic: N01-98-76543</div></td>
+                                <td><div class="detail-main">Yamaha Barako 175</div><div class="detail-sub">Plate: ABC-9876</div></td>
+                                <td style="font-size:13px; color:var(--text-muted);">March 20, 2026 · 2:15 PM</td>
+                                <td><span class="status-badge processing">PENDING</span></td>
+                                <td><button class="action-btn" onclick="openVerificationModal('Pedro Penduko','N01-98-76543','Yamaha Barako 175','ABC-9876')">Review</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ══ DRIVER VERIFICATION MODAL ═══════════════════════════ -->
+            <div class="modal-overlay" id="verificationModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Review Driver Application</h2>
+                        <button class="close-btn" onclick="closeModal('verificationModal')">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="docs-grid">
+                            <div class="doc-section">
+                                <h3>Personal Information</h3>
+                                <p><strong>Name:</strong> <span id="v-name"></span></p>
+                                <p><strong>License No:</strong> <span id="v-lic"></span></p>
+                                <div style="display:flex; gap:10px;">
+                                    <div class="doc-preview" style="flex:1; padding:0; overflow:hidden; background:#fff;">
+                                        <a href="license-front.png" id="v-license-front-link" target="_blank" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
+                                            <img src="license-front.png" id="v-license-front-img" style="max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in;" alt="License Front">
+                                        </a>
+                                        <span id="v-license-front-empty" style="display:none; color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">No document uploaded</span>
+                                    </div>
+                                    <div class="doc-preview" style="flex:1; padding:0; overflow:hidden; background:#fff;">
+                                        <a href="license-back.jpg" id="v-license-back-link" target="_blank" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
+                                            <img src="license-back.jpg" id="v-license-back-img" style="max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in;" alt="License Back">
+                                        </a>
+                                        <span id="v-license-back-empty" style="display:none; color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">No document uploaded</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="doc-section">
+                                <h3>Vehicle Information</h3>
+                                <p><strong>Model:</strong> <span id="v-model"></span></p>
+                                <p><strong>Plate No:</strong> <span id="v-plate"></span></p>
+                                <div class="doc-preview" style="padding:0; overflow:hidden; background:#fff;">
+                                    <a href="vehicle-photo.png" id="v-vehicle-photo-link" target="_blank" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
+                                        <img src="vehicle-photo.png" id="v-vehicle-photo-img" style="max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in;" alt="Vehicle Photo">
+                                    </a>
+                                    <span id="v-vehicle-photo-empty" style="display:none; color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">No document uploaded</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="doc-section mt-16">
+                            <h3>Franchise / Permit</h3>
+                            <div class="doc-preview" style="padding:0; overflow:hidden; background:#fff; height:300px;">
+                                <a href="franchise-permit.png" id="v-franchise-link" target="_blank" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
+                                    <img src="franchise-permit.png" id="v-franchise-img" style="max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in;" alt="Franchise Permit">
+                                </a>
+                                <span id="v-franchise-empty" style="display:none; color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">No document uploaded</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer" id="verificationModalActions">
+                        <button class="btn btn-danger" id="verifyRejectBtn" onclick="rejectDriver()">Reject</button>
+                        <button class="btn" id="verifyRequestInfoBtn" style="background:#B8860B; color:#fff;" onclick="openRequestInfoModal()">Request Info</button>
+                        <button class="btn btn-success" id="verifyApproveBtn" onclick="approveDriver()">Approve Driver</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ REQUEST INFO MODAL ══════════════════════════════════ -->
+            <div class="modal-overlay" id="requestInfoModal">
+                <div class="modal-content" style="max-width:480px;">
+                    <div class="modal-header">
+                        <h2>Request Information</h2>
+                        <button class="close-btn" onclick="closeModal('requestInfoModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                    <div class="modal-body">
+                        <p style="color:var(--text-muted); font-size:14px; margin-bottom:16px; line-height:1.6;">Select documents to request from the driver. The request will be saved to their account record.</p>
+                        <div class="form-group">
+                            <label style="font-weight:600;">Required Documents</label>
+                            <div id="requestInfoCheckboxes" style="display:flex; flex-direction:column; gap:4px; margin-top:8px;">
+                                <label class="req-checkbox-label"><input type="checkbox" value="Driver's License (Front)"> Driver's License (Front)</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="Driver's License (Back)"> Driver's License (Back)</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="Vehicle Photo"> Vehicle Photo</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="Franchise / Permit"> Franchise / Permit</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="Valid Government ID"> Valid Government ID</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="Proof of Residence"> Proof of Residence</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="Certificate of Registration (CR)"> Certificate of Registration (CR)</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="Official Receipt (OR)"> Official Receipt (OR)</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="NBI Clearance"> NBI Clearance</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="Barangay Clearance"> Barangay Clearance</label>
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-top:16px;">
+                            <label>Additional Note <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
+                            <textarea id="requestInfoNote" class="form-input" rows="3" placeholder="Add a specific instruction for the driver…"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeModal('requestInfoModal')">Cancel</button>
+                        <button class="btn" style="background:#B8860B; color:#fff;" onclick="submitRequestInfo()">Send Request</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ SIGN OUT MODAL ══════════════════════════════════════ -->
+            <div class="modal-overlay" id="signOutModal">
+                <div class="modal-content" style="max-width:380px;">
+                    <div class="modal-body" style="padding:36px 28px; text-align:center;">
+                        <div style="width:56px;height:56px;border-radius:50%;background:rgba(238,93,80,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#EE5D50" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                        </div>
+                        <p style="font-size:18px; font-weight:700; margin-bottom:8px;">Sign out?</p>
+                        <p style="font-size:14px; color:var(--text-muted); line-height:1.5;">You'll be redirected to the login page.</p>
+                    </div>
+                    <div class="modal-footer" style="justify-content:center;">
+                        <button class="btn btn-secondary" onclick="closeModal('signOutModal')">Cancel</button>
+                        <button class="btn btn-danger" style="background:#EE5D50; color:white;" onclick="confirmSignOut()">Sign Out</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ DRIVER MANAGEMENT ══════════════════════════════════ -->
+            <div class="view-section" id="view-driver-management">
+                <div class="page-header">
+                    <h1>Driver Management</h1>
+                    <div class="header-controls">
+                        <div class="dropdown-wrapper">
+                            <button class="filter-btn" id="driverMgmtStatusBtn">Status <span class="filter-val">All</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
+                            <div class="dropdown-menu" id="driverMgmtStatusDropdown">
+                                <div class="dropdown-content">
+                                    <div class="dropdown-item" onclick="setDriverManagementStatus('All')"><span class="item-text">All</span></div>
+                                    <div class="dropdown-item" onclick="setDriverManagementStatus('Active')"><span class="item-text">Active</span></div>
+                                    <div class="dropdown-item" onclick="setDriverManagementStatus('Suspended')"><span class="item-text">Suspended</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="dropdown-wrapper">
+                            <button class="filter-btn" id="driverMgmtSortBtn">Sort <span class="filter-val">Rating (High)</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
+                            <div class="dropdown-menu" id="driverMgmtSortDropdown">
+                                <div class="dropdown-content">
+                                    <div class="dropdown-item" onclick="setDriverManagementSort('Rating (High)')"><span class="item-text">Rating (High)</span></div>
+                                    <div class="dropdown-item" onclick="setDriverManagementSort('Rating (Low)')"><span class="item-text">Rating (Low)</span></div>
+                                    <div class="dropdown-item" onclick="setDriverManagementSort('Rides (High)')"><span class="item-text">Rides (High)</span></div>
+                                    <div class="dropdown-item" onclick="setDriverManagementSort('Rides (Low)')"><span class="item-text">Rides (Low)</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Driver Name</th><th>Vehicle Details</th><th>Performance</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                <td><div class="detail-main">Jose Rizal</div><div class="detail-sub">Member since Jan 2023</div></td>
+                                <td><div class="detail-main">TVS King 200</div><div class="detail-sub">Plate: DEF-5678</div></td>
+                                <td><div class="rating-stars">★★★★★ <span>4.9</span></div><div class="detail-sub">1,204 rides · 98% acceptance</div></td>
+                                <td><span class="status-badge approved">ACTIVE</span></td>
+                                <td>
+                                    <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" onclick="openDriverEditModal('Jose Rizal','TVS King 200','DEF-5678')">Edit</button>
+                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Jose Rizal')">Deactivate</button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><div class="detail-main">Andres Bonifacio</div><div class="detail-sub">Member since Mar 2023</div></td>
+                                <td><div class="detail-main">Piaggio Ape</div><div class="detail-sub">Plate: LMN-3456</div></td>
+                                <td><div class="rating-stars">★★★★☆ <span>4.2</span></div><div class="detail-sub">432 rides · 85% acceptance</div></td>
+                                <td><span class="status-badge declined">SUSPENDED</span></td>
+                                <td>
+                                    <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" onclick="openDriverEditModal('Andres Bonifacio','Piaggio Ape','LMN-3456')">Edit</button>
+                                    <button class="action-btn" style="background:#05CD99;margin-left:6px;" onclick="showToast('Andres Bonifacio reactivated.','success')">Reactivate</button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><div class="detail-main">Apolinario Mabini</div><div class="detail-sub">Member since Jul 2023</div></td>
+                                <td><div class="detail-main">Bajaj RE</div><div class="detail-sub">Plate: OPQ-9012</div></td>
+                                <td><div class="rating-stars">★★★★★ <span>4.8</span></div><div class="detail-sub">850 rides · 92% acceptance</div></td>
+                                <td><span class="status-badge approved">ACTIVE</span></td>
+                                <td>
+                                    <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" onclick="openDriverEditModal('Apolinario Mabini','Bajaj RE','OPQ-9012')">Edit</button>
+                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Apolinario Mabini')">Deactivate</button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><div class="detail-main">Emilio Jacinto</div><div class="detail-sub">Member since Oct 2023</div></td>
+                                <td><div class="detail-main">Kawasaki Barako 175</div><div class="detail-sub">Plate: RST-3456</div></td>
+                                <td><div class="rating-stars">★★★★☆ <span>4.5</span></div><div class="detail-sub">512 rides · 88% acceptance</div></td>
+                                <td><span class="status-badge approved">ACTIVE</span></td>
+                                <td>
+                                    <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" onclick="openDriverEditModal('Emilio Jacinto','Kawasaki Barako 175','RST-3456')">Edit</button>
+                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Emilio Jacinto')">Deactivate</button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><div class="detail-main">Melchora Aquino</div><div class="detail-sub">Member since May 2022</div></td>
+                                <td><div class="detail-main">Yamaha Tricity</div><div class="detail-sub">Plate: UVW-7890</div></td>
+                                <td><div class="rating-stars">★★★☆☆ <span>3.9</span></div><div class="detail-sub">2,104 rides · 76% acceptance</div></td>
+                                <td><span class="status-badge declined">SUSPENDED</span></td>
+                                <td>
+                                    <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" onclick="openDriverEditModal('Melchora Aquino','Yamaha Tricity','UVW-7890')">Edit</button>
+                                    <button class="action-btn" style="background:#05CD99;margin-left:6px;" onclick="showToast('Melchora Aquino reactivated.','success')">Reactivate</button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><div class="detail-main">Juan Luna</div><div class="detail-sub">Member since Feb 2024</div></td>
+                                <td><div class="detail-main">Honda TMX 125</div><div class="detail-sub">Plate: XYZ-1234</div></td>
+                                <td><div class="rating-stars">★★★★★ <span>4.9</span></div><div class="detail-sub">120 rides · 99% acceptance</div></td>
+                                <td><span class="status-badge approved">ACTIVE</span></td>
+                                <td>
+                                    <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" onclick="openDriverEditModal('Juan Luna','Honda TMX 125','XYZ-1234')">Edit</button>
+                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Juan Luna')">Deactivate</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ══ DRIVER EDIT MODAL ══════════════════════════════════ -->
+            <div class="modal-overlay" id="driverEditModal">
+                <div class="modal-content" style="max-width:480px;">
+                    <div class="modal-header">
+                        <h2>Edit Driver Details</h2>
+                        <button class="close-btn" onclick="closeModal('driverEditModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group"><label>Driver Name</label><input type="text" class="form-input" id="d-edit-name"></div>
+                        <div class="form-group"><label>Vehicle Model</label><input type="text" class="form-input" id="d-edit-vehicle"></div>
+                        <div class="form-group"><label>Plate Number</label><input type="text" class="form-input" id="d-edit-plate"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeModal('driverEditModal')">Cancel</button>
+                        <button class="btn btn-success" onclick="saveDriverEdit()">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ DRIVER HISTORY MODAL ═══════════════════════════════ -->
+            <div class="modal-overlay" id="driverHistoryModal">
+                <div class="modal-content" style="max-width:520px;">
+                    <div class="modal-header">
+                        <h2 id="driverHistoryTitle">Driver History</h2>
+                        <button class="close-btn" onclick="closeModal('driverHistoryModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="driverHistoryList" style="display:flex; flex-direction:column; gap:10px;"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeModal('driverHistoryModal')">Close</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ PASSENGER MANAGEMENT ═══════════════════════════════ -->
+            <div class="view-section" id="view-passenger-management">
+                <div class="page-header">
+                    <h1>Passenger Management</h1>
+                    <div class="header-controls">
+                        <div class="dropdown-wrapper">
+                            <button class="filter-btn" id="passengerMgmtStatusBtn">Status <span class="filter-val">All</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
+                            <div class="dropdown-menu" id="passengerMgmtStatusDropdown">
+                                <div class="dropdown-content">
+                                    <div class="dropdown-item" onclick="setPassengerManagementStatus('All')"><span class="item-text">All</span></div>
+                                    <div class="dropdown-item" onclick="setPassengerManagementStatus('Active')"><span class="item-text">Active</span></div>
+                                    <div class="dropdown-item" onclick="setPassengerManagementStatus('Suspended')"><span class="item-text">Suspended</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Passenger Name</th><th>Contact Info</th><th>Total Rides</th><th>Cancelled</th><th>Cancel Rate</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                <td><div class="detail-main">Maria Clara</div><div class="detail-sub">Member since Feb 2024</div></td>
+                                <td><div class="detail-main">+63 912 345 6789</div><div class="detail-sub">maria.clara@email.com</div></td>
+                                <td>142</td><td>5</td><td>3.5%</td>
+                                <td><span class="status-badge approved">ACTIVE</span></td>
+                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Maria Clara')">Deactivate</button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="detail-main">Emilio Aguinaldo</div><div class="detail-sub">Member since Dec 2023</div></td>
+                                <td><div class="detail-main">+63 998 765 4321</div><div class="detail-sub">emilio.agui@email.com</div></td>
+                                <td>56</td><td>8</td><td style="color:#FF9E2A; font-weight:600;">14.3%</td>
+                                <td><span class="status-badge processing" style="background:#FFF1D6;color:#FF9E2A;">FLAGGED</span></td>
+                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Emilio Aguinaldo')">Deactivate</button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="detail-main">Antonio Luna</div><div class="detail-sub">Member since Jan 2024</div></td>
+                                <td><div class="detail-main">+63 955 111 2222</div><div class="detail-sub">aluna@email.com</div></td>
+                                <td>89</td><td>20</td><td style="color:#EE5D50; font-weight:600;">25.6%</td>
+                                <td><span class="status-badge declined">SUSPENDED</span></td>
+                                <td><button class="action-btn" style="background:#05CD99;" onclick="showToast('Antonio Luna reactivated.','success')">Reactivate</button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="detail-main">Gregorio del Pilar</div><div class="detail-sub">Member since Mar 2024</div></td>
+                                <td><div class="detail-main">+63 917 222 3333</div><div class="detail-sub">greg.delpilar@email.com</div></td>
+                                <td>25</td><td>1</td><td>4.0%</td>
+                                <td><span class="status-badge approved">ACTIVE</span></td>
+                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Gregorio del Pilar')">Deactivate</button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="detail-main">Gabriela Silang</div><div class="detail-sub">Member since Nov 2023</div></td>
+                                <td><div class="detail-main">+63 920 555 6666</div><div class="detail-sub">g.silang@email.com</div></td>
+                                <td>210</td><td>10</td><td style="color:#FF9E2A; font-weight:600;">5.1%</td>
+                                <td><span class="status-badge processing" style="background:#FFF1D6;color:#FF9E2A;">FLAGGED</span></td>
+                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Gabriela Silang')">Deactivate</button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="detail-main">Apolinario Mabini</div><div class="detail-sub">Member since Aug 2023</div></td>
+                                <td><div class="detail-main">+63 919 888 7777</div><div class="detail-sub">apolinario.m@email.com</div></td>
+                                <td>150</td><td>2</td><td>1.3%</td>
+                                <td><span class="status-badge approved">ACTIVE</span></td>
+                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Apolinario Mabini')">Deactivate</button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="detail-main">Marcelo H. del Pilar</div><div class="detail-sub">Member since May 2024</div></td>
+                                <td><div class="detail-main">+63 915 444 5555</div><div class="detail-sub">marcelo.hp@email.com</div></td>
+                                <td>64</td><td>0</td><td style="color:#05CD99; font-weight:600;">0.0%</td>
+                                <td><span class="status-badge approved">ACTIVE</span></td>
+                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Marcelo H. del Pilar')">Deactivate</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ══ PASSENGER EDIT MODAL ═══════════════════════════════ -->
+            <div class="modal-overlay" id="passengerEditModal">
+                <div class="modal-content" style="max-width:480px;">
+                    <div class="modal-header">
+                        <h2>Edit Passenger Profile</h2>
+                        <button class="close-btn" onclick="closeModal('passengerEditModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group"><label>First Name</label><input type="text" class="form-input" id="p-edit-first-name"></div>
+                        <div class="form-group"><label>Last Name</label><input type="text" class="form-input" id="p-edit-last-name"></div>
+                        <div class="form-group"><label>Phone Number</label><input type="text" class="form-input" id="p-edit-phone"></div>
+                        <div class="form-group"><label>Email Address</label><input type="email" class="form-input" id="p-edit-email"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeModal('passengerEditModal')">Cancel</button>
+                        <button class="btn btn-success" onclick="savePassengerEdit()">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ COMPLAINTS ══════════════════════════════════════════ -->
+            <div class="view-section" id="view-complaints">
+                <div class="page-header">
+                    <h1>Complaints Management</h1>
+                    <div class="header-controls">
+                        <div class="dropdown-wrapper">
+                            <button class="filter-btn" id="complaintStatusBtn">Status <span class="filter-val">All</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
+                            <div class="dropdown-menu" id="complaintStatusDropdown">
+                                <div class="dropdown-content">
+                                    <div class="dropdown-item" onclick="setComplaintFilter('All')"><span class="item-text">All</span></div>
+                                    <div class="dropdown-item" onclick="setComplaintFilter('Under Review')"><span class="item-text">Under Review</span></div>
+                                    <div class="dropdown-item" onclick="setComplaintFilter('Warned')"><span class="item-text">Warned</span></div>
+                                    <div class="dropdown-item" onclick="setComplaintFilter('Suspended')"><span class="item-text">Suspended</span></div>
+                                    <div class="dropdown-item" onclick="setComplaintFilter('Resolved')"><span class="item-text">Resolved</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats-bar">
+                    <div class="stats-bar-item">
+                        <div class="sbi-icon" style="background:rgba(255,158,42,0.1);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF9E2A" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+                        <div><div class="sbi-label">Under Review</div><div class="sbi-value" id="complaints-under-review">0</div></div>
+                    </div>
+                    <div class="stats-bar-item">
+                        <div class="sbi-icon" style="background:rgba(5,205,153,0.1);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#05CD99" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+                        <div><div class="sbi-label">Resolved</div><div class="sbi-value" id="complaints-resolved">0</div></div>
+                    </div>
+                    <div class="stats-bar-item">
+                        <div class="sbi-icon" style="background:rgba(238,93,80,0.1);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EE5D50" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div>
+                        <div><div class="sbi-label">Total This Month</div><div class="sbi-value" id="complaints-total-month">0</div></div>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Ref / Reporter</th><th>Party Involved</th><th>Issue</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                <td><div class="book-id">CPL-8821</div><div class="book-time">Passenger: Maria Clara</div></td>
+                                <td><div class="detail-main">Jose Rizal</div><div class="detail-sub">Trip: BKG-2910</div></td>
+                                <td><div class="detail-main">Overcharging</div><div class="detail-sub">Driver asked for ₱50 extra.</div></td>
+                                <td><span class="status-badge processing">UNDER REVIEW</span></td>
+                                <td><button class="action-btn" onclick="openComplaintModal('CPL-8821','Maria Clara','Jose Rizal','Overcharging','Driver asked for ₱50 extra during the trip even though the app said ₱120.','UNDER REVIEW','Warning')">View Case</button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="book-id">CPL-8794</div><div class="book-time">Passenger: Emilio A.</div></td>
+                                <td><div class="detail-main">Andres Bonifacio</div><div class="detail-sub">Trip: BKG-1122</div></td>
+                                <td><div class="detail-main">Rude Behavior</div><div class="detail-sub">Refused to drop at exact pin.</div></td>
+                                <td><span class="status-badge approved">RESOLVED</span></td>
+                                <td><button class="action-btn" onclick="openComplaintModal('CPL-8794','Emilio A.','Andres Bonifacio','Rude Behavior','Driver kept yelling when I asked to be dropped off at the exact pin.','RESOLVED','Suspension')">View Case</button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="book-id">RPT-5512</div><div class="book-time">Driver: Juan Luna</div></td>
+                                <td><div class="detail-main">Antonio Luna</div><div class="detail-sub">Trip: BKG-3345</div></td>
+                                <td><div class="detail-main">Damage to Vehicle</div><div class="detail-sub">Passenger slammed the door.</div></td>
+                                <td><span class="status-badge processing">UNDER REVIEW</span></td>
+                                <td><button class="action-btn" onclick="openComplaintModal('RPT-5512','Juan Luna','Antonio Luna','Damage to Vehicle','The passenger slammed my tricycle door upon exiting, causing a dent.','UNDER REVIEW','Waiting for Recommendation...')">View Case</button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="book-id">CPL-8920</div><div class="book-time">Passenger: Gregorio dP.</div></td>
+                                <td><div class="detail-main">Emilio Jacinto</div><div class="detail-sub">Trip: BKG-4450</div></td>
+                                <td><div class="detail-main">Reckless Driving</div><div class="detail-sub">Driver was swerving dangerously.</div></td>
+                                <td><span class="status-badge processing">UNDER REVIEW</span></td>
+                                <td><button class="action-btn" onclick="openComplaintModal('CPL-8920','Gregorio dP.','Emilio Jacinto','Reckless Driving','Driver was swerving dangerously along the highway and over-speeding.','UNDER REVIEW','Suspension')">View Case</button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="book-id">CPL-8955</div><div class="book-time">Passenger: Gabriela Silang</div></td>
+                                <td><div class="detail-main">Melchora Aquino</div><div class="detail-sub">Trip: BKG-5011</div></td>
+                                <td><div class="detail-main">Did Not Arrive</div><div class="detail-sub">Marked as picked up incorrectly.</div></td>
+                                <td><span class="status-badge approved">RESOLVED</span></td>
+                                <td><button class="action-btn" onclick="openComplaintModal('CPL-8955','Gabriela Silang','Melchora Aquino','Did Not Arrive','The driver marked my ride as picked up without ever arriving.','RESOLVED','Warning')">View Case</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ══ COMPLAINT MODAL ════════════════════════════════════ -->
+            <div class="modal-overlay" id="complaintViewModal">
+                <div class="modal-content" style="max-width:580px;">
+                    <div class="modal-header">
+                        <h2>Case: <span id="c-ref" style="color:var(--primary);">CPL-0000</span></h2>
+                        <button class="close-btn" onclick="closeModal('complaintViewModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                    <div class="modal-body">
+                        <div style="display:flex; gap:16px; margin-bottom:20px; padding:16px; background:var(--bg-light); border-radius:10px;">
+                            <div style="flex:1;"><label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">Reporter</label><strong id="c-reporter" style="font-size:14px;">–</strong><div id="c-reporter-role" style="font-size:10px; color:var(--text-muted); margin-top:4px;">–</div></div>
+                            <div style="flex:1;"><label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">Party Involved</label><strong id="c-reported" style="font-size:14px;">–</strong><div id="c-reported-role" style="font-size:10px; color:var(--text-muted); margin-top:4px;">–</div></div>
+                            <div style="flex:1;"><label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">Status</label><span id="c-status" class="status-badge processing">UNDER REVIEW</span></div>
+                        </div>
+                        <div class="form-group"><label>Issue Type</label><input type="text" class="form-input" id="c-issue" readonly style="background:var(--bg-light); border-color:transparent;"></div>
+                        <div class="form-group"><label>Full Description</label><textarea class="form-input" id="c-desc" rows="4" readonly style="background:var(--bg-light); border-color:transparent; resize:none;"></textarea></div>
+                        <div class="form-group"><label>TODA President Recommendation</label><input type="text" class="form-input" id="c-toda-rec" readonly style="background:var(--bg-light); border-color:transparent; font-weight:600;"></div>
+                        <hr style="border:none; border-top:1px solid var(--border-color); margin:20px 0;">
+                        <h3 style="font-size:15px; font-weight:700; margin-bottom:14px;">Take Action</h3>
+                        <div class="form-group"><label>Admin Resolution Notes</label><textarea id="complaint-admin-notes" class="form-input" rows="3" placeholder="Type your resolution or notes here…"></textarea></div>
+                    </div>
+                    <div class="modal-footer" style="justify-content:center; flex-wrap:wrap;" id="complaintModalActions">
+                        <button class="btn" id="complaintWarnBtn" style="background:#EE5D50;color:white;" onclick="window.warnComplaint()">Issue Warning</button>
+                        <button class="btn" id="complaintSuspendBtn" style="background:var(--text-main);color:white;" onclick="window.suspendComplaint()">Suspend Account</button>
+                        <button class="btn btn-success" id="complaintResolveBtn" onclick="window.resolveComplaint()">Mark Resolved</button>
+                        <span id="complaintActionedNote" style="display:none; font-size:13px; color:var(--text-muted);">This case has already been reviewed.</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ FARE MANAGEMENT ════════════════════════════════════ -->
+            <div class="view-section" id="view-pricing">
+                <div class="page-header"><h1>Fare Management</h1></div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; max-width:860px;">
+                    <div class="form-container">
+                        <h3 style="font-size:14px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:20px;">Fare Settings</h3>
+                        <div class="form-group"><label>Base Fare (₱)</label><input type="number" class="form-input" id="fare-base" value="40" min="0"></div>
+                        <div class="form-group"><label>Per Kilometer Rate (₱)</label><input type="number" class="form-input" id="fare-perkm" value="15" min="0"></div>
+                        <div class="form-group"><label>Minimum Fare (₱)</label><input type="number" class="form-input" id="fare-min" value="40" min="0"></div>
+                        <div class="form-group"><label>Service Fee (%)</label><input type="number" class="form-input" id="fare-svc" value="5" min="0" max="100"></div>
+                        <button class="primary-btn mt-16" onclick="saveFareSettings()" style="width:100%;">Save Fare Settings</button>
+                        <div id="fareLastUpdated" style="font-size:12px; color:var(--text-muted); margin-top:10px; text-align:center;"></div>
+                    </div>
+                    <div>
+                        <div class="fare-preview-box">
+                            <h3>Live Preview — 3 km trip</h3>
+                            <div class="fare-row"><span style="color:var(--text-muted);">Base fare</span><span id="prev-base">₱40.00</span></div>
+                            <div class="fare-row"><span style="color:var(--text-muted);">Distance (3 km)</span><span id="prev-km">₱45.00</span></div>
+                            <div class="fare-row"><span style="color:var(--text-muted);">Service fee</span><span id="prev-fee">₱4.25</span></div>
+                            <div class="fare-row"><span>Total Fare</span><span id="prev-total">₱89.25</span></div>
+                        </div>
+                        <div style="background:var(--white); border:1px solid var(--border-color); border-radius:12px; padding:20px; margin-top:16px;">
+                            <p style="font-size:13px; color:var(--text-muted); line-height:1.6;"><strong style="color:var(--text-main);">Note:</strong> Fare changes apply to all new bookings immediately. Ongoing rides are not affected. Drivers and passengers will be notified of updates.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ BOOKING MANAGEMENT ═════════════════════════════════ -->
+            <div class="view-section" id="view-bookings">
+                <div class="page-header">
+                    <h1>All Bookings</h1>
+                    <div class="header-controls">
+                        <div class="dropdown-wrapper">
+                            <button class="filter-btn" id="statusFilterBtn">Status <span class="filter-val">All</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
+                            <div class="dropdown-menu" id="statusDropdown">
+                                <div class="dropdown-content">
+                                    <div class="dropdown-item" onclick="selectBookingStatus('All')"><span class="item-text">All</span></div>
+                                    <div class="dropdown-item" onclick="selectBookingStatus('Pending')"><span class="item-text">Pending</span></div>
+                                    <div class="dropdown-item" onclick="selectBookingStatus('Ongoing')"><span class="item-text">Ongoing</span></div>
+                                    <div class="dropdown-item" onclick="selectBookingStatus('Completed')"><span class="item-text">Completed</span></div>
+                                    <div class="dropdown-item" onclick="selectBookingStatus('Cancelled')"><span class="item-text">Cancelled</span></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="date-filter-wrap">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <input type="date" class="filter-btn date-btn booking-date-picker" id="bookingDatePicker">
+                        </div>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Booking ID</th><th>Status</th><th>Date</th><th>Driver / Plate</th><th>Passenger</th><th>Pickup</th><th>Destination</th><th>Fare</th></tr></thead>
+                        <tbody>
+                            <tr><td><div class="book-id">BKG-9901</div><div class="book-time">2 mins ago</div></td><td><span class="status-badge approved">COMPLETED</span></td><td style="font-size:13px;">Oct 12, 2024</td><td><div class="detail-main">Juan dela Cruz</div><div class="detail-sub">Plate: ABC-1234</div></td><td>Maria Clara</td><td>180 Jacinto St</td><td>18 Santo Rosario</td><td>&#8369;85.00</td></tr>
+                            <tr><td><div class="book-id">BKG-9902</div><div class="book-time">15 mins ago</div></td><td><span class="status-badge processing">ONGOING</span></td><td style="font-size:13px;">Oct 12, 2024</td><td><div class="detail-main">Pedro Penduko</div><div class="detail-sub">Plate: XYZ-9876</div></td><td>Emilio A.</td><td>Brgy. Iba</td><td>Paombong Terminal</td><td>&#8369;65.00</td></tr>
+                            <tr><td><div class="book-id">BKG-9840</div><div class="book-time">2 hours ago</div></td><td><span class="status-badge declined">CANCELLED</span></td><td style="font-size:13px;">Oct 11, 2024</td><td><div class="detail-main">Antonio Luna</div><div class="detail-sub">Plate: GHI-3322</div></td><td>Gregorio dP.</td><td>Market Site</td><td>Brgy. Carillo</td><td>&#8369;40.00</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="bookingPagination" style="display:flex; align-items:center; justify-content:space-between; margin-top:14px; font-size:13px; color:var(--text-muted);"></div>
+            </div>
+
+            <!-- ══ REPORTS & ANALYTICS ═══════════════════════════════ -->
+            <div class="view-section" id="view-reports">
+                <div class="page-header">
+                    <h1>Reports &amp; Analytics</h1>
+                    <div class="dropdown-wrapper">
+                        <button class="primary-btn" onclick="const d=document.getElementById('exportDropdown'); d.classList.add('show'); document.addEventListener('click',function c(e){if(!e.target.closest('.dropdown-wrapper')){d.classList.remove('show');document.removeEventListener('click',c)}});">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Export Options
+                        </button>
+                        <div class="dropdown-menu" id="exportDropdown" style="right:0; left:auto; top:calc(100% + 8px); min-width:220px;">
+                            <div class="dropdown-content">
+                                <div class="dropdown-item" onclick="exportDailyRideReport()"><span class="item-text">Daily Ride Report (CSV)</span></div>
+                                <div class="dropdown-item" onclick="exportMonthlyRideReport()"><span class="item-text">Monthly Ride Report (PDF)</span></div>
+                                <div class="dropdown-item" onclick="exportDriverActivity()"><span class="item-text">Driver Activity (CSV)</span></div>
+                                <div class="dropdown-item" onclick="exportPeakHoursAnalysis()"><span class="item-text">Peak Hours Analysis (CSV)</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid" style="margin-bottom:20px;">
+                    <div class="stat-card">
+                        <div class="stat-icon icon-blue"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+                        <div class="stat-info"><h3>Total Rides (Monthly)</h3><h2>12,450</h2><span class="stat-change positive">↑ +15% vs last month</span></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon icon-purple"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+                        <div class="stat-info"><h3>Total Revenue (Monthly)</h3><h2>&#8369;45,231</h2><span class="stat-change positive">&uarr; +15% vs last month</span></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon icon-green"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+                        <div class="stat-info"><h3>Active Drivers</h3><h2>842</h2><span class="stat-change positive">↑ +5% vs last month</span></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon icon-orange"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+                        <div class="stat-info"><h3>Peak Hour</h3><h2>8:00 AM</h2><span class="stat-change neutral">150 rides/hr avg.</span></div>
+                    </div>
+                </div>
+
+                <div class="report-chart-grid">
+                    <div class="chart-card">
+                        <h3>Monthly Ride Report</h3>
+                        <div style="position:relative; height:230px; width:100%;"><canvas id="monthlyRidesChart"></canvas></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Peak Hours Analysis</h3>
+                        <div style="position:relative; height:230px; width:100%;"><canvas id="peakHoursRidesChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ DRIVER AVAILABILITY FORECAST ═══════════════════════ -->
+            <div class="view-section" id="view-driver-prediction">
+                <div class="page-header"><h1>Driver Availability Forecast</h1></div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; max-width:860px;">
+                    <div class="form-container">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+                            <h3 style="font-size:14px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin:0;">Forecast Inputs</h3>
+                            <button type="button" class="action-btn" id="forecast-refresh-weather-btn" style="background:var(--bg-light); color:var(--text-main); white-space:nowrap;">↻ Refresh Live Weather</button>
+                        </div>
+                        <div id="forecast-weather-status" style="font-size:12px; color:var(--text-muted); margin:-12px 0 16px;">Loading live rainfall &amp; tide from Open-Meteo (Hagonoy, Bulacan)…</div>
+                        <div class="form-group"><label>Time of Day</label><select class="form-input" id="forecast-hour"></select></div>
+                        <div class="form-group"><label>Zone</label><select class="form-input" id="forecast-location"></select></div>
+                        <div class="form-group"><label>Rainfall (mm)</label><input type="number" class="form-input" id="forecast-rainfall" value="0" min="0" step="0.1"><div class="detail-sub" style="margin-top:4px;">Live from Open-Meteo · training data range: 0–14.24 mm</div></div>
+                        <div class="form-group"><label>High Tide Level (m)</label><input type="number" class="form-input" id="forecast-tide" value="0" min="0" step="0.01"><div class="detail-sub" style="margin-top:4px;">Live from Open-Meteo (sea level, MSL) · training data range: 0.5–2.0 m</div></div>
+                        <div class="form-group">
+                            <label>Computed Flood Risk</label>
+                            <div><span id="forecast-risk-badge" class="status-badge approved">High-Water Risk: No</span></div>
+                        </div>
+                        <div id="forecast-range-warning" style="display:none; font-size:12px; color:var(--status-decl-text); background:var(--status-decl-bg); border-radius:8px; padding:10px 12px; margin-bottom:14px; line-height:1.5;">⚠ Rainfall/tide is outside the training data range — this forecast is extrapolated and may be less reliable.</div>
+                        <button class="primary-btn" id="forecast-generate-btn" style="width:100%;">Generate Forecast</button>
+                    </div>
+                    <div>
+                        <div class="fare-preview-box" id="forecast-result-box">
+                            <h3>Forecast Result</h3>
+                            <div class="fare-row"><span style="color:var(--text-muted);">Predicted Available Drivers</span><span id="forecast-value">–</span></div>
+                            <div class="fare-row"><span>Availability Status</span><span id="forecast-status-badge" class="status-badge processing">–</span></div>
+                        </div>
+                        <div style="background:var(--white); border:1px solid var(--border-color); border-radius:12px; padding:20px; margin-top:16px;">
+                            <p style="font-size:13px; color:var(--text-muted); line-height:1.6;" id="forecast-model-note">Multiple Linear Regression model.</p>
+                            <p style="font-size:12px; color:var(--text-muted); line-height:1.6; margin-top:8px;">Estimates are based on historical patterns and are meant to support — not replace — operational judgment.</p>
+                        </div>
+                        <div style="background:var(--white); border:1px solid var(--border-color); border-radius:12px; padding:16px; margin-top:16px;">
+                            <p style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px; font-weight:600;">Model Accuracy — Predicted vs. Actual (Test Set)</p>
+                            <img src="actual_vs_predicted.png" alt="Predicted vs actual available drivers scatter plot" style="width:100%; border-radius:8px; border:1px solid var(--border-color);">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ NOTIFICATIONS ══════════════════════════════════════ -->
+            <div class="view-section" id="view-notifications">
+                <div class="page-header"><h1>Push Notifications</h1></div>
+                <div class="form-container" style="max-width:680px;">
+                    <div class="form-group">
+                        <label>Target Audience</label>
+                        <div class="notif-targets">
+                            <div class="target-chip selected" data-target="allDrivers">All Drivers</div>
+                            <div class="target-chip" data-target="allPassengers">All Passengers</div>
+                            <div class="target-chip" data-target="everyone">Everyone</div>
+                        </div>
+                    </div>
+                    <div class="form-group"><label>Message Title</label><input type="text" class="form-input" id="notif-title" placeholder="e.g. System Maintenance Notice"></div>
+                    <div class="form-group"><label>Message Body</label><textarea class="form-input" id="notif-body" rows="5" placeholder="Type your announcement here…"></textarea></div>
+                    <div style="display:flex; gap:12px; align-items:center; margin-top:6px;">
+                        <button class="primary-btn" onclick="sendNotification()">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                            Send Notification
+                        </button>
+                        <span style="font-size:13px; color:var(--text-muted);">Notification will be sent immediately.</span>
+                    </div>
+                </div>
+
+                <div class="form-container" style="max-width:680px; margin-top:20px;">
+                    <div class="section-header" style="margin-bottom:14px;">
+                        <h2 style="font-size:15px;">Recent Notifications</h2>
+                    </div>
+                    <div id="notificationHistoryList" style="display:flex; flex-direction:column; gap:10px;"></div>
+                    <div id="notificationHistoryPagination" style="display:flex; align-items:center; justify-content:space-between; margin-top:14px; font-size:13px; color:var(--text-muted);"></div>
+                </div>
+            </div>
+
+            <!-- ══ SETTINGS ════════════════════════════════════════ -->
+            <div class="view-section" id="view-settings">
+                <div class="page-header"><h1>Account Settings</h1></div>
+                <div class="form-container settings-section" style="max-width:680px;">
+                    <div class="section-header" style="margin-bottom:12px;">
+                        <h2>Profile</h2>
+                    </div>
+                    <div class="settings-grid">
+                        <div class="form-group">
+                            <label>Display Name</label>
+                            <input type="text" class="form-input" id="settingsAdminName" placeholder="Your name">
+                        </div>
+                        <div class="form-group">
+                            <label>Admin Email</label>
+                            <input type="email" class="form-input" id="settingsAdminEmail" value="" disabled>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                        <button class="primary-btn" onclick="saveAdminName()">Save Name</button>
+                    </div>
+                </div>
+
+                <div class="form-container settings-section" style="max-width:680px; margin-top:20px;">
+                    <div class="section-header" style="margin-bottom:12px;">
+                        <h2>Change Password</h2>
+                    </div>
+                    <div class="settings-grid">
+                        <div class="form-group">
+                            <label>Current Password</label>
+                            <input type="password" class="form-input settings-pw-field" id="currentPassword" placeholder="Enter current password">
+                        </div>
+                        <div class="form-group">
+                            <label>New Password</label>
+                            <input type="password" class="form-input settings-pw-field" id="newPassword" placeholder="Enter new password">
+                        </div>
+                        <div class="form-group">
+                            <label>Confirm New Password</label>
+                            <input type="password" class="form-input settings-pw-field" id="confirmPassword" placeholder="Confirm new password">
+                        </div>
+                    </div>
+                    <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-muted); margin-bottom:14px; cursor:pointer;">
+                        <input type="checkbox" id="showPasswordsToggle" onchange="toggleSettingsPasswordVisibility()">
+                        Show passwords
+                    </label>
+                    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                        <button class="primary-btn" onclick="updatePassword()">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h11l5 5v12a2 2 0 0 1-2 2z"/><path d="M14 3v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>
+                            Update Password
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ ADMIN ACCOUNTS ══════════════════════════════════════ -->
+            <div class="view-section" id="view-admin">
+                <div class="page-header">
+                    <h1>TODA Presidents</h1>
+                    <button class="primary-btn" onclick="openTodaPresidentAccountModal()">+ Create Account</button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Name / TODA</th><th>Barangay</th><th>Email</th><th>Phone</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+                        <tbody id="todaPresidentAccountsBody">
+                            <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:28px;">Loading accounts...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="modal-overlay" id="todaPresidentAccountModal">
+                <div class="modal-content" style="max-width:520px;">
+                    <div class="modal-header">
+                        <h2 id="todaPresidentAccountModalTitle">Create TODA President Account</h2>
+                        <button class="close-btn" onclick="closeModal('todaPresidentAccountModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group"><label for="toda-president-name">Full Name</label><input type="text" class="form-input" id="toda-president-name" required></div>
+                        <div class="form-group"><label for="toda-president-toda-name">TODA Name</label><input type="text" class="form-input" id="toda-president-toda-name" required></div>
+                        <div class="form-group"><label for="toda-president-barangay">Barangay</label><input type="text" class="form-input" id="toda-president-barangay" required></div>
+                        <div class="form-group"><label for="toda-president-email">Email Address</label><input type="email" class="form-input" id="toda-president-email" required></div>
+                        <div class="form-group"><label for="toda-president-phone">Phone Number</label><input type="tel" class="form-input" id="toda-president-phone" required></div>
+                        <div class="form-group" id="todaPresidentPasswordGroup">
+                            <label for="toda-president-password">Temporary Password</label>
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <input type="password" class="form-input" id="toda-president-password" minlength="6" required style="flex:1;">
+                                <button type="button" class="btn btn-secondary" id="toggleTodaPresidentPassword" onclick="toggleTodaPresidentPasswordVisibility()">Show</button>
+                            </div>
+                        </div>
+                        <p id="todaPresidentPasswordHelp" style="font-size:12px; color:var(--text-muted); line-height:1.5;">Give this temporary password to the TODA President. They can sign in through the mobile app.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeModal('todaPresidentAccountModal')">Cancel</button>
+                        <button class="primary-btn" id="createTodaPresidentBtn" onclick="createTodaPresidentAccount()">Create Account</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="firebase-init.js"></script>
+<script src="firestore-service.js?v=17"></script>
+<script src="driver-prediction.js?v=3"></script>
+<script src="script.js?v=53"></script>
+<script src="firestore-ui.js?v=27"></script>
+</body>
+</html>
