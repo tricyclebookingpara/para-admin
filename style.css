@@ -179,6 +179,32 @@ body {
     background: rgba(255,255,255,0.3);
 }
 
+/* ── Sidebar submenu (e.g. Reports & Analytics → Driver Prediction) ── */
+.nav-group { display: flex; flex-direction: column; }
+
+.nav-parent { cursor: pointer; }
+
+.nav-caret {
+    margin-left: auto;
+    flex-shrink: 0;
+    transition: transform 0.15s ease;
+}
+
+.nav-group.expanded .nav-caret { transform: rotate(180deg); }
+
+.nav-submenu {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.2s ease;
+}
+
+.nav-group.expanded .nav-submenu { max-height: 160px; }
+
+.nav-sublink { padding-left: 46px; font-size: 13px; }
+
 /* ── Main Content ── */
 .main-content {
     flex: 1;

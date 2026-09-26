@@ -78,6 +78,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const navLinks = document.querySelectorAll('.nav-link');
     const views = document.querySelectorAll('.view-section');
 
+    // Sidebar groups that collapse several views under one expandable parent link.
+    const navGroups = [
+        { groupId: 'reportsNavGroup', childViews: ['reports', 'driver-prediction'] }
+    ];
+
     function switchView(viewId) {
         navLinks.forEach(link => link.classList.toggle('active', link.dataset.view === viewId));
         views.forEach(view => view.classList.toggle('active', view.id === 'view-' + viewId));
@@ -87,6 +92,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const activeLink = document.querySelector(`.nav-link[data-view="${viewId}"] span`);
             breadcrumb.textContent = activeLink ? activeLink.textContent : '';
         }
+        // Sync the parent toggle's highlight/expansion to whichever child view is active.
+        navGroups.forEach(({ groupId, childViews }) => {
+            const group = document.getElementById(groupId);
+            if (!group) return;
+            const isChildActive = childViews.includes(viewId);
+            const parentToggle = group.querySelector('.nav-parent');
+            if (parentToggle) parentToggle.classList.toggle('active', isChildActive);
+            if (isChildActive) group.classList.add('expanded');
+        });
     }
 
     document.body.addEventListener('click', (e) => {
@@ -95,6 +109,13 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             const viewId = link.dataset.view;
             if (viewId) { switchView(viewId); window.location.hash = viewId; }
+            return;
+        }
+        const parentToggle = e.target.closest('.nav-parent');
+        if (parentToggle) {
+            e.preventDefault();
+            const group = parentToggle.closest('.nav-group');
+            if (group) group.classList.toggle('expanded');
         }
     });
 
