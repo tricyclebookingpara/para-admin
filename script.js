@@ -852,8 +852,11 @@ document.addEventListener('DOMContentLoaded', () => {
     updateFarePreview();
 
     // ── Driver Availability Forecast ────────────────────────────
+    const TIDE_STORAGE_KEY = 'para_tide_entries_v1';
+
     function initDriverForecast() {
-        const hourSelect = document.getElementById('forecast-hour');
+        const dateInput = document.getElementById('forecast-date');
+        const hourInput = document.getElementById('forecast-hour');
         const locationSelect = document.getElementById('forecast-location');
         const rainfallInput = document.getElementById('forecast-rainfall');
         const tideInput = document.getElementById('forecast-tide');
@@ -865,19 +868,116 @@ document.addEventListener('DOMContentLoaded', () => {
         const rangeWarningEl = document.getElementById('forecast-range-warning');
         const weatherStatusEl = document.getElementById('forecast-weather-status');
         const refreshWeatherBtn = document.getElementById('forecast-refresh-weather-btn');
+        const tideFileInput = document.getElementById('forecast-tide-file');
+        const tideUploadBtn = document.getElementById('forecast-tide-upload-btn');
+        const tideFileStatusEl = document.getElementById('forecast-tide-file-status');
+        const tideMatchNoteEl = document.getElementById('forecast-tide-match-note');
 
-        if (!hourSelect || !locationSelect || !window.ParaDriverPrediction) return;
+        if (!hourInput || !locationSelect || !window.ParaDriverPrediction) return;
 
-        const { MODEL, TRAINED_HOURS, SERVICE_AREA, computeHighWaterRisk, predictAvailableDrivers, availabilityStatus, isWithinTrainedRange, fetchLiveWeather } = window.ParaDriverPrediction;
+        const {
+            MODEL, SERVICE_AREA,
+            computeHighWaterRisk, predictAvailableDrivers, availabilityStatus, isWithinTrainedRange,
+            fetchLiveRainfall, parseTideWorkbook, findNearestTideEntry
+        } = window.ParaDriverPrediction;
+
+        let tideEntries = [];
 
         locationSelect.innerHTML = MODEL.locations.map(loc => `<option value="${loc}">${loc}</option>`).join('');
-        hourSelect.innerHTML = TRAINED_HOURS.map(h => {
-            const label = h === 12 ? '12:00 NN' : (h > 12 ? `${h - 12}:00 PM` : `${h}:00 AM`);
-            return `<option value="${h}">${label}</option>`;
-        }).join('');
+        if (dateInput && !dateInput.value) {
+            const today = new Date();
+            dateInput.value = today.toISOString().slice(0, 10);
+        }
+        if (hourInput && !hourInput.value) hourInput.value = '08:00';
+
+        // Parses the "HH:MM" time input into usable numeric forms, or null if
+        // empty/invalid — callers treat that the same as "no tide match".
+        function getSelectedTime() {
+            const raw = hourInput.value;
+            if (!raw) return null;
+            const [hStr, mStr] = raw.split(':');
+            const h = Number(hStr);
+            const m = Number(mStr);
+            if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+            return { hours: h, minutes: m, totalMinutes: h * 60 + m, decimalHour: h + m / 60 };
+        }
 
         if (modelNoteEl) {
             modelNoteEl.textContent = `Multiple Linear Regression · trained on ${MODEL.metrics.trainingRecords} historical records, tested on ${MODEL.metrics.testingRecords} · R² = ${MODEL.metrics.r2.toFixed(3)} · avg error ±${MODEL.metrics.mae.toFixed(2)} drivers.`;
+        }
+
+        function tideSummaryText(entries) {
+            if (!entries.length) return 'No tide data uploaded yet.';
+            const dateKeys = entries.map((e) => e.dateKey).sort();
+            const first = dateKeys[0];
+            const last = dateKeys[dateKeys.length - 1];
+            const range = first === last ? first : `${first} to ${last}`;
+            return `Loaded ${entries.length} tide reading${entries.length === 1 ? '' : 's'} covering ${range}.`;
+        }
+
+        function saveTideEntriesToStorage(entries) {
+            try {
+                const serializable = entries.map((e) => ({ ...e, dateTime: e.dateTime.toISOString() }));
+                localStorage.setItem(TIDE_STORAGE_KEY, JSON.stringify(serializable));
+            } catch (error) {
+                console.error('Could not save tide data locally:', error);
+            }
+        }
+
+        function loadTideEntriesFromStorage() {
+            try {
+                const raw = localStorage.getItem(TIDE_STORAGE_KEY);
+                if (!raw) return [];
+                const parsed = JSON.parse(raw);
+                return parsed.map((e) => ({ ...e, dateTime: new Date(e.dateTime) }));
+            } catch (error) {
+                console.error('Could not load saved tide data:', error);
+                return [];
+            }
+        }
+
+        function currentTideMatch() {
+            const time = getSelectedTime();
+            if (!dateInput || !dateInput.value || !time) return null;
+            return findNearestTideEntry(tideEntries, dateInput.value, time.totalMinutes);
+        }
+
+        function formatMatchTime(entry) {
+            const h = entry.dateTime.getHours();
+            const m = entry.dateTime.getMinutes();
+            const period = h >= 12 ? 'PM' : 'AM';
+            const h12 = h % 12 === 0 ? 12 : h % 12;
+            return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+        }
+
+        // If the nearest uploaded reading is more than this many hours from the
+        // selected time, it's too far a stretch to pass off as "the tide at
+        // that hour" — flag it loudly instead of quietly showing a number.
+        const TIDE_MATCH_WARN_MINUTES = 6 * 60;
+
+        function updateTideField() {
+            const match = currentTideMatch();
+            if (match) {
+                tideInput.value = match.tideM.toFixed(2);
+                tideInput.placeholder = '';
+                const time = getSelectedTime();
+                const diffMinutes = time ? Math.abs(match.minutesOfDay - time.totalMinutes) : 0;
+                const diffHours = (diffMinutes / 60).toFixed(1);
+                if (tideMatchNoteEl) {
+                    if (diffMinutes > TIDE_MATCH_WARN_MINUTES) {
+                        tideMatchNoteEl.innerHTML = `⚠ Only reading available that day is at ${formatMatchTime(match)} (${match.tideFt} ft) — ${diffHours}h from the selected time. Treat this value as unreliable.`;
+                        tideMatchNoteEl.style.color = 'var(--status-decl-text)';
+                    } else {
+                        tideMatchNoteEl.textContent = `Matched to uploaded reading at ${formatMatchTime(match)} (${match.tideFt} ft) — the closest reading on this date.`;
+                        tideMatchNoteEl.style.color = '';
+                    }
+                }
+            } else {
+                tideInput.value = '';
+                tideInput.placeholder = tideEntries.length ? 'No data for this date' : 'Upload tide data below';
+                if (tideMatchNoteEl) { tideMatchNoteEl.textContent = ''; tideMatchNoteEl.style.color = ''; }
+            }
+            return match;
         }
 
         function currentRisk() {
@@ -898,12 +998,30 @@ document.addEventListener('DOMContentLoaded', () => {
         function updateRangeWarning() {
             const rainfall = parseFloat(rainfallInput.value) || 0;
             const tide = parseFloat(tideInput.value) || 0;
-            const inRange = isWithinTrainedRange(rainfall, tide);
+            const time = getSelectedTime();
+            const inRange = isWithinTrainedRange(rainfall, tide, time ? time.decimalHour : null);
             if (rangeWarningEl) rangeWarningEl.style.display = inRange ? 'none' : 'block';
         }
 
         function generateForecast() {
-            const hour = Number(hourSelect.value);
+            const tideMatch = updateTideField();
+            const time = getSelectedTime();
+
+            if (!tideMatch || !time) {
+                if (valueEl) valueEl.textContent = '–';
+                if (statusBadgeEl) {
+                    statusBadgeEl.textContent = time ? 'NO TIDE DATA' : 'SELECT A TIME';
+                    statusBadgeEl.className = 'status-badge declined';
+                }
+                if (riskBadge) {
+                    riskBadge.textContent = 'High-Water Risk: Unknown';
+                    riskBadge.className = 'status-badge processing';
+                }
+                if (rangeWarningEl) rangeWarningEl.style.display = 'none';
+                return;
+            }
+
+            const hour = time.decimalHour;
             const location = locationSelect.value;
             const rainfall = parseFloat(rainfallInput.value) || 0;
             const tide = parseFloat(tideInput.value) || 0;
@@ -921,44 +1039,66 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Dropdowns (hour/zone) are discrete, complete selections, so they
-        // recompute immediately. Rainfall/tide are free-typed numbers — typing
-        // digit-by-digit on 'input' would flash through meaningless intermediate
-        // predictions, so those only apply via the Generate Forecast button.
-        [rainfallInput, tideInput].forEach(el => el && el.addEventListener('input', () => {
-            updateRiskBadge();
-            updateRangeWarning();
-        }));
-        [hourSelect, locationSelect].forEach(el => el && el.addEventListener('change', generateForecast));
+        // Rainfall is a live, read-only API reading. Tide is a read-only lookup
+        // from the uploaded table. Neither is user-typed anymore, so the only
+        // things that change the forecast are Date/Hour/Zone and a new upload.
+        [dateInput, hourInput, locationSelect].forEach((el) => el && el.addEventListener('change', generateForecast));
         if (generateBtn) generateBtn.addEventListener('click', generateForecast);
 
-        // Firestore has no weather/tide data of its own, so rainfall and tide
-        // come from a real external source (Open-Meteo) instead of manual entry.
-        async function loadLiveWeather() {
-            if (weatherStatusEl) weatherStatusEl.textContent = `Loading live rainfall & tide from Open-Meteo (${SERVICE_AREA.name})…`;
+        // Firestore has no weather data of its own, so rainfall comes from a
+        // real external source (Open-Meteo) instead of manual entry.
+        async function loadLiveRainfall() {
+            if (weatherStatusEl) weatherStatusEl.textContent = `Loading live rainfall from Open-Meteo (${SERVICE_AREA.name})…`;
             if (refreshWeatherBtn) refreshWeatherBtn.disabled = true;
             try {
-                const { rainfallMm, highTideM, observedAt } = await fetchLiveWeather();
+                const { rainfallMm, observedAt } = await fetchLiveRainfall();
                 rainfallInput.value = rainfallMm.toFixed(2);
-                tideInput.value = highTideM.toFixed(2);
                 const timeLabel = observedAt ? new Date(observedAt).toLocaleString() : 'just now';
-                if (weatherStatusEl) weatherStatusEl.textContent = `Live data from Open-Meteo (${SERVICE_AREA.name}) as of ${timeLabel}. You can override the values below.`;
+                if (weatherStatusEl) weatherStatusEl.textContent = `Live rainfall from Open-Meteo (${SERVICE_AREA.name}) as of ${timeLabel}.`;
                 generateForecast();
             } catch (error) {
-                console.error('Failed to load live weather/tide data:', error);
-                if (weatherStatusEl) weatherStatusEl.textContent = `Could not reach Open-Meteo for live rainfall/tide — enter values manually.`;
-                window.showToast('Could not fetch live weather data.', 'error');
+                console.error('Failed to load live rainfall data:', error);
+                if (weatherStatusEl) weatherStatusEl.textContent = `Could not reach Open-Meteo for live rainfall.`;
+                window.showToast('Could not fetch live rainfall data.', 'error');
             } finally {
                 if (refreshWeatherBtn) refreshWeatherBtn.disabled = false;
             }
         }
 
-        if (refreshWeatherBtn) refreshWeatherBtn.addEventListener('click', loadLiveWeather);
+        if (refreshWeatherBtn) refreshWeatherBtn.addEventListener('click', loadLiveRainfall);
 
+        // Tide data: admin uploads the LGU's tide bulletin as .xlsx. Parsed
+        // client-side (SheetJS) and kept in this browser's localStorage so it
+        // survives reloads without needing a backend for it.
+        if (tideUploadBtn && tideFileInput) {
+            tideUploadBtn.addEventListener('click', () => tideFileInput.click());
+            tideFileInput.addEventListener('change', async () => {
+                const file = tideFileInput.files && tideFileInput.files[0];
+                if (!file) return;
+                try {
+                    const buffer = await file.arrayBuffer();
+                    tideEntries = parseTideWorkbook(buffer);
+                    saveTideEntriesToStorage(tideEntries);
+                    if (tideFileStatusEl) tideFileStatusEl.textContent = tideSummaryText(tideEntries);
+                    window.showToast('Tide data uploaded.', 'success');
+                    generateForecast();
+                } catch (error) {
+                    console.error('Failed to parse tide workbook:', error);
+                    window.showToast(error.message || 'Could not read that Excel file.', 'error');
+                } finally {
+                    tideFileInput.value = '';
+                }
+            });
+        }
+
+        tideEntries = loadTideEntriesFromStorage();
+        if (tideFileStatusEl) tideFileStatusEl.textContent = tideSummaryText(tideEntries);
+
+        updateTideField();
         updateRiskBadge();
         updateRangeWarning();
         generateForecast();
-        loadLiveWeather();
+        loadLiveRainfall();
     }
     initDriverForecast();
 

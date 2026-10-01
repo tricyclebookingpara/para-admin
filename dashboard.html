@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=34">
+    <link rel="stylesheet" href="style.css?v=35">
 </head>
 <body>
 <div class="app-background">
@@ -827,13 +827,22 @@
                     <div class="form-container">
                         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
                             <h3 style="font-size:14px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin:0;">Forecast Inputs</h3>
-                            <button type="button" class="action-btn" id="forecast-refresh-weather-btn" style="background:var(--bg-light); color:var(--text-main); white-space:nowrap;">↻ Refresh Live Weather</button>
+                            <button type="button" class="action-btn" id="forecast-refresh-weather-btn" style="background:var(--bg-light); color:var(--text-main); white-space:nowrap;">↻ Refresh Live Rainfall</button>
                         </div>
-                        <div id="forecast-weather-status" style="font-size:12px; color:var(--text-muted); margin:-12px 0 16px;">Loading live rainfall &amp; tide from Open-Meteo (Hagonoy, Bulacan)…</div>
-                        <div class="form-group"><label>Time of Day</label><select class="form-input" id="forecast-hour"></select></div>
+                        <div id="forecast-weather-status" style="font-size:12px; color:var(--text-muted); margin:-12px 0 16px;">Loading live rainfall from Open-Meteo (Hagonoy, Bulacan)…</div>
+                        <div class="form-group"><label>Date</label><input type="date" class="form-input" id="forecast-date"></div>
+                        <div class="form-group"><label>Time of Day</label><input type="time" class="form-input" id="forecast-hour" step="60" required><div class="detail-sub" style="margin-top:4px;">Training data range: 6:00 AM–8:00 PM</div></div>
                         <div class="form-group"><label>Zone</label><select class="form-input" id="forecast-location"></select></div>
-                        <div class="form-group"><label>Rainfall (mm)</label><input type="number" class="form-input" id="forecast-rainfall" value="0" min="0" step="0.1"><div class="detail-sub" style="margin-top:4px;">Live from Open-Meteo · training data range: 0–14.24 mm</div></div>
-                        <div class="form-group"><label>High Tide Level (m)</label><input type="number" class="form-input" id="forecast-tide" value="0" min="0" step="0.01"><div class="detail-sub" style="margin-top:4px;">Live from Open-Meteo (sea level, MSL) · training data range: 0.5–2.0 m</div></div>
+                        <div class="form-group"><label>Rainfall (mm)</label><input type="number" class="form-input locked-input" id="forecast-rainfall" value="0" readonly tabindex="-1"><div class="detail-sub" style="margin-top:4px;">Live current reading from Open-Meteo · training data range: 0–14.24 mm</div></div>
+                        <div class="form-group">
+                            <label>High Tide Level (m)</label>
+                            <input type="number" class="form-input locked-input" id="forecast-tide" value="" readonly tabindex="-1">
+                            <div class="detail-sub" style="margin-top:4px;" id="forecast-tide-source-note">From uploaded LGU tide data (ft → m) · training data range: 0.5–2.0 m</div>
+                            <div class="detail-sub" style="margin-top:4px; font-weight:600;" id="forecast-tide-match-note"></div>
+                            <input type="file" id="forecast-tide-file" accept=".xlsx,.xls" style="display:none;">
+                            <button type="button" class="action-btn" id="forecast-tide-upload-btn" style="background:var(--primary); color:#fff; margin-top:8px; width:100%;">Upload Tide Data (.xlsx)</button>
+                            <div class="detail-sub" id="forecast-tide-file-status" style="margin-top:6px;">No tide data uploaded yet.</div>
+                        </div>
                         <div class="form-group">
                             <label>Computed Flood Risk</label>
                             <div><span id="forecast-risk-badge" class="status-badge approved">High-Water Risk: No</span></div>
@@ -992,14 +1001,15 @@
 </div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=17"></script>
-<script src="driver-prediction.js?v=3"></script>
-<script src="script.js?v=54"></script>
-<script src="firestore-ui.js?v=27"></script>
+<script src="firestore-service.js?v=20"></script>
+<script src="driver-prediction.js?v=5"></script>
+<script src="script.js?v=58"></script>
+<script src="firestore-ui.js?v=28"></script>
 </body>
 </html>

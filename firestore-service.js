@@ -3,7 +3,9 @@ const ParaFirestore = (() => {
 
     const COLLECTIONS = {
         admins: 'admins',
-        drivers: 'drivers',
+        // Drivers, passengers, and presidents all live in `users`, distinguished
+        // by a `role` field — confirmed against the mobile app's real schema.
+        // There is no separate `drivers` collection.
         users: 'users',
         bookings: 'bookings',
         complaints: 'complaints',
@@ -100,13 +102,18 @@ const ParaFirestore = (() => {
         if (!admin) {
             const doc = await db.collection(COLLECTIONS.admins).doc(credential.user.uid).get();
             const role = getField(doc.data(), 'role');
-            await auth.signOut();
             if (!doc.exists) {
+                // Not an admin doc at all — check whether this is a TODA President
+                // account (lives in `users`, not `admins`) so the error is accurate.
+                const userDoc = await db.collection(COLLECTIONS.users).doc(credential.user.uid).get();
+                const userRole = normalizeRole(getField(userDoc.data(), 'role'));
+                await auth.signOut();
+                if (userRole === 'president') {
+                    throw new Error('TODA President accounts can only sign in through the mobile app, not this admin panel.');
+                }
                 throw new Error(`Admin record missing for UID ${credential.user.uid}.`);
             }
-            if (role === 'toda_president') {
-                throw new Error('TODA President accounts can only sign in through the mobile app, not this admin panel.');
-            }
+            await auth.signOut();
             if (role === 'disabled') {
                 throw new Error('Admin access has been disabled for this account.');
             }
@@ -133,12 +140,27 @@ const ParaFirestore = (() => {
         });
     }
 
+    // Drivers live in the SAME `users` collection as passengers/presidents,
+    // distinguished only by role: "DRIVER" (confirmed against the mobile
+    // app's actual Firestore schema — there's no separate "drivers"
+    // collection). Unlike isPassengerRole, a missing role is NOT treated as
+    // "driver" by default — that default made sense for passengers (the
+    // app's implicit legacy role) but would wrongly pull in president/unknown
+    // accounts here.
+    function isDriverRole(data) {
+        return String((data || {}).role || '').toUpperCase() === 'DRIVER';
+    }
+
     function mapDriverDoc(doc) {
         const data = doc.data() || {};
         const verificationStatus = normalizeStatus(
             getField(data, 'verificationStatus', 'verification_status', 'status')
         );
-        const rawRating = Number(getField(data, 'rating', 'averageRating', 'driverRating', 'overallRating') || 0);
+        const rawRating = Number(getField(data, 'averageRating', 'rating', 'driverRating', 'overallRating') || 0);
+        // totalRides/acceptanceRate aren't stored fields on the real User doc —
+        // the app computes ride counts on the fly from bookings. These default
+        // to 0 here; Driver Management live-recomputes a real count from
+        // window.allBookings the same way it already does for passengers.
         const totalRides = Number(getField(data, 'totalRides', 'rides', 'completedTrips', 'tripCount') || 0);
         const rawAcceptanceRate = Number(getField(data, 'acceptanceRate', 'acceptance_rate', 'acceptanceRatePercent', 'acceptance') || 0);
         const acceptedTrips = Number(getField(data, 'acceptedTrips', 'acceptedRides', 'acceptanceCount') || 0);
@@ -146,11 +168,17 @@ const ParaFirestore = (() => {
             ? (acceptedTrips / totalRides) * 100
             : rawAcceptanceRate;
 
+        const firstName = getField(data, 'firstName', 'first_name');
+        const lastName = getField(data, 'lastName', 'last_name');
+        const composedName = [firstName, lastName].filter(Boolean).join(' ');
+
         return {
             id: doc.id,
-            name: getField(data, 'fullName', 'name', 'driverName'),
+            name: composedName || getField(data, 'fullName', 'name', 'driverName'),
+            firstName,
+            lastName,
             license: getField(data, 'licenseNumber', 'license', 'licenseNo'),
-            vehicle: getField(data, 'vehicleModel', 'vehicle', 'model'),
+            vehicle: getField(data, 'tricycleNumber', 'vehicleModel', 'vehicle', 'model'),
             plate: getField(data, 'plateNumber', 'plate', 'plateNo'),
             verificationStatus: verificationStatus || 'pending',
             accountStatus: normalizeStatus(getField(data, 'accountStatus', 'account_status')) || 'active',
@@ -285,8 +313,8 @@ const ParaFirestore = (() => {
     }
 
     async function fetchDrivers(verificationStatus) {
-        const snapshot = await db.collection(COLLECTIONS.drivers).get();
-        let drivers = snapshot.docs.map(mapDriverDoc);
+        const snapshot = await db.collection(COLLECTIONS.users).get();
+        let drivers = snapshot.docs.filter((doc) => isDriverRole(doc.data())).map(mapDriverDoc);
         if (verificationStatus) {
             drivers = drivers.filter((d) => d.verificationStatus === verificationStatus);
         }
@@ -294,9 +322,10 @@ const ParaFirestore = (() => {
     }
 
     function listenDrivers(verificationStatus, callback) {
-        return db.collection(COLLECTIONS.drivers).onSnapshot(async (snapshot) => {
+        return db.collection(COLLECTIONS.users).onSnapshot(async (snapshot) => {
             const now = Date.now();
-            const expiredDocs = snapshot.docs.filter((doc) => {
+            const driverDocs = snapshot.docs.filter((doc) => isDriverRole(doc.data()));
+            const expiredDocs = driverDocs.filter((doc) => {
                 const data = doc.data() || {};
                 const status = normalizeStatus(getField(data, 'accountStatus', 'status'));
                 const suspendedUntil = toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until'));
@@ -304,15 +333,16 @@ const ParaFirestore = (() => {
             });
 
             if (expiredDocs.length) {
-                await Promise.all(expiredDocs.map((doc) => db.collection(COLLECTIONS.drivers).doc(doc.id).update({
+                await Promise.all(expiredDocs.map((doc) => db.collection(COLLECTIONS.users).doc(doc.id).update({
                     accountStatus: 'active',
+                    isSuspended: false,
                     suspendedUntil: null,
                     suspendedAt: null,
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 })));
             }
 
-            let drivers = snapshot.docs.map(mapDriverDoc);
+            let drivers = driverDocs.map(mapDriverDoc);
             if (verificationStatus) {
                 drivers = drivers.filter((d) => d.verificationStatus === verificationStatus);
             }
@@ -321,15 +351,17 @@ const ParaFirestore = (() => {
     }
 
     async function fetchApprovedDrivers() {
-        const snapshot = await db.collection(COLLECTIONS.drivers).get();
+        const snapshot = await db.collection(COLLECTIONS.users).get();
         return snapshot.docs
+            .filter((doc) => isDriverRole(doc.data()))
             .map(mapDriverDoc)
             .filter((d) => d.verificationStatus === 'approved');
     }
 
     function listenApprovedDrivers(callback) {
-        return db.collection(COLLECTIONS.drivers).onSnapshot((snapshot) => {
+        return db.collection(COLLECTIONS.users).onSnapshot((snapshot) => {
             const drivers = snapshot.docs
+                .filter((doc) => isDriverRole(doc.data()))
                 .map(mapDriverDoc)
                 .filter((d) => d.verificationStatus === 'approved');
             callback(drivers);
@@ -359,7 +391,7 @@ const ParaFirestore = (() => {
     }
 
     async function updateDriverVerification(driverId, status) {
-        await db.collection(COLLECTIONS.drivers).doc(driverId).update({
+        await db.collection(COLLECTIONS.users).doc(driverId).update({
             verificationStatus: status,
             verifiedAt: firebase.firestore.FieldValue.serverTimestamp(),
             infoRequest: null
@@ -367,9 +399,11 @@ const ParaFirestore = (() => {
     }
 
     async function updateDriver(driverId, updates) {
-        await db.collection(COLLECTIONS.drivers).doc(driverId).update({
-            fullName: updates.name,
-            vehicleModel: updates.vehicle,
+        const { firstName, lastName } = splitFullName(updates.name);
+        await db.collection(COLLECTIONS.users).doc(driverId).update({
+            firstName,
+            lastName,
+            tricycleNumber: updates.vehicle,
             plateNumber: updates.plate,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
@@ -378,6 +412,7 @@ const ParaFirestore = (() => {
     async function updateDriverAccountStatus(driverId, status, suspensionDays = 3, reason = '') {
         const payload = {
             accountStatus: status,
+            isSuspended: status === 'suspended',
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
@@ -397,11 +432,11 @@ const ParaFirestore = (() => {
             payload.suspensionReason = null;
         }
 
-        await db.collection(COLLECTIONS.drivers).doc(driverId).update(payload);
+        await db.collection(COLLECTIONS.users).doc(driverId).update(payload);
     }
 
     async function requestDriverInfo(driverId, { documents, note }) {
-        await db.collection(COLLECTIONS.drivers).doc(driverId).update({
+        await db.collection(COLLECTIONS.users).doc(driverId).update({
             infoRequest: {
                 documents: documents || [],
                 note: note || '',
@@ -412,9 +447,10 @@ const ParaFirestore = (() => {
     }
 
     async function reactivateExpiredDrivers() {
-        const snapshot = await db.collection(COLLECTIONS.drivers).get();
+        const snapshot = await db.collection(COLLECTIONS.users).get();
         const now = Date.now();
         const expiredDrivers = snapshot.docs.filter((doc) => {
+            if (!isDriverRole(doc.data())) return false;
             const data = doc.data() || {};
             const status = normalizeStatus(getField(data, 'accountStatus', 'status'));
             const suspendedUntil = toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until'));
@@ -423,8 +459,9 @@ const ParaFirestore = (() => {
 
         if (!expiredDrivers.length) return 0;
 
-        await Promise.all(expiredDrivers.map((doc) => db.collection(COLLECTIONS.drivers).doc(doc.id).update({
+        await Promise.all(expiredDrivers.map((doc) => db.collection(COLLECTIONS.users).doc(doc.id).update({
             accountStatus: 'active',
+            isSuspended: false,
             suspendedUntil: null,
             suspendedAt: null,
             suspensionReason: null,
@@ -763,46 +800,88 @@ const ParaFirestore = (() => {
         return app.auth();
     }
 
+    // TODA President accounts must live in the SAME `users` collection the
+    // mobile app reads, with role "PRESIDENT" (exact casing) — that's the only
+    // role value the app's own PresidentGraph recognizes. They used to be
+    // written to a separate `admins` collection with role "toda_president",
+    // which the mobile app has no concept of, so accounts created that way
+    // could never actually sign in on the app. todaName/barangay aren't part
+    // of the app's User model — they're extra fields this panel reads back
+    // for itself; Firestore has no schema to violate by including them.
+    function splitFullName(name) {
+        const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+        const firstName = parts.shift() || '';
+        const lastName = parts.join(' ');
+        return { firstName, lastName };
+    }
+
     async function fetchTodaPresidentAccounts() {
-        const snapshot = await db.collection(COLLECTIONS.admins).get();
-        return snapshot.docs
-            .map((doc) => ({ id: doc.id, ...doc.data() }))
-            .filter((account) => account.role === 'toda_president');
+        const snapshot = await db.collection(COLLECTIONS.users).where('role', '==', 'PRESIDENT').get();
+        return snapshot.docs.map((doc) => {
+            const data = doc.data() || {};
+            const disabled = data.isSuspended === true || normalizeStatus(getField(data, 'accountStatus')) === 'suspended';
+            return {
+                id: doc.id,
+                fullName: `${getField(data, 'firstName')} ${getField(data, 'lastName')}`.trim(),
+                todaName: getField(data, 'todaName'),
+                barangay: getField(data, 'barangay'),
+                email: getField(data, 'email'),
+                phone: getField(data, 'phoneNumber'),
+                status: disabled ? 'disabled' : 'active'
+            };
+        });
     }
 
     async function createTodaPresidentAccount({ name, todaName, barangay, email, phone, password }) {
         const secondaryAuth = getOrCreateSecondaryAuth();
         const credential = await secondaryAuth.createUserWithEmailAndPassword(email, password);
-        await db.collection(COLLECTIONS.admins).doc(credential.user.uid).set({
-            fullName: name,
+        const { firstName, lastName } = splitFullName(name);
+        await db.collection(COLLECTIONS.users).doc(credential.user.uid).set({
+            uid: credential.user.uid,
+            role: 'PRESIDENT',
+            firstName,
+            lastName,
+            email,
+            phoneNumber: phone,
+            createdAt: Date.now(),
+            accountStatus: 'active',
+            isSuspended: false,
             todaName,
             barangay,
-            email,
-            phone,
-            role: 'toda_president',
-            status: 'active',
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             createdBy: auth.currentUser ? auth.currentUser.uid : ''
         });
+        // createUserWithEmailAndPassword does NOT send a verification email on
+        // its own — it has to be requested explicitly. Best-effort: the account
+        // is already created at this point, so a failure here (rate limit,
+        // network) shouldn't make account creation look like it failed.
+        let emailVerificationSent = false;
+        try {
+            await credential.user.sendEmailVerification();
+            emailVerificationSent = true;
+        } catch (error) {
+            console.error('Failed to send TODA President verification email:', error);
+        }
         await secondaryAuth.signOut();
-        return credential.user.uid;
+        return { uid: credential.user.uid, emailVerificationSent };
     }
 
     async function updateTodaPresidentAccount(accountId, { name, todaName, barangay, phone, status }) {
-        await db.collection(COLLECTIONS.admins).doc(accountId).update({
-            fullName: name,
+        const { firstName, lastName } = splitFullName(name);
+        await db.collection(COLLECTIONS.users).doc(accountId).update({
+            firstName,
+            lastName,
             todaName,
             barangay,
-            phone,
-            status,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            phoneNumber: phone,
+            accountStatus: status === 'disabled' ? 'suspended' : 'active',
+            isSuspended: status === 'disabled'
         });
     }
 
     async function updateTodaPresidentStatus(accountId, status) {
-        await db.collection(COLLECTIONS.admins).doc(accountId).update({
-            status,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        await db.collection(COLLECTIONS.users).doc(accountId).update({
+            accountStatus: status === 'disabled' ? 'suspended' : 'active',
+            isSuspended: status === 'disabled'
         });
     }
 
@@ -877,13 +956,15 @@ const ParaFirestore = (() => {
     }
 
     async function getDashboardCounts() {
-        const [driversSnap, usersSnap, complaintsSnap] = await Promise.all([
-            db.collection(COLLECTIONS.drivers).get(),
+        const [usersSnap, complaintsSnap] = await Promise.all([
             db.collection(COLLECTIONS.users).get(),
             db.collection(COLLECTIONS.complaints).get()
         ]);
 
-        const pendingDrivers = driversSnap.docs.filter((doc) => {
+        const driverDocs = usersSnap.docs.filter((doc) => isDriverRole(doc.data()));
+        const passengerDocs = usersSnap.docs.filter((doc) => isPassengerRole(doc.data() || {}));
+
+        const pendingDrivers = driverDocs.filter((doc) => {
             const status = normalizeStatus(getField(doc.data(), 'verificationStatus', 'verification_status', 'status'));
             return status === 'pending';
         }).length;
@@ -894,13 +975,13 @@ const ParaFirestore = (() => {
         }).length;
 
         return {
-            activeDrivers: driversSnap.docs.filter((doc) => {
+            activeDrivers: driverDocs.filter((doc) => {
                 const data = doc.data() || {};
                 const verified = normalizeStatus(getField(data, 'verificationStatus', 'verification_status', 'status')) === 'approved';
                 const active = normalizeStatus(getField(data, 'accountStatus', 'account_status', 'status')) !== 'suspended';
                 return verified && active;
             }).length,
-            activePassengers: usersSnap.docs.filter((doc) => {
+            activePassengers: passengerDocs.filter((doc) => {
                 const status = normalizeStatus(getField(doc.data(), 'status', 'accountStatus'));
                 return status !== 'suspended';
             }).length,
@@ -910,8 +991,8 @@ const ParaFirestore = (() => {
     }
 
     async function getDriverById(driverId) {
-        const doc = await db.collection(COLLECTIONS.drivers).doc(driverId).get();
-        if (!doc.exists) return null;
+        const doc = await db.collection(COLLECTIONS.users).doc(driverId).get();
+        if (!doc.exists || !isDriverRole(doc.data())) return null;
         return mapDriverDoc(doc);
     }
 

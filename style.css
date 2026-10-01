@@ -775,6 +775,18 @@ body {
 
 textarea.form-input { resize: vertical; }
 
+/* Read-only "locked" fields (e.g. API/file-sourced values) — no focus glow,
+   no text selection, cursor signals it can't be typed into. */
+.locked-input,
+.locked-input:focus {
+    background: var(--bg-light);
+    border-color: var(--border-color);
+    box-shadow: none;
+    cursor: not-allowed;
+    user-select: none;
+    pointer-events: none;
+}
+
 .mt-16 { margin-top: 16px; }
 
 /* ── Dashboard Stats Grid ── */

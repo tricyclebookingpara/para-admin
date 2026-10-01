@@ -738,13 +738,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         const button = document.getElementById('createTodaPresidentBtn');
         try {
             button.disabled = true;
+            let createResult = null;
             if (window.editingTodaPresidentId) {
                 await ParaFirestore.updateTodaPresidentAccount(window.editingTodaPresidentId, { ...values, status: window.editingTodaPresidentStatus });
             } else {
-                await ParaFirestore.createTodaPresidentAccount(values);
+                createResult = await ParaFirestore.createTodaPresidentAccount(values);
             }
             closeModal('todaPresidentAccountModal');
-            window.showToast(window.editingTodaPresidentId ? 'TODA President account updated.' : 'TODA President account created.', 'success');
+            if (window.editingTodaPresidentId) {
+                window.showToast('TODA President account updated.', 'success');
+            } else if (createResult && createResult.emailVerificationSent) {
+                window.showToast('Account created — a verification email was sent.', 'success');
+            } else {
+                window.showToast('Account created, but the verification email could not be sent. Have them check their spelling or request a new one.', 'warning');
+            }
             window.editingTodaPresidentId = null;
             window.editingTodaPresidentStatus = 'active';
             loadTodaPresidentAccounts();
