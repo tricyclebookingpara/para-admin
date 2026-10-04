@@ -70,8 +70,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const statusBadge = {
         pending: { className: 'processing', label: 'PENDING' },
+        reviewing: { className: 'processing', label: 'REVIEWING' },
         approved: { className: 'approved', label: 'APPROVED' },
         rejected: { className: 'declined', label: 'REJECTED' },
+        resolved: { className: 'approved', label: 'RESOLVED' },
         completed: { className: 'approved', label: 'COMPLETED' },
         cancelled: { className: 'declined', label: 'CANCELLED' },
         active: { className: 'approved', label: 'ACTIVE' },
@@ -80,14 +82,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         flagged: { className: 'processing', label: 'FLAGGED', style: 'background:#FFF1D6;color:#FF9E2A;' },
         processing: { className: 'processing', label: 'PROCESSING' },
         ongoing: { className: 'processing', label: 'ONGOING' },
-        declined: { className: 'declined', label: 'DECLINED' },
-        under_review: { className: 'processing', label: 'UNDER REVIEW' },
-        pending: { className: 'processing', label: 'PENDING' },
-        review: { className: 'processing', label: 'UNDER REVIEW' },
-        warning: { className: 'processing', label: 'WARNING', style: 'background:#FFF1D6;color:#FF9E2A;' },
-        warned: { className: 'processing', label: 'WARNED', style: 'background:#FFF1D6;color:#FF9E2A;' },
-        suspended: { className: 'declined', label: 'SUSPENDED' },
-        resolved: { className: 'approved', label: 'RESOLVED' }
+        declined: { className: 'declined', label: 'DECLINED' }
     };
 
     function escapeHtml(value) {
@@ -522,6 +517,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.complaintMgmtStatusFilter = 'all';
     let allComplaints = [];
 
+    // Complaint docs only store passengerId/driverId, not name strings (see
+    // mapComplaintDoc) — resolve display names against whichever of the
+    // driver/passenger lists are currently loaded. Safe to call before
+    // either list has loaded; falls back to the '—' placeholder.
+    function resolveComplaintNames(complaint) {
+        if (!complaint) return complaint;
+        const passenger = (window.allPassengers || []).find((p) => p.id === complaint.passengerId);
+        // window.driverManagementDrivers is approved-only (Driver Management's
+        // own list) — a driver named in a complaint might still be pending/
+        // rejected, so fall back to window.allDriversForLookup (every driver,
+        // any verification status) before giving up.
+        const driver = (window.driverManagementDrivers || []).find((d) => d.id === complaint.driverId)
+            || (window.allDriversForLookup || []).find((d) => d.id === complaint.driverId);
+        return {
+            ...complaint,
+            reporter: (passenger && passenger.name) || complaint.reporter || '—',
+            reported: (driver && driver.name) || complaint.reported || '—'
+        };
+    }
+
+    function getComplaintsForFilter(filterKey) {
+        const key = (filterKey || 'all').toLowerCase();
+        if (key === 'under review') return allComplaints.filter((c) => ['pending', 'reviewing'].includes(c.status));
+        if (key === 'resolved') return allComplaints.filter((c) => c.status === 'resolved');
+        if (key === 'rejected') return allComplaints.filter((c) => c.status === 'rejected');
+        return allComplaints;
+    }
+
+    // Driver/passenger lists can finish loading after complaints do (separate
+    // listeners, no guaranteed order) — re-resolve names and re-render
+    // whenever either list changes, not just when complaints change.
+    function refreshComplaintDisplay() {
+        if (!allComplaints.length) return;
+        allComplaints = allComplaints.map(resolveComplaintNames);
+        renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
+    }
+
     function updateComplaintStats() {
         if (!allComplaints.length) {
             document.getElementById('complaints-under-review').textContent = '0';
@@ -533,7 +565,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const now = new Date();
         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-        const underReview = allComplaints.filter((c) => ['under_review', 'pending', 'review'].includes(c.status)).length;
+        const underReview = allComplaints.filter((c) => ['pending', 'reviewing'].includes(c.status)).length;
         const resolved = allComplaints.filter((c) => c.status === 'resolved').length;
         const thisMonth = allComplaints.filter((c) => {
             const createdAt = c.createdAtRaw || c.createdAt || new Date(c.createdAt);
@@ -553,17 +585,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (btn) btn.querySelector('.filter-val').textContent = statusKey;
         
         if (allComplaints) {
-            let filtered = allComplaints;
-            if (statusKey === 'Under Review') {
-                filtered = allComplaints.filter((c) => ['under_review', 'pending', 'review'].includes(c.status));
-            } else if (statusKey === 'Warned') {
-                filtered = allComplaints.filter((c) => ['warning', 'warned'].includes(c.status));
-            } else if (statusKey === 'Suspended') {
-                filtered = allComplaints.filter((c) => c.status === 'suspended');
-            } else if (statusKey === 'Resolved') {
-                filtered = allComplaints.filter((c) => c.status === 'resolved');
-            }
-            renderComplaintTable(filtered);
+            renderComplaintTable(getComplaintsForFilter(normalizedKey));
         }
 
         const dropdown = document.getElementById('complaintStatusDropdown');
@@ -1145,8 +1167,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     window.openComplaintModal = async function(complaintId) {
         try {
-            const data = await ParaFirestore.getComplaintById(complaintId);
-            if (!data) return;
+            const raw = await ParaFirestore.getComplaintById(complaintId);
+            if (!raw) return;
+            const data = resolveComplaintNames(raw);
             currentComplaintId = complaintId;
 
             document.getElementById('c-ref').textContent = data.ref;
@@ -1169,20 +1192,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             const statusEl = document.getElementById('c-status');
-            const normalizedStatus = data.status === 'warning' ? 'warned' : data.status;
+            const normalizedStatus = data.status;
             statusEl.textContent = normalizedStatus.replace(/_/g, ' ').toUpperCase();
             if (normalizedStatus === 'resolved') {
                 statusEl.className = 'status-badge approved';
-            } else if (normalizedStatus === 'suspended') {
+            } else if (normalizedStatus === 'rejected') {
                 statusEl.className = 'status-badge declined';
             } else {
                 statusEl.className = 'status-badge processing';
             }
 
-            // Once a case has been warned/suspended/resolved it's read-only —
-            // same reasoning as "View Details" on Driver Verification: don't
-            // let an already-decided case be actioned again.
-            const isOpen = ['under_review', 'pending', 'review'].includes(normalizedStatus);
+            // Once a case is RESOLVED/REJECTED it's read-only — same reasoning
+            // as "View Details" on Driver Verification: don't let an
+            // already-decided case be actioned again.
+            const isOpen = ['pending', 'reviewing'].includes(normalizedStatus);
             ['complaintWarnBtn', 'complaintSuspendBtn', 'complaintResolveBtn'].forEach((id) => {
                 const btn = document.getElementById(id);
                 if (btn) btn.style.display = isOpen ? '' : 'none';
@@ -1204,6 +1227,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
+    // status is the real ComplaintStatus value to write ('RESOLVED'/'REJECTED')
+    // — it no longer encodes which remedy was applied. That's actionType
+    // ('Warning'/'Suspension'/null), logged separately to driver_actions.
     async function runComplaintAction(status, notes, actionType, suspendDays) {
         if (!currentComplaintId) return;
         const complaint = allComplaints.find((c) => c.id === currentComplaintId);
@@ -1211,16 +1237,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             await ParaFirestore.updateComplaintStatus(currentComplaintId, status, notes);
 
-            // Warning/Suspension also act on the actual reported account — logged
-            // to driver_actions/passenger_actions and notified directly, not just
-            // recorded on the complaint itself.
+            // Warning/Suspension also act on the actual reported account (always
+            // the driver per the real schema) — logged to driver_actions and
+            // notified directly, not just recorded on the complaint itself.
             if (actionType && complaint && complaint.reportedId) {
-                const logAction = complaint.reportedIdType === 'passenger' ? ParaFirestore.logPassengerAction : ParaFirestore.logDriverAction;
-                logAction(complaint.reportedId, complaint.reported, actionType, notes).catch((error) => console.error('Failed to log complaint action:', error));
+                ParaFirestore.logDriverAction(complaint.reportedId, complaint.reported, actionType, notes)
+                    .catch((error) => console.error('Failed to log complaint action:', error));
 
                 if (actionType === 'Suspension') {
-                    const setStatus = complaint.reportedIdType === 'passenger' ? ParaFirestore.updatePassengerStatus : ParaFirestore.updateDriverAccountStatus;
-                    await setStatus(complaint.reportedId, 'suspended', suspendDays || 3, notes);
+                    await ParaFirestore.updateDriverAccountStatus(complaint.reportedId, 'suspended', suspendDays || 3, notes);
                 }
 
                 const notifTitle = actionType === 'Warning' ? 'Account Warning' : 'Account Suspended';
@@ -1230,32 +1255,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                 ParaFirestore.sendDirectNotification(complaint.reportedId, notifTitle, notifBody).catch((error) => console.error('Failed to notify:', error));
             }
 
+            const normalizedStatus = ParaFirestore.normalizeStatus(status);
             const targetIndex = allComplaints.findIndex((c) => c.id === currentComplaintId);
             if (targetIndex !== -1) {
                 allComplaints[targetIndex] = {
                     ...allComplaints[targetIndex],
-                    status,
+                    status: normalizedStatus,
                     adminNotes: notes
                 };
             }
 
             updateComplaintStats();
-            const filterMap = {
-                all: allComplaints,
-                'under review': allComplaints.filter((c) => ['under_review', 'pending', 'review'].includes(c.status)),
-                warned: allComplaints.filter((c) => ['warning', 'warned'].includes(c.status)),
-                suspended: allComplaints.filter((c) => c.status === 'suspended'),
-                resolved: allComplaints.filter((c) => c.status === 'resolved')
-            };
-            renderComplaintTable(filterMap[(window.complaintMgmtStatusFilter || 'all').toLowerCase()] || allComplaints);
+            renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
 
             closeModal('complaintViewModal');
             const successMessages = {
-                resolved: 'Case marked as resolved.',
-                warned: 'Warning issued and sent to the account.',
-                suspended: 'Account suspended and notified.'
+                Warning: 'Warning issued and sent to the account.',
+                Suspension: 'Account suspended and notified.'
             };
-            window.showToast(successMessages[status] || 'Complaint updated.', status === 'suspended' ? 'error' : (status === 'warned' ? 'warning' : 'success'));
+            window.showToast(successMessages[actionType] || 'Case marked as resolved.', actionType === 'Suspension' ? 'error' : (actionType === 'Warning' ? 'warning' : 'success'));
         } catch (error) {
             console.error(`Failed to update complaint to ${status}:`, error);
             window.showToast('Failed to update complaint status.', 'error');
@@ -1271,7 +1289,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             '#05CD99',
             () => {
                 const notesEl = document.getElementById('complaint-admin-notes');
-                runComplaintAction('resolved', notesEl ? notesEl.value.trim() : '', null);
+                runComplaintAction('RESOLVED', notesEl ? notesEl.value.trim() : '', null);
             }
         );
     };
@@ -1287,7 +1305,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             '#FF9E2A',
             () => {
                 const notesEl = document.getElementById('complaint-admin-notes');
-                runComplaintAction('warned', notesEl ? notesEl.value.trim() : '', 'Warning');
+                runComplaintAction('RESOLVED', notesEl ? notesEl.value.trim() : '', 'Warning');
             }
         );
     };
@@ -1323,7 +1341,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             () => {
                 const notesEl = document.getElementById('complaint-admin-notes');
                 const daysSelect = document.getElementById('complaintSuspendDays');
-                runComplaintAction('suspended', notesEl ? notesEl.value.trim() : '', 'Suspension', daysSelect?.value || '3');
+                runComplaintAction('RESOLVED', notesEl ? notesEl.value.trim() : '', 'Suspension', daysSelect?.value || '3');
             },
             customBodyHtml
         );
@@ -1405,7 +1423,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         listEl.innerHTML = pageItems.map((n) => {
             const when = n.createdAtRaw ? ParaFirestore.formatDateTime(n.createdAtRaw) : '—';
-            const audienceLabel = AUDIENCE_LABELS[n.audience] || n.audience || '—';
+            const baseAudienceLabel = AUDIENCE_LABELS[n.audience] || n.audience || '—';
+            const audienceLabel = n.recipientCount
+                ? `${baseAudienceLabel} · ${n.recipientCount} ${n.recipientCount === 1 ? 'recipient' : 'recipients'}`
+                : baseAudienceLabel;
             return `
                 <div style="border:1px solid var(--border-color); border-radius:10px; padding:12px 14px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:10px;">
@@ -1470,8 +1491,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             '#1A73E8',
             async () => {
                 try {
-                    await ParaFirestore.sendBroadcastNotification(title, body, audience);
-                    window.showToast('Notification sent successfully!', 'success');
+                    const { recipientCount } = await ParaFirestore.sendBroadcastNotification(title, body, audience);
+                    if (!recipientCount) {
+                        window.showToast(`No ${audienceLabel.toLowerCase()} accounts were found, so nothing was sent.`, 'warning');
+                        return;
+                    }
+                    window.showToast(`Notification sent to ${recipientCount} ${recipientCount === 1 ? 'user' : 'users'}.`, 'success');
                     titleEl.value = '';
                     bodyEl.value = '';
                     loadNotificationHistory();
@@ -1492,7 +1517,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.location.href = 'index.html';
     };
 
-    ParaFirestore.listenApprovedDrivers(renderDriverManagementTable);
+    ParaFirestore.listenApprovedDrivers((drivers) => {
+        renderDriverManagementTable(drivers);
+        refreshComplaintDisplay();
+    });
+    // Separate from the approved-only list above — this covers every driver
+    // regardless of verification status, purely for resolving names (e.g. on
+    // complaints) where the driver might not be approved yet.
+    ParaFirestore.listenDrivers(null, (drivers) => {
+        window.allDriversForLookup = drivers;
+        refreshComplaintDisplay();
+    });
     ParaFirestore.reactivateExpiredDrivers().catch((error) => {
         console.error('Failed to auto-reactivate expired drivers:', error);
     });
@@ -1510,6 +1545,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     ParaFirestore.listenPassengers((passengers) => {
         window.allPassengers = passengers;
         renderPassengerTable(passengers);
+        refreshComplaintDisplay();
     });
     loadBookingsData();
     ParaFirestore.listenBookings((bookings) => {
@@ -1524,7 +1560,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
     ParaFirestore.listenComplaints((complaints) => {
-        allComplaints = [...(complaints || [])].sort((a, b) => {
+        allComplaints = (complaints || []).map(resolveComplaintNames).sort((a, b) => {
             const timeA = a.createdAtRaw && a.createdAtRaw.getTime ? a.createdAtRaw.getTime() : (a.createdAt instanceof Date ? a.createdAt.getTime() : 0);
             const timeB = b.createdAtRaw && b.createdAtRaw.getTime ? b.createdAtRaw.getTime() : (b.createdAt instanceof Date ? b.createdAt.getTime() : 0);
             return timeB - timeA;

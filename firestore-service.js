@@ -76,6 +76,17 @@ const ParaFirestore = (() => {
         return String(value || '').toLowerCase().replace(/\s+/g, '_');
     }
 
+    // Mirrors the mobile app's User.isAccountSuspended(): accountStatus wins
+    // when it's set, the older isSuspended boolean is the fallback. A plain
+    // `status` field is only read as a last resort for old admin-written
+    // records — the app itself never looks at it.
+    function resolveAccountStatus(data) {
+        const accountStatus = normalizeStatus(getField(data, 'accountStatus'));
+        if (accountStatus) return accountStatus;
+        if (data && data.isSuspended === true) return 'suspended';
+        return normalizeStatus(getField(data, 'status')) || 'active';
+    }
+
     function normalizeRole(value) {
         return String(value || '')
             .trim()
@@ -222,7 +233,7 @@ const ParaFirestore = (() => {
             totalRides,
             cancelled,
             cancelRate,
-            status: normalizeStatus(getField(data, 'status', 'accountStatus')) || 'active',
+            status: resolveAccountStatus(data),
             suspendedUntilRaw: toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until')),
             suspensionReason: data.suspensionReason || '',
             memberSince: formatDateTime(getField(data, 'createdAt', 'created_at', 'memberSince')),
@@ -264,31 +275,35 @@ const ParaFirestore = (() => {
 
     function mapComplaintDoc(doc) {
         const data = doc.data() || {};
-        const status = normalizeStatus(getField(data, 'status', 'complaintStatus', 'state')) || 'under_review';
+        const status = normalizeStatus(getField(data, 'status', 'complaintStatus', 'state')) || 'pending';
         const createdAt = toDate(getField(data, 'createdAt', 'created_at', 'timestamp', 'date', 'submittedAt', 'submitted_at'));
         const updatedAt = toDate(getField(data, 'updatedAt', 'updated_at'));
         const resolvedAt = toDate(getField(data, 'resolvedAt', 'resolved_at'));
         const bookingId = getField(data, 'bookingId', 'booking_id', 'bookingRef', 'booking_ref', 'tripRef', 'trip_ref', 'trip') || '';
         const complaintType = getField(data, 'complaintType', 'issueType', 'type', 'issue') || 'Complaint';
 
+        // Confirmed against the mobile app's real schema (Complaint.kt): a
+        // complaint is always filed BY a passenger (passengerId) ABOUT a
+        // driver (driverId) — never the reverse, and there's no generic
+        // reporter/reported-role pattern. There are also no reporter/reported
+        // NAME-STRING fields at all, only these two uids — display names are
+        // resolved client-side against already-loaded driver/passenger lists;
+        // see resolveComplaintNames() in firestore-ui.js.
         const driverId = getField(data, 'driverId', 'driver_id', 'driverUid') || '';
         const passengerId = getField(data, 'passengerId', 'passenger_id', 'passengerUid') || '';
-
-        // Confirmed against a real complaint doc: reporter/reported are plain
-        // display-name strings, and whichever of driverId/passengerId is
-        // populated identifies the reported party (that's the only one an
-        // admin can actually act against — the reporter doesn't need an
-        // actionable id). passengerId takes precedence if somehow both are set.
-        const reportedId = passengerId || driverId || '';
-        const reportedIdType = passengerId ? 'passenger' : (driverId ? 'driver' : '');
-        const reportedRole = reportedIdType === 'passenger' ? 'Passenger' : (reportedIdType === 'driver' ? 'Driver' : '—');
-        const reporterRole = reportedIdType === 'passenger' ? 'Driver' : (reportedIdType === 'driver' ? 'Passenger' : '—');
+        const reportedId = driverId;
+        const reportedIdType = 'driver';
+        const reportedRole = 'Driver';
+        const reporterRole = 'Passenger';
 
         return {
             id: doc.id,
             ref: getField(data, 'complaintId', 'complaint_id', 'caseId', 'case_id', 'ref') || doc.id,
-            reporter: getField(data, 'reporter') || '—',
-            reported: getField(data, 'reported') || '—',
+            // Placeholder names — overwritten by resolveComplaintNames() once
+            // the driver/passenger lists are loaded. Left as '—' here so
+            // nothing breaks if a caller reads this before that runs.
+            reporter: '—',
+            reported: '—',
             reporterRole,
             reportedRole,
             reportedId,
@@ -296,7 +311,7 @@ const ParaFirestore = (() => {
             issue: complaintType,
             description: getField(data, 'description', 'details', 'desc', 'message') || '—',
             complaintType,
-            adminNotes: getField(data, 'adminNotes', 'admin_notes', 'notes') || '',
+            adminNotes: getField(data, 'resolutionNote', 'adminNotes', 'admin_notes', 'notes') || '',
             driverId,
             passengerId,
             bookingId,
@@ -600,14 +615,15 @@ const ParaFirestore = (() => {
             const now = Date.now();
             const expiredDocs = snapshot.docs.filter((doc) => {
                 const data = doc.data() || {};
-                const status = normalizeStatus(getField(data, 'status', 'accountStatus'));
+                if (!isPassengerRole(data)) return false;
                 const suspendedUntil = toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until'));
-                return status === 'suspended' && suspendedUntil && suspendedUntil.getTime() <= now;
+                return resolveAccountStatus(data) === 'suspended' && suspendedUntil && suspendedUntil.getTime() <= now;
             });
 
             if (expiredDocs.length) {
                 await Promise.all(expiredDocs.map((doc) => db.collection(COLLECTIONS.users).doc(doc.id).update({
-                    status: 'active',
+                    accountStatus: 'active',
+                    isSuspended: false,
                     suspendedUntil: null,
                     suspendedAt: null,
                     suspensionReason: null,
@@ -623,7 +639,8 @@ const ParaFirestore = (() => {
 
     async function updatePassengerStatus(userId, status, suspensionDays = 3, reason = '') {
         const payload = {
-            status,
+            accountStatus: status,
+            isSuspended: status === 'suspended',
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
@@ -651,15 +668,16 @@ const ParaFirestore = (() => {
         const now = Date.now();
         const expiredUsers = snapshot.docs.filter((doc) => {
             const data = doc.data() || {};
-            const status = normalizeStatus(getField(data, 'status', 'accountStatus'));
+            if (!isPassengerRole(data)) return false;
             const suspendedUntil = toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until'));
-            return status === 'suspended' && suspendedUntil && suspendedUntil.getTime() <= now;
+            return resolveAccountStatus(data) === 'suspended' && suspendedUntil && suspendedUntil.getTime() <= now;
         });
 
         if (!expiredUsers.length) return 0;
 
         await Promise.all(expiredUsers.map((doc) => db.collection(COLLECTIONS.users).doc(doc.id).update({
-            status: 'active',
+            accountStatus: 'active',
+            isSuspended: false,
             suspendedUntil: null,
             suspendedAt: null,
             suspensionReason: null,
@@ -722,63 +740,116 @@ const ParaFirestore = (() => {
         });
     }
 
-    async function sendBroadcastNotification(title, body, audience) {
-        await db.collection('notifications').add({
-            title,
-            body,
-            audience,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+    // The mobile app only ever loads `notifications` docs where
+    // userId == the signed-in user (NotificationRepository.kt), shaped like
+    // Notification.kt: {notificationId, userId, title, message, bookingId,
+    // isRead, createdAt (Long millis)}. There's no "audience"/broadcast doc
+    // the app would pick up, so a broadcast has to be fanned out as one doc
+    // per recipient. (Delivery is the app's in-app notification list only —
+    // the app has no push messaging/FCM.)
+    const NOTIFICATION_BATCH_SIZE = 400; // Firestore batches cap at 500 writes
+
+    function notificationRoleKey(data) {
+        return String((data || {}).role || '').toUpperCase() || 'PASSENGER';
     }
 
-    // Same notifications collection the broadcast "Push Notifications" page
-    // already writes to — this just targets one specific user instead of an
-    // audience, so a warned/suspended driver or passenger actually gets told.
+    function rolesForAudience(audience) {
+        if (audience === 'allDrivers') return ['DRIVER'];
+        if (audience === 'allPassengers') return ['PASSENGER'];
+        if (audience === 'everyone') return ['DRIVER', 'PASSENGER', 'PRESIDENT'];
+        return [];
+    }
+
+    async function writeNotificationDocs(userIds, title, message) {
+        const createdAt = Date.now();
+        for (let i = 0; i < userIds.length; i += NOTIFICATION_BATCH_SIZE) {
+            const batch = db.batch();
+            userIds.slice(i, i + NOTIFICATION_BATCH_SIZE).forEach((userId) => {
+                const ref = db.collection('notifications').doc();
+                batch.set(ref, {
+                    notificationId: ref.id,
+                    userId,
+                    title,
+                    message,
+                    bookingId: '',
+                    isRead: false,
+                    createdAt
+                });
+            });
+            await batch.commit();
+        }
+    }
+
+    // One row per send for the admin history page — separate from the
+    // per-recipient `notifications` docs above, otherwise a broadcast to 500
+    // users would show up as 500 history entries. Best-effort: the
+    // notification has already been delivered by the time this runs.
+    async function logAdminNotification({ title, message, audience, recipientId = '', recipientCount }) {
+        try {
+            await db.collection('admin_notifications').add({
+                title,
+                message,
+                audience,
+                recipientId,
+                recipientCount,
+                sentBy: auth.currentUser ? auth.currentUser.uid : '',
+                createdAt: Date.now()
+            });
+        } catch (error) {
+            console.error('Failed to log admin notification:', error);
+        }
+    }
+
+    async function sendBroadcastNotification(title, body, audience) {
+        const roles = rolesForAudience(audience);
+        if (!roles.length) throw new Error(`Unknown notification audience: ${audience}`);
+
+        const snapshot = await db.collection(COLLECTIONS.users).get();
+        const userIds = snapshot.docs
+            .filter((doc) => roles.includes(notificationRoleKey(doc.data())))
+            .map((doc) => doc.id);
+
+        if (!userIds.length) return { recipientCount: 0 };
+
+        await writeNotificationDocs(userIds, title, body);
+        await logAdminNotification({ title, message: body, audience, recipientCount: userIds.length });
+        return { recipientCount: userIds.length };
+    }
+
+    // Targets one specific user (e.g. a warned/suspended driver) — recipientId
+    // is their users/{uid} document id, which is the same as their auth uid.
     async function sendDirectNotification(recipientId, title, body) {
         if (!recipientId) return;
-        await db.collection('notifications').add({
-            title,
-            body,
-            audience: 'individual',
-            recipientId,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        await writeNotificationDocs([recipientId], title, body);
+        await logAdminNotification({ title, message: body, audience: 'individual', recipientId, recipientCount: 1 });
+    }
+
+    async function fetchNotifications(limit = 30) {
+        const snapshot = await db.collection('admin_notifications').orderBy('createdAt', 'desc').limit(limit).get();
+        return snapshot.docs.map((doc) => {
+            const data = doc.data() || {};
+            return {
+                id: doc.id,
+                title: data.title || '',
+                body: data.message || '',
+                audience: data.audience || '',
+                recipientId: data.recipientId || '',
+                recipientCount: Number(data.recipientCount || 0),
+                createdAtRaw: toDate(data.createdAt)
+            };
         });
     }
 
-    // The notifications collection is shared with the mobile app's own
-    // automatic system messages ("New Ride Request", "Booking Cancelled", etc.)
-    // — those never set an audience field, only ones sent from this admin panel
-    // (sendBroadcastNotification/sendDirectNotification) do. Fetch a larger
-    // batch and filter to admin-originated ones client-side, since combining a
-    // Firestore "in" filter with orderBy would require a composite index.
-    const ADMIN_NOTIFICATION_AUDIENCES = ['allDrivers', 'allPassengers', 'everyone', 'individual'];
-
-    async function fetchNotifications(limit = 30) {
-        const snapshot = await db.collection('notifications').orderBy('createdAt', 'desc').limit(200).get();
-        return snapshot.docs
-            .map((doc) => {
-                const data = doc.data() || {};
-                return {
-                    id: doc.id,
-                    title: data.title || '',
-                    body: data.body || '',
-                    audience: data.audience || '',
-                    recipientId: data.recipientId || '',
-                    createdAtRaw: toDate(data.createdAt)
-                };
-            })
-            .filter((n) => ADMIN_NOTIFICATION_AUDIENCES.includes(n.audience))
-            .slice(0, limit);
-    }
-
+    // Real ComplaintStatus enum (Complaint.kt) only has PENDING/REVIEWING/
+    // RESOLVED/REJECTED — there's no separate "warned"/"suspended" status.
+    // Which remedy was applied (warning/suspension/none) is recorded
+    // separately via driver_actions, not on the complaint's own status.
     async function updateComplaintStatus(complaintId, status, notes) {
+        const isClosed = status === 'RESOLVED' || status === 'REJECTED';
         await db.collection(COLLECTIONS.complaints).doc(complaintId).update({
             status,
-            adminNotes: notes || '',
-            resolvedAt: status === 'resolved'
-                ? firebase.firestore.FieldValue.serverTimestamp()
-                : null,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            resolutionNote: notes || '',
+            resolvedAt: isClosed ? Date.now() : null
         });
     }
 
@@ -971,7 +1042,7 @@ const ParaFirestore = (() => {
 
         const openComplaints = complaintsSnap.docs.filter((doc) => {
             const status = normalizeStatus(getField(doc.data(), 'status'));
-            return status === 'under_review' || status === 'pending' || status === 'review';
+            return status === 'pending' || status === 'reviewing';
         }).length;
 
         return {
@@ -982,8 +1053,7 @@ const ParaFirestore = (() => {
                 return verified && active;
             }).length,
             activePassengers: passengerDocs.filter((doc) => {
-                const status = normalizeStatus(getField(doc.data(), 'status', 'accountStatus'));
-                return status !== 'suspended';
+                return resolveAccountStatus(doc.data()) !== 'suspended';
             }).length,
             pendingDrivers,
             openComplaints
