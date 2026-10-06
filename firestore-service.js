@@ -168,16 +168,9 @@ const ParaFirestore = (() => {
             getField(data, 'verificationStatus', 'verification_status', 'status')
         );
         const rawRating = Number(getField(data, 'averageRating', 'rating', 'driverRating', 'overallRating') || 0);
-        // totalRides/acceptanceRate aren't stored fields on the real User doc —
-        // the app computes ride counts on the fly from bookings. These default
-        // to 0 here; Driver Management live-recomputes a real count from
-        // window.allBookings the same way it already does for passengers.
-        const totalRides = Number(getField(data, 'totalRides', 'rides', 'completedTrips', 'tripCount') || 0);
-        const rawAcceptanceRate = Number(getField(data, 'acceptanceRate', 'acceptance_rate', 'acceptanceRatePercent', 'acceptance') || 0);
-        const acceptedTrips = Number(getField(data, 'acceptedTrips', 'acceptedRides', 'acceptanceCount') || 0);
-        const computedAcceptance = totalRides > 0 && acceptedTrips > 0
-            ? (acceptedTrips / totalRides) * 100
-            : rawAcceptanceRate;
+        // No ride count / acceptance rate here: the app doesn't store either on
+        // the driver doc. Driver Management counts completed rides live from
+        // bookings (computeDriverCompletedRides in firestore-ui.js).
 
         const firstName = getField(data, 'firstName', 'first_name');
         const lastName = getField(data, 'lastName', 'last_name');
@@ -192,12 +185,10 @@ const ParaFirestore = (() => {
             vehicle: getField(data, 'tricycleNumber', 'vehicleModel', 'vehicle', 'model'),
             plate: getField(data, 'plateNumber', 'plate', 'plateNo'),
             verificationStatus: verificationStatus || 'pending',
-            accountStatus: normalizeStatus(getField(data, 'accountStatus', 'account_status')) || 'active',
+            accountStatus: resolveAccountStatus(data),
             suspendedUntilRaw: toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until')),
             suspensionReason: data.suspensionReason || '',
             rating: Number.isFinite(rawRating) && rawRating > 0 ? rawRating.toFixed(1) : '—',
-            totalRides,
-            acceptanceRate: Number.isFinite(computedAcceptance) && computedAcceptance > 0 ? `${computedAcceptance.toFixed(0)}%` : '—',
             memberSince: formatDateTime(getField(data, 'createdAt', 'created_at', 'memberSince')),
             memberSinceRaw: toDate(getField(data, 'createdAt', 'created_at', 'memberSince')),
             submittedAt: formatDateTime(getField(data, 'submittedAt', 'submitted_at', 'createdAt', 'created_at')),
@@ -269,7 +260,50 @@ const ParaFirestore = (() => {
             passengerName: getField(data, 'passengerName', 'passenger'),
             totalFare: Number(getField(data, 'fare', 'totalFare', 'amountPaid', 'amount', 'price', 'total_amount')) || 0,
             paymentMethod: getField(data, 'paymentMethod', 'payment_method'),
-            paymentStatus: normalizeStatus(getField(data, 'paymentStatus', 'payment_status'))
+            paymentStatus: normalizeStatus(getField(data, 'paymentStatus', 'payment_status')),
+            // Set by the app when a shared-ride join request times out / is
+            // turned away — those end as DECLINED but aren't a driver declining.
+            joinRequestExpired: data.joinRequestExpired === true
+        };
+    }
+
+    // Per-driver stats from bookings — the app stores neither on the driver doc.
+    //  - completed: COMPLETED bookings with this driver's id.
+    //  - acceptance: accepted / (accepted + declined). "Accepted" = the driver
+    //    took the request and it got at least as far as ACCEPTED. A decline
+    //    blanks the booking's driverId (BookingRepository.kt), so declines are
+    //    matched back to the driver by the plate number the booking still
+    //    carries — weaker than an id (it misses if a driver changes their
+    //    plate, and two drivers sharing a plate would be merged).
+    const ACCEPTED_BOOKING_STATUSES = ['accepted', 'arrived', 'ongoing', 'completed', 'no_show'];
+
+    function normalizePlate(value) {
+        const plate = String(value || '').replace(/\s+/g, '').toUpperCase();
+        return plate === '—' ? '' : plate;
+    }
+
+    function computeDriverStats(driver, bookings) {
+        const plate = normalizePlate(driver.plate);
+        let completed = 0;
+        let accepted = 0;
+        let declined = 0;
+        (bookings || []).forEach((booking) => {
+            const status = normalizeStatus(booking.status);
+            const isDriverDecline = status === 'declined' && !booking.joinRequestExpired;
+            if (booking.driverId && booking.driverId === driver.id) {
+                if (status === 'completed') completed += 1;
+                if (ACCEPTED_BOOKING_STATUSES.includes(status)) accepted += 1;
+                if (isDriverDecline) declined += 1;
+            } else if (!booking.driverId && isDriverDecline && plate && normalizePlate(booking.plate) === plate) {
+                declined += 1;
+            }
+        });
+        const offered = accepted + declined;
+        return {
+            completed,
+            accepted,
+            declined,
+            acceptanceRate: offered > 0 ? `${Math.round((accepted / offered) * 100)}%` : '—'
         };
     }
 
@@ -1119,6 +1153,7 @@ const ParaFirestore = (() => {
         saveFareSettings,
         getDashboardCounts,
         getDriverById,
+        computeDriverStats,
         getComplaintById,
         formatDateTime,
         normalizeStatus

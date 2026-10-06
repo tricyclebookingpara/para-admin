@@ -185,8 +185,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     function renderDriverManagementTable(drivers) {
         const tbody = document.querySelector('#view-driver-management .data-table tbody');
         if (!tbody) return;
-        // store drivers for client-side filtering/sorting
-        window.driverManagementDrivers = drivers || [];
+        // store drivers for client-side filtering/sorting, with ride count and
+        // acceptance rate filled in — computed from bookings, since the app
+        // doesn't store either on the driver doc.
+        const bookingsForStats = window.allBookings || window.dashboardBookings || [];
+        drivers = (drivers || []).map((d) => {
+            const stats = ParaFirestore.computeDriverStats(d, bookingsForStats);
+            return { ...d, totalRides: stats.completed, acceptanceRate: stats.acceptanceRate };
+        });
+        window.driverManagementDrivers = drivers;
 
         const statusFilter = window.driverMgmtStatusFilter || 'all';
         const sortMode = window.driverMgmtSortMode || 'rating-desc';
@@ -222,7 +229,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         tbody.innerHTML = list.map((driver) => {
             const isSuspended = driver.accountStatus === 'suspended';
             const ratingValue = Number(driver.rating) || 0;
-            const acceptanceValue = String(driver.acceptanceRate || '—');
             const actionBtn = isSuspended
                 ? `<button class="action-btn" style="background:#05CD99;" data-action="reactivate-driver" data-id="${escapeHtml(driver.id)}" data-name="${escapeHtml(driver.name)}">Reactivate</button>`
                 : `<button class="action-btn" style="background:#EE5D50;" data-action="ban-driver" data-id="${escapeHtml(driver.id)}" data-name="${escapeHtml(driver.name)}">Deactivate</button>`;
@@ -235,7 +241,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return `<tr>
                 <td><div class="detail-main">${escapeHtml(driver.name)}</div><div class="detail-sub">Member since ${escapeHtml(driver.memberSince)}</div></td>
                 <td><div class="detail-main">${escapeHtml(driver.vehicle || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(driver.plate || '—')}</div></td>
-                <td style="white-space:nowrap;"><div class="rating-stars">${escapeHtml(getDriverPerformanceStars(ratingValue))} <span>${escapeHtml(driver.rating === '—' ? '—' : Number(driver.rating).toFixed(1))}</span></div><div class="detail-sub">${escapeHtml(Number(driver.totalRides || 0))} rides · ${escapeHtml(acceptanceValue === '—' ? '—' : acceptanceValue)} acceptance</div></td>
+                <td style="white-space:nowrap;"><div class="rating-stars">${escapeHtml(getDriverPerformanceStars(ratingValue))} <span>${escapeHtml(driver.rating === '—' ? '—' : Number(driver.rating).toFixed(1))}</span></div><div class="detail-sub">${escapeHtml(Number(driver.totalRides || 0))} completed ${Number(driver.totalRides || 0) === 1 ? 'ride' : 'rides'} · ${escapeHtml(driver.acceptanceRate || '—')} acceptance</div></td>
                 <td>${renderBadge(isSuspended ? 'suspended' : 'active')}${suspensionNote}</td>
                 <td style="white-space:nowrap;">
                     <div style="display:flex; gap:6px; flex-wrap:nowrap;">
@@ -1557,6 +1563,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // table too whenever booking data changes, not just when passengers do.
         if (window.allPassengers) {
             renderPassengerTable(window.allPassengers);
+        }
+        if (window.driverManagementDrivers) {
+            renderDriverManagementTable(window.driverManagementDrivers);
         }
     });
     ParaFirestore.listenComplaints((complaints) => {

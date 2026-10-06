@@ -721,9 +721,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 showToast('No driver activity to export.', 'warning');
                 return;
             }
-            const rows = drivers.map((d) => [d.name, d.vehicle || '—', d.plate || '—', Number(d.rating || 0).toFixed(1), d.totalRides || 0, d.acceptanceRate || '—', d.accountStatus || 'active']);
+            // Ride counts / acceptance aren't stored on the driver doc — compute from bookings.
+            const bookings = (window.allBookings && window.allBookings.length)
+                ? window.allBookings
+                : await ParaFirestore.fetchAllBookings();
+            const rows = drivers.map((d) => {
+                const stats = ParaFirestore.computeDriverStats(d, bookings);
+                return [d.name, d.vehicle || '—', d.plate || '—', Number(d.rating || 0).toFixed(1), stats.completed, stats.acceptanceRate, d.accountStatus || 'active'];
+            });
             downloadCsv(`driver-activity-${new Date().toISOString().slice(0, 10)}.csv`,
-                ['Name', 'Vehicle', 'Plate', 'Rating', 'Total Rides', 'Acceptance Rate', 'Status'], rows);
+                ['Name', 'Vehicle', 'Plate', 'Rating', 'Completed Rides', 'Acceptance Rate', 'Status'], rows);
             showToast(`Exported ${rows.length} driver(s).`, 'success');
         } catch (error) {
             console.error('Failed to export driver activity:', error);
