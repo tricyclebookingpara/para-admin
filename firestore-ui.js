@@ -401,6 +401,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderBookingTable(window.allBookings || []);
     };
 
+    // "Arrived 8:12 AM" / "Dropped off 8:40 AM" line under an address. Empty
+    // when the app never recorded that time (e.g. cancelled/declined bookings).
+    // If it happened on a different day than the booking, the date is shown too.
+    function eventTimeLine(label, eventDate, bookingDate) {
+        if (!eventDate || Number.isNaN(new Date(eventDate).getTime())) return '';
+        const when = new Date(eventDate);
+        const booked = bookingDate ? new Date(bookingDate) : null;
+        const sameDay = booked && !Number.isNaN(booked.getTime()) && when.toDateString() === booked.toDateString();
+        const time = when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        const text = sameDay ? time : `${when.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`;
+        return `<div class="detail-sub" style="margin-top:4px;">${escapeHtml(label)} ${escapeHtml(text)}</div>`;
+    }
+
     function fareColor(status) {
         const colors = {
             completed: '#05CD99',
@@ -460,8 +473,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td style="font-size:13px;">${escapeHtml(booking.dateLabel)}</td>
                 <td><div class="detail-main">${escapeHtml(booking.driverName || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(booking.plate)}</div></td>
                 <td>${escapeHtml(booking.passengerName || '—')}</td>
-                <td style="max-width:190px; font-size:13px; line-height:1.4;">${escapeHtml(booking.pickupLocation)}</td>
-                <td style="max-width:190px; font-size:13px; line-height:1.4;">${escapeHtml(booking.dropoffLocation)}</td>
+                <td style="max-width:190px; font-size:13px; line-height:1.4;">${escapeHtml(booking.pickupLocation)}${eventTimeLine('Arrived', booking.arrivedAtRaw, booking.createdAtRaw)}</td>
+                <td style="max-width:190px; font-size:13px; line-height:1.4;">${escapeHtml(booking.dropoffLocation)}${eventTimeLine('Dropped off', booking.completedAtRaw, booking.createdAtRaw)}</td>
                 <td style="color:${fareColor(booking.status)}; font-weight:600;">&#8369;${escapeHtml(Number(booking.totalFare || 0).toFixed(2))}</td>
             </tr>
         `).join('');

@@ -261,6 +261,11 @@ const ParaFirestore = (() => {
             totalFare: Number(getField(data, 'fare', 'totalFare', 'amountPaid', 'amount', 'price', 'total_amount')) || 0,
             paymentMethod: getField(data, 'paymentMethod', 'payment_method'),
             paymentStatus: normalizeStatus(getField(data, 'paymentStatus', 'payment_status')),
+            // The only ride-progress times the app records: when the driver
+            // tapped "Arrived" at the pickup, and when the trip was completed
+            // (drop-off). There's no saved time for the rider actually boarding.
+            arrivedAtRaw: toDate(data.arrivedAt),
+            completedAtRaw: toDate(data.completedAt),
             // Set by the app when a shared-ride join request times out / is
             // turned away — those end as DECLINED but aren't a driver declining.
             joinRequestExpired: data.joinRequestExpired === true
