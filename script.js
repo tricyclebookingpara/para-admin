@@ -150,6 +150,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let dashboardChart = null;
     let monthlyRidesChart = null;
     let peakHoursRidesChart = null;
+    let passengerDemandChart = null;
+    let paymentMethodChart = null;
     let currentChartFilter = 'This Week';
     window.currentDashboardDateFilter = 'Today';
     window.dashboardBookings = [];
@@ -186,6 +188,32 @@ document.addEventListener('DOMContentLoaded', () => {
         const end = new Date(current.start.getTime());
         const start = new Date(end.getTime() - durationMs);
         return { start, end };
+    }
+
+    // ── Reports & Analytics month filter ─────────────────────────
+    // null = the current month. Every chart and export on the Reports page
+    // reads its date range from reportsMonthBounds() so they always agree.
+    let reportsMonth = null; // { year, month } with month 0-11
+
+    function monthKey(date) {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    function reportsMonthBounds() {
+        const now = new Date();
+        const year = reportsMonth ? reportsMonth.year : now.getFullYear();
+        const month = reportsMonth ? reportsMonth.month : now.getMonth();
+        const start = new Date(year, month, 1, 0, 0, 0, 0);
+        const end = new Date(year, month + 1, 0, 23, 59, 59, 999);
+        return { start, end, label: start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) };
+    }
+
+    function bookingsInReportsMonth(bookings) {
+        const { start, end } = reportsMonthBounds();
+        return (bookings || []).filter((b) => {
+            const date = b.createdAtRaw ? new Date(b.createdAtRaw) : null;
+            return date && !Number.isNaN(date.getTime()) && date >= start && date <= end;
+        });
     }
 
     // Only completed rides actually collected a fare — cancelled/declined bookings
@@ -308,18 +336,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // "This Month" buckets the actual calendar month-to-date (same definition
     // getPeriodBounds('Monthly') uses), not a rolling 28-day window, so this
     // chart and the Reports page agree on what "this month" means.
-    function aggregateMonthlyData(bookings) {
+    function aggregateMonthlyData(bookings, monthDate = new Date()) {
         const labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
         const counts = [0, 0, 0, 0];
         const revenue = [0, 0, 0, 0];
-        const now = new Date();
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        monthStart.setHours(0, 0, 0, 0);
+        const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1, 0, 0, 0, 0);
+        const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999);
 
         bookings.forEach((booking) => {
             const date = new Date(booking.createdAtRaw || booking.date || booking.createdAt || null);
             if (Number.isNaN(date.getTime())) return;
-            if (date < monthStart || date > now) return;
+            if (date < monthStart || date > monthEnd) return;
             const week = Math.min(3, Math.floor((date.getDate() - 1) / 7));
             counts[week] += 1;
             if (isRevenueEligible(booking)) revenue[week] += booking.totalFare || 0;
@@ -440,7 +467,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateStaticCharts() {
         if (monthlyRidesChart) {
-            const aggregated = aggregateMonthlyData(dashboardBookings);
+            const aggregated = aggregateMonthlyData(dashboardBookings, reportsMonthBounds().start);
             monthlyRidesChart.data.labels = aggregated.labels;
             monthlyRidesChart.data.datasets[0].data = aggregated.counts;
             monthlyRidesChart.data.datasets[1].data = aggregated.revenue;
@@ -452,9 +479,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const counts = Array(9).fill(0);
             const uniqueDays = new Set();
 
-            dashboardBookings.forEach((booking) => {
-                const date = new Date(booking.createdAtRaw || booking.date || booking.createdAt || null);
-                if (Number.isNaN(date.getTime())) return;
+            bookingsInReportsMonth(dashboardBookings).forEach((booking) => {
+                const date = new Date(booking.createdAtRaw);
                 uniqueDays.add(date.toDateString());
                 const bucket = Math.floor((date.getHours() - 6) / 2);
                 if (bucket >= 0 && bucket < 9) counts[bucket] += 1;
@@ -591,10 +617,53 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Passenger demand: completed vs cancelled rides per weekday.
+    const ctxDemand = document.getElementById('passengerDemandChart');
+    if (ctxDemand) {
+        passengerDemandChart = new Chart(ctxDemand, {
+            type: 'bar',
+            data: {
+                labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                datasets: [
+                    { label: 'Completed', data: Array(7).fill(0), backgroundColor: '#05CD99', borderRadius: 4 },
+                    { label: 'Cancelled', data: Array(7).fill(0), backgroundColor: '#EE5D50', borderRadius: 4 }
+                ]
+            },
+            options: {
+                ...chartDefaults,
+                scales: {
+                    x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: gridColor },
+                        ticks: { font: { size: 11 }, precision: 0 },
+                        title: { display: true, text: 'Rides', font: { size: 11 } }
+                    }
+                }
+            }
+        });
+    }
+
+    const ctxPayment = document.getElementById('paymentMethodChart');
+    if (ctxPayment) {
+        paymentMethodChart = new Chart(ctxPayment, {
+            type: 'pie',
+            data: {
+                labels: ['GCash', 'Cash'],
+                datasets: [{ data: [0, 0], backgroundColor: ['#1A73E8', '#05CD99'], borderColor: '#fff', borderWidth: 2 }]
+            },
+            options: {
+                ...chartDefaults,
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+
     window.renderDashboardCharts = function(bookings) {
         dashboardBookings = bookings || [];
         window.dashboardBookings = dashboardBookings;
         updateDashboardCharts();
+        populateReportsMonthOptions(dashboardBookings);
         updateStaticCharts();
         renderHighDemandAreas(dashboardBookings);
         if (typeof window.renderRecentActivity === 'function') {
@@ -603,7 +672,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof window.updateDashboardDateCards === 'function') {
             window.updateDashboardDateCards(window.currentDashboardDateFilter || 'Today');
         }
-        // Update Reports & Analytics stat cards (Total Rides (Monthly), Active Drivers, Peak Hour)
+        // Update Reports & Analytics panels (passenger demand, payment methods, peak hour)
         try {
             updateReportsStats(dashboardBookings);
         } catch (e) {
@@ -617,56 +686,142 @@ document.addEventListener('DOMContentLoaded', () => {
         return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     }
 
+    // Completed vs cancelled rides by weekday. Declined, no-show and still-in-
+    // progress bookings are deliberately not charted, so bars add up to fewer
+    // than the total number of requests made.
+    function updatePassengerDemand(bookings) {
+        if (!passengerDemandChart) return;
+
+        const completed = Array(7).fill(0);
+        const cancelled = Array(7).fill(0);
+
+        bookingsInReportsMonth(bookings).forEach((b) => {
+            const day = new Date(b.createdAtRaw).getDay();
+            const status = String(b.status || '').toLowerCase();
+            if (status === 'completed') completed[day] += 1;
+            else if (status === 'cancelled' || status === 'canceled') cancelled[day] += 1;
+        });
+
+        // Chart runs Monday→Sunday; getDay() is Sunday=0.
+        const order = [1, 2, 3, 4, 5, 6, 0];
+        passengerDemandChart.data.datasets[0].data = order.map((d) => completed[d]);
+        passengerDemandChart.data.datasets[1].data = order.map((d) => cancelled[d]);
+        passengerDemandChart.update();
+    }
+
+    function updatePaymentComparison(bookings) {
+        const summaryEl = document.getElementById('paymentSummary');
+        const legendEl = document.getElementById('paymentLegend');
+        const wrapEl = document.getElementById('paymentChartWrap');
+        if (!paymentMethodChart) return;
+
+        const stats = { GCASH: { count: 0, revenue: 0 }, CASH: { count: 0, revenue: 0 } };
+        let unrecorded = 0;
+        bookingsInReportsMonth(bookings).forEach((b) => {
+            if (String(b.status || '').toLowerCase() !== 'completed') return;
+            const method = String(b.paymentMethod || '').toUpperCase();
+            if (stats[method]) {
+                stats[method].count += 1;
+                stats[method].revenue += Number(b.totalFare || 0);
+            } else {
+                unrecorded += 1;
+            }
+        });
+
+        const total = stats.GCASH.count + stats.CASH.count;
+        paymentMethodChart.data.datasets[0].data = [stats.GCASH.count, stats.CASH.count];
+        paymentMethodChart.update();
+        if (wrapEl) wrapEl.style.display = total ? '' : 'none';
+
+        const note = unrecorded ? ` (${unrecorded} completed ${unrecorded === 1 ? 'ride has' : 'rides have'} no payment method recorded)` : '';
+        if (summaryEl) {
+            summaryEl.textContent = total
+                ? `${total} completed ${total === 1 ? 'ride' : 'rides'} with a recorded payment method${note}`
+                : `No completed rides with a recorded payment method in ${reportsMonthBounds().label}${note}.`;
+        }
+        if (legendEl) {
+            legendEl.innerHTML = total
+                ? [['GCash', 'GCASH', '#1A73E8'], ['Cash', 'CASH', '#05CD99']].map(([label, key, color]) => {
+                    const s = stats[key];
+                    const pct = Math.round((s.count / total) * 100);
+                    return `<div style="display:flex; align-items:center; gap:8px;"><span style="width:10px; height:10px; border-radius:50%; background:${color};"></span><span><strong>${label}</strong> · ${pct}% · ${s.count} ${s.count === 1 ? 'ride' : 'rides'} · ${formatCurrency(s.revenue)}</span></div>`;
+                }).join('')
+                : '';
+        }
+    }
+
     function updateReportsStats(bookings) {
-        const reportsCards = document.querySelectorAll('#view-reports .stat-card');
-        if (!reportsCards || reportsCards.length < 4) return;
+        updatePassengerDemand(bookings);
+        updatePaymentComparison(bookings);
 
-        const bounds = getPeriodBounds('Monthly');
-        const previousBounds = getPreviousPeriodBounds('Monthly');
-        const metrics = getBookingMetrics(bookings, bounds.start, bounds.end);
-        const previousMetrics = getBookingMetrics(bookings, previousBounds.start, previousBounds.end);
-
-        // Total Rides (Monthly) — real month-over-month comparison, not the
-        // previous code's "count vs count-1" which always showed ~+1%
-        // regardless of actual trend.
-        const ridesTrend = metrics.count > previousMetrics.count ? 'positive' : metrics.count < previousMetrics.count ? 'negative' : 'neutral';
-        reportsCards[0].querySelector('h2').textContent = (metrics.count || 0).toLocaleString();
-        reportsCards[0].querySelector('.stat-change').textContent = formatChange(metrics.count, previousMetrics.count);
-        reportsCards[0].querySelector('.stat-change').className = `stat-change ${ridesTrend}`;
-
-        // Total Revenue (Monthly) — same completed-only revenue figure used
-        // everywhere else (getBookingMetrics already filters via
-        // isRevenueEligible), just not previously surfaced on this page.
-        const revenueTrend = metrics.revenue > previousMetrics.revenue ? 'positive' : metrics.revenue < previousMetrics.revenue ? 'negative' : 'neutral';
-        reportsCards[1].querySelector('h2').textContent = formatCurrency(metrics.revenue);
-        reportsCards[1].querySelector('.stat-change').textContent = formatChange(metrics.revenue, previousMetrics.revenue);
-        reportsCards[1].querySelector('.stat-change').className = `stat-change ${revenueTrend}`;
-
-        // Active Drivers (from dashboardCounts) — same "new sign-ups this
-        // period" signal used on the main Dashboard, instead of a hardcoded
-        // "Stable" that never reflected real data.
-        const counts = window.dashboardCounts || { activeDrivers: 0 };
-        const newDrivers = countNewInPeriod(window.driverManagementDrivers, bounds);
-        reportsCards[2].querySelector('h2').textContent = (counts.activeDrivers || 0).toLocaleString();
-        reportsCards[2].querySelector('.stat-change').textContent = newDrivers > 0 ? `+${newDrivers} new this month` : 'No new drivers this month';
-        reportsCards[2].querySelector('.stat-change').className = `stat-change ${newDrivers > 0 ? 'positive' : 'neutral'}`;
-
-        // Peak Hour: compute hourly totals over the monthly bounds
+        // Peak hour of the selected month lives in the Peak Hours Analysis
+        // card's subtitle instead of its own stat card.
+        const monthLabel = reportsMonthBounds().label;
         const hourTotals = Array(24).fill(0);
         const uniqueDays = new Set();
-        bookings.forEach((b) => {
-            const date = new Date(b.createdAtRaw || b.date || b.createdAt || null);
-            if (Number.isNaN(date.getTime())) return;
-            if (date < bounds.start || date > bounds.end) return;
+        bookingsInReportsMonth(bookings).forEach((b) => {
+            const date = new Date(b.createdAtRaw);
             hourTotals[date.getHours()] += 1;
             uniqueDays.add(date.toDateString());
         });
-        const maxHour = hourTotals.indexOf(Math.max(...hourTotals));
-        const daysCount = Math.max(1, uniqueDays.size || Math.round((bounds.end - bounds.start) / 86400000));
-        const avgPerHour = Math.round((hourTotals[maxHour] || 0) / daysCount);
+        const peakSummaryEl = document.getElementById('peakHourSummary');
+        if (!peakSummaryEl) return;
+        const peakCount = Math.max(...hourTotals);
+        if (!peakCount) {
+            peakSummaryEl.textContent = `No bookings in ${monthLabel}.`;
+            return;
+        }
+        const maxHour = hourTotals.indexOf(peakCount);
+        const daysCount = Math.max(1, uniqueDays.size);
+        const avgPerHour = (peakCount / daysCount).toFixed(1);
+        peakSummaryEl.textContent = `Peak hour in ${monthLabel}: ${formatHourLabel(maxHour)} · ${avgPerHour} rides per day at that hour`;
+    }
 
-        reportsCards[3].querySelector('h2').textContent = formatHourLabel(maxHour);
-        reportsCards[3].querySelector('.stat-change').textContent = `${avgPerHour} rides/hr avg.`;
+    // Month dropdown on the Reports page: one option per month from the
+    // earliest booking (capped at 24 months back) to the current month.
+    function populateReportsMonthOptions(bookings) {
+        const select = document.getElementById('reportsMonthSelect');
+        if (!select) return;
+
+        const now = new Date();
+        const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const cap = new Date(now.getFullYear(), now.getMonth() - 24, 1);
+        let earliest = currentMonth;
+        (bookings || []).forEach((b) => {
+            const date = b.createdAtRaw ? new Date(b.createdAtRaw) : null;
+            if (!date || Number.isNaN(date.getTime())) return;
+            const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+            if (monthStart < earliest) earliest = monthStart;
+        });
+        if (earliest < cap) earliest = cap;
+
+        const months = [];
+        for (let d = new Date(currentMonth); d >= earliest; d = new Date(d.getFullYear(), d.getMonth() - 1, 1)) {
+            months.push(d);
+        }
+
+        // Rebuilding the list on every booking update would reset the open
+        // dropdown, so only touch it when the set of months actually changed.
+        const signature = months.map(monthKey).join(',');
+        if (select.dataset.signature !== signature) {
+            select.innerHTML = months
+                .map((d) => `<option value="${monthKey(d)}">${d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</option>`)
+                .join('');
+            select.dataset.signature = signature;
+        }
+
+        const wanted = reportsMonth ? monthKey(new Date(reportsMonth.year, reportsMonth.month, 1)) : monthKey(currentMonth);
+        select.value = months.some((d) => monthKey(d) === wanted) ? wanted : monthKey(currentMonth);
+    }
+
+    const reportsMonthSelect = document.getElementById('reportsMonthSelect');
+    if (reportsMonthSelect) {
+        reportsMonthSelect.addEventListener('change', () => {
+            const [year, month] = reportsMonthSelect.value.split('-').map(Number);
+            reportsMonth = { year, month: month - 1 };
+            updateStaticCharts();
+            updateReportsStats(dashboardBookings);
+        });
     }
 
     // ── Reports & Analytics Exports ─────────────────────────────────
@@ -739,10 +894,10 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.exportPeakHoursAnalysis = function() {
+        // Follows the month picked on the Reports page, like the chart does.
         const hourTotals = Array(24).fill(0);
-        (dashboardBookings || []).forEach((b) => {
-            const d = bookingDate(b);
-            if (d && !Number.isNaN(d.getTime())) hourTotals[d.getHours()] += 1;
+        bookingsInReportsMonth(dashboardBookings).forEach((b) => {
+            hourTotals[new Date(b.createdAtRaw).getHours()] += 1;
         });
         const rows = hourTotals.map((count, hour) => [formatHourLabel(hour), count]);
         downloadCsv(`peak-hours-analysis-${new Date().toISOString().slice(0, 10)}.csv`,
@@ -755,16 +910,13 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast('PDF library failed to load.', 'error');
             return;
         }
-        const bounds = getPeriodBounds('Monthly');
-        const rows = (dashboardBookings || [])
-            .filter((b) => {
-                const d = bookingDate(b);
-                return d && !Number.isNaN(d.getTime()) && d >= bounds.start && d <= bounds.end;
-            })
+        // Follows the month picked on the Reports page, like the charts do.
+        const bounds = reportsMonthBounds();
+        const rows = bookingsInReportsMonth(dashboardBookings)
             .sort((a, b) => bookingDate(a) - bookingDate(b));
 
         if (!rows.length) {
-            showToast('No rides recorded this month.', 'warning');
+            showToast(`No rides recorded in ${bounds.label}.`, 'warning');
             return;
         }
 
@@ -773,7 +925,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-        const monthLabel = new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+        const monthLabel = bounds.label;
         // Only completed rides count toward the total — same rule as the
         // revenue figures everywhere else in the app (a cancelled booking's
         // fare was only ever a quote, never collected).
@@ -817,7 +969,7 @@ document.addEventListener('DOMContentLoaded', () => {
             y += rowHeight + 2;
         });
 
-        doc.save(`monthly-ride-report-${new Date().toISOString().slice(0, 7)}.pdf`);
+        doc.save(`monthly-ride-report-${monthKey(bounds.start)}.pdf`);
         showToast(`Exported ${rows.length} ride(s) to PDF.`, 'success');
     };
 

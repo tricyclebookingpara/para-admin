@@ -771,6 +771,8 @@
             <div class="view-section" id="view-reports">
                 <div class="page-header">
                     <h1>Reports &amp; Analytics</h1>
+                    <div style="display:flex; align-items:center; gap:12px;">
+                    <select class="form-input" id="reportsMonthSelect" aria-label="Month" style="width:auto; min-width:170px; cursor:pointer;"></select>
                     <div class="dropdown-wrapper">
                         <button class="primary-btn" onclick="const d=document.getElementById('exportDropdown'); d.classList.add('show'); document.addEventListener('click',function c(e){if(!e.target.closest('.dropdown-wrapper')){d.classList.remove('show');document.removeEventListener('click',c)}});">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -785,24 +787,19 @@
                             </div>
                         </div>
                     </div>
+                    </div>
                 </div>
 
-                <div class="dashboard-grid" style="margin-bottom:20px;">
-                    <div class="stat-card">
-                        <div class="stat-icon icon-blue"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
-                        <div class="stat-info"><h3>Total Rides (Monthly)</h3><h2>12,450</h2><span class="stat-change positive">↑ +15% vs last month</span></div>
+                <div class="report-chart-grid">
+                    <div class="chart-card">
+                        <h3>Passenger Demand</h3>
+                        <div style="position:relative; height:230px; width:100%;"><canvas id="passengerDemandChart"></canvas></div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-icon icon-purple"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-                        <div class="stat-info"><h3>Total Revenue (Monthly)</h3><h2>&#8369;45,231</h2><span class="stat-change positive">&uarr; +15% vs last month</span></div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon icon-green"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
-                        <div class="stat-info"><h3>Active Drivers</h3><h2>842</h2><span class="stat-change positive">↑ +5% vs last month</span></div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon icon-orange"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
-                        <div class="stat-info"><h3>Peak Hour</h3><h2>8:00 AM</h2><span class="stat-change neutral">150 rides/hr avg.</span></div>
+                    <div class="chart-card">
+                        <h3>Payment Methods <span style="font-weight:500; color:var(--text-muted); font-size:12px;">· completed rides</span></h3>
+                        <p id="paymentSummary" style="font-size:13px; color:var(--text-muted); margin:-6px 0 12px;">Loading…</p>
+                        <div id="paymentChartWrap" style="position:relative; height:230px; width:100%;"><canvas id="paymentMethodChart"></canvas></div>
+                        <div id="paymentLegend" style="display:flex; gap:24px; justify-content:center; flex-wrap:wrap; margin-top:12px; font-size:13px;"></div>
                     </div>
                 </div>
 
@@ -813,6 +810,7 @@
                     </div>
                     <div class="chart-card">
                         <h3>Peak Hours Analysis</h3>
+                        <p id="peakHourSummary" style="font-size:13px; color:var(--text-muted); margin:-6px 0 12px;">&nbsp;</p>
                         <div style="position:relative; height:230px; width:100%;"><canvas id="peakHoursRidesChart"></canvas></div>
                     </div>
                 </div>
@@ -1007,7 +1005,7 @@
 <script src="firebase-init.js"></script>
 <script src="firestore-service.js?v=25"></script>
 <script src="driver-prediction.js?v=5"></script>
-<script src="script.js?v=60"></script>
+<script src="script.js?v=66"></script>
 <script src="firestore-ui.js?v=33"></script>
 </body>
 </html>
