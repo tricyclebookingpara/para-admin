@@ -308,10 +308,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const labels = [];
         const counts = Array(7).fill(0);
         const revenue = Array(7).fill(0);
-        const today = new Date();
-        const start = new Date(today);
+        // Calendar week, Sunday→Saturday (getDay() is Sunday=0). Days after
+        // today stay at 0 until they happen.
+        const start = new Date();
         start.setHours(0, 0, 0, 0);
-        start.setDate(start.getDate() - 6);
+        start.setDate(start.getDate() - start.getDay());
 
         for (let i = 0; i < 7; i += 1) {
             const day = new Date(start);
