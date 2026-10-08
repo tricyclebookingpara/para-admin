@@ -81,9 +81,10 @@ body {
 }
 
 .login-logo-wrap img {
-    height: 40px;
+    height: 96px;
     width: auto;
     object-fit: contain;
+    border-radius: 20px;
 }
 
 .login-header {

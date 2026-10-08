@@ -244,7 +244,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td style="white-space:nowrap;"><div class="rating-stars">${escapeHtml(getDriverPerformanceStars(ratingValue))} <span>${escapeHtml(driver.rating === '—' ? '—' : Number(driver.rating).toFixed(1))}</span></div><div class="detail-sub">${escapeHtml(Number(driver.totalRides || 0))} completed ${Number(driver.totalRides || 0) === 1 ? 'ride' : 'rides'} · ${escapeHtml(driver.acceptanceRate || '—')} acceptance</div></td>
                 <td>${renderBadge(isSuspended ? 'suspended' : 'active')}${suspensionNote}</td>
                 <td style="white-space:nowrap;">
-                    <div style="display:flex; gap:6px; flex-wrap:nowrap;">
+                    <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
                         <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="edit-driver" data-id="${escapeHtml(driver.id)}">Edit</button>
                         <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-driver" data-id="${escapeHtml(driver.id)}" data-name="${escapeHtml(driver.name)}">History</button>
                         ${actionBtn}
@@ -357,7 +357,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td style="${cancelStyle}">${escapeHtml(passenger.cancelRate)}</td>
                 <td>${renderBadge(statusKey)}${suspensionNote}</td>
                 <td style="white-space:nowrap;">
-                    <div style="display:flex; gap:6px; flex-wrap:nowrap;">
+                    <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
                         <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="edit-passenger" data-id="${escapeHtml(passenger.id)}">Edit</button>
                         <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-passenger" data-id="${escapeHtml(passenger.id)}" data-name="${escapeHtml(passenger.name)}">History</button>
                         ${actionBtn}
@@ -560,7 +560,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const key = (filterKey || 'all').toLowerCase();
         if (key === 'under review') return allComplaints.filter((c) => ['pending', 'reviewing'].includes(c.status));
         if (key === 'resolved') return allComplaints.filter((c) => c.status === 'resolved');
-        if (key === 'rejected') return allComplaints.filter((c) => c.status === 'rejected');
         return allComplaints;
     }
 

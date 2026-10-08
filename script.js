@@ -67,7 +67,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     registerDropdown('statusFilterBtn', 'statusDropdown');
     registerDropdown('dashboardDateBtn', 'dashboardDateDropdown');
-    registerDropdown('chartFilterBtn', 'chartFilterDropdown');
     registerDropdown('driverVerificationStatusBtn', 'driverVerificationStatusDropdown');
     registerDropdown('driverMgmtStatusBtn', 'driverMgmtStatusDropdown');
     registerDropdown('driverMgmtSortBtn', 'driverMgmtSortDropdown');
@@ -152,7 +151,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let peakHoursRidesChart = null;
     let passengerDemandChart = null;
     let paymentMethodChart = null;
-    let currentChartFilter = 'This Week';
     window.currentDashboardDateFilter = 'Today';
     window.dashboardBookings = [];
 
@@ -160,6 +158,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return `₱${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
 
+    // The one Dashboard filter (Today / Weekly / Monthly / Yearly) drives the
+    // cards, the trend chart and High Demand Areas, so they all read their
+    // date range from here. Week, month and year are the current calendar
+    // period up to now (the week runs Sunday→Saturday).
     function getPeriodBounds(filter) {
         const now = new Date();
         const start = new Date(now);
@@ -167,15 +169,20 @@ document.addEventListener('DOMContentLoaded', () => {
         start.setHours(0, 0, 0, 0);
         switch (filter) {
             case 'Weekly':
-                start.setDate(start.getDate() - 6);
+                start.setDate(start.getDate() - start.getDay());
                 return { start, end };
             case 'Monthly':
                 start.setDate(1);
+                return { start, end };
+            case 'Yearly':
+                start.setMonth(0, 1);
                 return { start, end };
             default:
                 return { start, end };
         }
     }
+
+    const PERIOD_LABELS = { Today: 'Today', Weekly: 'This week', Monthly: 'This month', Yearly: 'This year' };
 
     function getPreviousPeriodBounds(filter) {
         // Compare against the most recent period of EQUAL LENGTH immediately
@@ -273,7 +280,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // against. The honest, computable trend is new sign-ups in this period
         // (registration timestamps are real data) rather than a fabricated delta
         // on the total itself.
-        const periodPhrase = { Today: 'today', Weekly: 'this week', Monthly: 'this month' }[filter] || 'this period';
+        const periodPhrase = (PERIOD_LABELS[filter] || 'this period').toLowerCase();
+        ['dashboardChartPeriod', 'highDemandPeriod'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = PERIOD_LABELS[filter] || '';
+        });
         if (cards[2]) {
             const newDrivers = countNewInPeriod(window.driverManagementDrivers, currentBounds);
             cards[2].querySelector('h2').textContent = counts.activeDrivers.toLocaleString();
@@ -304,15 +315,30 @@ document.addEventListener('DOMContentLoaded', () => {
         return date.toLocaleDateString('en-US', { weekday: 'short' });
     }
 
+    // "Today" buckets the current day by hour.
+    function aggregateDailyData(bookings) {
+        const labels = Array.from({ length: 24 }, (_, hour) => `${hour % 12 || 12}${hour < 12 ? 'AM' : 'PM'}`);
+        const counts = Array(24).fill(0);
+        const revenue = Array(24).fill(0);
+        const today = new Date().toDateString();
+
+        bookings.forEach((booking) => {
+            const date = new Date(booking.createdAtRaw || booking.date || booking.createdAt || null);
+            if (Number.isNaN(date.getTime()) || date.toDateString() !== today) return;
+            const hour = date.getHours();
+            counts[hour] += 1;
+            if (isRevenueEligible(booking)) revenue[hour] += booking.totalFare || 0;
+        });
+
+        return { labels, counts, revenue };
+    }
+
     function aggregateWeeklyData(bookings) {
         const labels = [];
         const counts = Array(7).fill(0);
         const revenue = Array(7).fill(0);
-        // Calendar week, Sunday→Saturday (getDay() is Sunday=0). Days after
-        // today stay at 0 until they happen.
-        const start = new Date();
-        start.setHours(0, 0, 0, 0);
-        start.setDate(start.getDate() - start.getDay());
+        // Days after today stay at 0 until they happen.
+        const start = getPeriodBounds('Weekly').start;
 
         for (let i = 0; i < 7; i += 1) {
             const day = new Date(start);
@@ -373,8 +399,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return { labels, counts, revenue };
     }
 
-    const HIGH_DEMAND_WINDOW_DAYS = 7;
-
     // Location text is free-form rider input ("School", "school", "SCHOOL Gate"),
     // so group by a case-insensitive key and keep a clean, trimmed label for display.
     function normalizeLocationKey(value) {
@@ -382,9 +406,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function computeHighDemandAreas(bookings) {
-        const windowStart = new Date();
-        windowStart.setHours(0, 0, 0, 0);
-        windowStart.setDate(windowStart.getDate() - (HIGH_DEMAND_WINDOW_DAYS - 1));
+        const windowStart = getPeriodBounds(window.currentDashboardDateFilter).start;
 
         const areaCounts = {};
         const areaLabels = {};
@@ -452,12 +474,18 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateDashboardCharts() {
         if (!dashboardChart) return;
         let aggregated;
-        if (currentChartFilter === 'This Month') {
-            aggregated = aggregateMonthlyData(dashboardBookings);
-        } else if (currentChartFilter === 'This Year') {
-            aggregated = aggregateYearlyData(dashboardBookings);
-        } else {
-            aggregated = aggregateWeeklyData(dashboardBookings);
+        switch (window.currentDashboardDateFilter) {
+            case 'Monthly':
+                aggregated = aggregateMonthlyData(dashboardBookings);
+                break;
+            case 'Yearly':
+                aggregated = aggregateYearlyData(dashboardBookings);
+                break;
+            case 'Weekly':
+                aggregated = aggregateWeeklyData(dashboardBookings);
+                break;
+            default:
+                aggregated = aggregateDailyData(dashboardBookings);
         }
 
         dashboardChart.data.labels = aggregated.labels;
@@ -974,15 +1002,6 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast(`Exported ${rows.length} ride(s) to PDF.`, 'success');
     };
 
-    window.selectChartFilter = function(filterStr) {
-        const textSpan = document.getElementById('chartFilterText');
-        const dropdown = document.getElementById('chartFilterDropdown');
-        if (textSpan) textSpan.textContent = filterStr;
-        if (dropdown) dropdown.classList.remove('show');
-        currentChartFilter = filterStr;
-        window.renderDashboardCharts(dashboardBookings);
-    };
-
     // ── Fare Calculator Preview ───────────────────────────────────
     function updateFarePreview() {
         const base = parseFloat(document.getElementById('fare-base')?.value) || 0;
@@ -1272,7 +1291,10 @@ window.selectDashboardDate = function(dateStr) {
     if (textSpan) textSpan.textContent = dateStr;
     if (dropdown) dropdown.classList.remove('show');
 
-        updateDashboardDateCards(dateStr);
+    // One filter for the whole Dashboard: re-render the cards, trend chart
+    // and High Demand Areas for the new period.
+    window.currentDashboardDateFilter = dateStr;
+    window.renderDashboardCharts(window.dashboardBookings);
 };
 
 // ── Sign Out ──────────────────────────────────────────────────────

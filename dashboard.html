@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=35">
+    <link rel="stylesheet" href="style.css?v=40">
 </head>
 <body>
 <div class="app-background">
@@ -16,7 +16,7 @@
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="logo-container">
-                <img src="logo.png" alt="PARA Logo" class="logo-img">
+                <img src="logo-sidebar.png?v=2" alt="PARA Logo" class="logo-img">
             </div>
 
             <div class="menu-group" style="margin-top:18px;">
@@ -118,6 +118,7 @@
                                     <div class="dropdown-item" onclick="selectDashboardDate('Today')"><span class="item-text">Today</span></div>
                                     <div class="dropdown-item" onclick="selectDashboardDate('Weekly')"><span class="item-text">Weekly</span></div>
                                     <div class="dropdown-item" onclick="selectDashboardDate('Monthly')"><span class="item-text">Monthly</span></div>
+                                    <div class="dropdown-item" onclick="selectDashboardDate('Yearly')"><span class="item-text">Yearly</span></div>
                                 </div>
                             </div>
                         </div>
@@ -147,26 +148,14 @@
                     <div class="dashboard-chart-container">
                         <div class="section-header">
                             <h2>Revenue &amp; Bookings Trend</h2>
-                            <div class="dropdown-wrapper">
-                                <button class="filter-btn" id="chartFilterBtn">
-                                    <span id="chartFilterText">This Week</span>
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-                                </button>
-                                <div class="dropdown-menu" id="chartFilterDropdown">
-                                    <div class="dropdown-content">
-                                        <div class="dropdown-item" onclick="selectChartFilter('This Week')"><span class="item-text">This Week</span></div>
-                                        <div class="dropdown-item" onclick="selectChartFilter('This Month')"><span class="item-text">This Month</span></div>
-                                        <div class="dropdown-item" onclick="selectChartFilter('This Year')"><span class="item-text">This Year</span></div>
-                                    </div>
-                                </div>
-                            </div>
+                            <span id="dashboardChartPeriod" style="font-size:12px; color:var(--text-muted); font-weight:500;">Today</span>
                         </div>
                         <div style="position:relative; flex:1; min-height:260px; width:100%;">
                             <canvas id="dashboardChart"></canvas>
                         </div>
                     </div>
                     <div class="dashboard-areas-container">
-                        <div class="section-header"><h2>High Demand Areas</h2><span style="font-size:12px; color:var(--text-muted); font-weight:500;">Last 7 days</span></div>
+                        <div class="section-header"><h2>High Demand Areas</h2><span id="highDemandPeriod" style="font-size:12px; color:var(--text-muted); font-weight:500;">Today</span></div>
                         <div class="table-container" style="padding:0; border:none; box-shadow:none;">
                             <table class="data-table compact-table">
                                 <thead><tr><th>Location</th><th>Level</th><th>Rides</th></tr></thead>
@@ -359,7 +348,7 @@
                         <div style="width:56px;height:56px;border-radius:50%;background:rgba(238,93,80,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#EE5D50" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                         </div>
-                        <p style="font-size:18px; font-weight:700; margin-bottom:8px;">Sign out?</p>
+                        <p style="font-size:18px; font-weight:700; margin-bottom:8px;">Are you sure you want to sign out?</p>
                         <p style="font-size:14px; color:var(--text-muted); line-height:1.5;">You'll be redirected to the login page.</p>
                     </div>
                     <div class="modal-footer" style="justify-content:center;">
@@ -400,7 +389,7 @@
                 </div>
                 <div class="table-container">
                     <table class="data-table">
-                        <thead><tr><th>Driver Name</th><th>Vehicle Details</th><th>Performance</th><th>Status</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Driver Name</th><th>Vehicle Details</th><th>Performance</th><th>Status</th><th style="text-align:center;">Actions</th></tr></thead>
                         <tbody>
                             <tr>
                                 <td><div class="detail-main">Jose Rizal</div><div class="detail-sub">Member since Jan 2023</div></td>
@@ -521,7 +510,7 @@
                 </div>
                 <div class="table-container">
                     <table class="data-table">
-                        <thead><tr><th>Passenger Name</th><th>Contact Info</th><th>Total Rides</th><th>Cancelled</th><th>Cancel Rate</th><th>Status</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Passenger Name</th><th>Contact Info</th><th>Total Rides</th><th>Cancelled</th><th>Cancel Rate</th><th>Status</th><th style="text-align:center;">Actions</th></tr></thead>
                         <tbody>
                             <tr>
                                 <td><div class="detail-main">Maria Clara</div><div class="detail-sub">Member since Feb 2024</div></td>
@@ -608,9 +597,7 @@
                                 <div class="dropdown-content">
                                     <div class="dropdown-item" onclick="setComplaintFilter('All')"><span class="item-text">All</span></div>
                                     <div class="dropdown-item" onclick="setComplaintFilter('Under Review')"><span class="item-text">Under Review</span></div>
-                                    <div class="dropdown-item" onclick="setComplaintFilter('Resolved')"><span class="item-text">Resolved</span></div>
-                                    <div class="dropdown-item" onclick="setComplaintFilter('Rejected')"><span class="item-text">Rejected</span></div>
-                                </div>
+                                    <div class="dropdown-item" onclick="setComplaintFilter('Resolved')"><span class="item-text">Resolved</span></div>                                </div>
                             </div>
                         </div>
                     </div>
@@ -705,7 +692,7 @@
             </div>
 
             <!-- ══ FARE MANAGEMENT ════════════════════════════════════ -->
-            <div class="view-section" id="view-pricing">
+            <div class="view-section view-centered view-centered-md" id="view-pricing">
                 <div class="page-header"><h1>Fare Management</h1></div>
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; max-width:860px;">
                     <div class="form-container">
@@ -865,7 +852,7 @@
             </div>
 
             <!-- ══ NOTIFICATIONS ══════════════════════════════════════ -->
-            <div class="view-section" id="view-notifications">
+            <div class="view-section view-centered view-centered-sm" id="view-notifications">
                 <div class="page-header"><h1>Push Notifications</h1></div>
                 <div class="form-container" style="max-width:680px;">
                     <div class="form-group">
@@ -897,7 +884,7 @@
             </div>
 
             <!-- ══ SETTINGS ════════════════════════════════════════ -->
-            <div class="view-section" id="view-settings">
+            <div class="view-section view-centered view-centered-sm" id="view-settings">
                 <div class="page-header"><h1>Account Settings</h1></div>
                 <div class="form-container settings-section" style="max-width:680px;">
                     <div class="section-header" style="margin-bottom:12px;">
@@ -1005,7 +992,7 @@
 <script src="firebase-init.js"></script>
 <script src="firestore-service.js?v=26"></script>
 <script src="driver-prediction.js?v=5"></script>
-<script src="script.js?v=67"></script>
-<script src="firestore-ui.js?v=34"></script>
+<script src="script.js?v=68"></script>
+<script src="firestore-ui.js?v=36"></script>
 </body>
 </html>
