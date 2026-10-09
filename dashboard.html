@@ -64,7 +64,7 @@
                         </a>
                         <div class="nav-submenu" id="reportsNavSubmenu">
                             <a href="#reports" class="nav-link nav-sublink" data-view="reports"><span>Analytics Overview</span></a>
-                            <a href="#driver-availability" class="nav-link nav-sublink" data-view="driver-availability"><span>Driver Availability</span></a>
+                            <a href="#driver-availability" class="nav-link nav-sublink" data-view="driver-availability"><span>Availability &amp; Demand</span></a>
                         </div>
                     </div>
                     <a href="#notifications" class="nav-link" data-view="notifications">
@@ -119,7 +119,7 @@
                                     <div class="dropdown-item" onclick="selectDashboardDate('Weekly')"><span class="item-text">Weekly</span></div>
                                     <div class="dropdown-item" onclick="selectDashboardDate('Monthly')"><span class="item-text">Monthly</span></div>
                                     <div class="dropdown-item" onclick="selectDashboardDate('Yearly')"><span class="item-text">Yearly</span></div>
-                                </div>
+                            </div>
                             </div>
                         </div>
                     </div>
@@ -217,7 +217,7 @@
                                     <div class="dropdown-item" onclick="selectVerificationStatus('Pending')"><span class="item-text">Pending</span></div>
                                     <div class="dropdown-item" onclick="selectVerificationStatus('Approved')"><span class="item-text">Approved</span></div>
                                     <div class="dropdown-item" onclick="selectVerificationStatus('Rejected')"><span class="item-text">Rejected</span></div>
-                                </div>
+                            </div>
                             </div>
                         </div>
                     </div>
@@ -281,7 +281,7 @@
                                         </div>
                                         <div class="detail-sub" style="margin-top:6px; text-align:center;">Driver's License</div>
                                     </div>
-                                </div>
+                            </div>
                             </div>
                             <div class="doc-section">
                                 <h3>Vehicle Information</h3>
@@ -372,7 +372,7 @@
                                     <div class="dropdown-item" onclick="setDriverManagementStatus('All')"><span class="item-text">All</span></div>
                                     <div class="dropdown-item" onclick="setDriverManagementStatus('Active')"><span class="item-text">Active</span></div>
                                     <div class="dropdown-item" onclick="setDriverManagementStatus('Suspended')"><span class="item-text">Suspended</span></div>
-                                </div>
+                            </div>
                             </div>
                         </div>
 
@@ -384,7 +384,7 @@
                                     <div class="dropdown-item" onclick="setDriverManagementSort('Rating (Low)')"><span class="item-text">Rating (Low)</span></div>
                                     <div class="dropdown-item" onclick="setDriverManagementSort('Rides (High)')"><span class="item-text">Rides (High)</span></div>
                                     <div class="dropdown-item" onclick="setDriverManagementSort('Rides (Low)')"><span class="item-text">Rides (Low)</span></div>
-                                </div>
+                            </div>
                             </div>
                         </div>
                     </div>
@@ -505,7 +505,7 @@
                                     <div class="dropdown-item" onclick="setPassengerManagementStatus('All')"><span class="item-text">All</span></div>
                                     <div class="dropdown-item" onclick="setPassengerManagementStatus('Active')"><span class="item-text">Active</span></div>
                                     <div class="dropdown-item" onclick="setPassengerManagementStatus('Suspended')"><span class="item-text">Suspended</span></div>
-                                </div>
+                            </div>
                             </div>
                         </div>
                     </div>
@@ -617,10 +617,6 @@
                     <div class="stats-bar-item">
                         <div class="sbi-icon" style="background:rgba(238,93,80,0.1);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EE5D50" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div>
                         <div><div class="sbi-label">Total This Month</div><div class="sbi-value" id="complaints-total-month">0</div></div>
-                    </div>
-                    <div class="stats-bar-item">
-                        <div class="sbi-icon" style="background:rgba(238,93,80,0.1);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EE5D50" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg></div>
-                        <div><div class="sbi-label">Suspension Recommended</div><div class="sbi-value" id="complaints-recs-pending">0</div></div>
                     </div>
                 </div>
 
@@ -737,7 +733,7 @@
                                     <div class="dropdown-item" onclick="selectBookingStatus('Completed')"><span class="item-text">Completed</span></div>
                                     <div class="dropdown-item" onclick="selectBookingStatus('Cancelled')"><span class="item-text">Cancelled</span></div>
                                     <div class="dropdown-item" onclick="selectBookingStatus('Declined')"><span class="item-text">Declined</span></div>
-                                </div>
+                            </div>
                             </div>
                         </div>
                         <div class="date-filter-wrap">
@@ -782,17 +778,10 @@
                     </div>
                 </div>
 
-                <div class="report-chart-grid">
-                    <div class="chart-card">
-                        <h3>Passenger Demand</h3>
-                        <div style="position:relative; height:230px; width:100%;"><canvas id="passengerDemandChart"></canvas></div>
-                    </div>
-                    <div class="chart-card">
-                        <h3>Payment Methods <span style="font-weight:500; color:var(--text-muted); font-size:12px;">· completed rides</span></h3>
-                        <p id="paymentSummary" style="font-size:13px; color:var(--text-muted); margin:-6px 0 12px;">Loading…</p>
-                        <div id="paymentChartWrap" style="position:relative; height:230px; width:100%;"><canvas id="paymentMethodChart"></canvas></div>
-                        <div id="paymentLegend" style="display:flex; gap:24px; justify-content:center; flex-wrap:wrap; margin-top:12px; font-size:13px;"></div>
-                    </div>
+                <div class="chart-card report-chart-wide">
+                    <h3>Peak Hours Analysis</h3>
+                    <p id="peakHourSummary" style="font-size:13px; color:var(--text-muted); margin:-6px 0 12px;">&nbsp;</p>
+                    <div style="position:relative; height:300px; width:100%;"><canvas id="peakHoursRidesChart"></canvas></div>
                 </div>
 
                 <div class="report-chart-grid">
@@ -801,110 +790,183 @@
                         <div style="position:relative; height:230px; width:100%;"><canvas id="monthlyRidesChart"></canvas></div>
                     </div>
                     <div class="chart-card">
-                        <h3>Peak Hours Analysis</h3>
-                        <p id="peakHourSummary" style="font-size:13px; color:var(--text-muted); margin:-6px 0 12px;">&nbsp;</p>
-                        <div style="position:relative; height:230px; width:100%;"><canvas id="peakHoursRidesChart"></canvas></div>
+                        <h3>Payment Methods <span style="font-weight:500; color:var(--text-muted); font-size:12px;">· completed rides</span></h3>
+                        <p id="paymentSummary" style="font-size:13px; color:var(--text-muted); margin:-6px 0 12px;">Loading…</p>
+                        <div id="paymentChartWrap" style="position:relative; height:230px; width:100%;"><canvas id="paymentMethodChart"></canvas></div>
+                        <div id="paymentLegend" style="display:flex; gap:24px; justify-content:center; flex-wrap:wrap; margin-top:12px; font-size:13px;"></div>
                     </div>
                 </div>
             </div>
 
-            <!-- ══ DRIVER AVAILABILITY PREDICTION ═════════════════════════ -->
+            <!-- ══ AVAILABILITY & DEMAND FORECAST ═════════════════════════ -->
             <div class="view-section view-centered view-centered-lg" id="view-driver-availability">
-                <div class="page-header"><h1>Driver Availability Prediction</h1></div>
+                <div class="page-header">
+                    <h1>Availability &amp; Demand Forecast</h1>
+                </div>
 
-                <div class="pred-grid">
-                    <div class="form-container pred-card">
-                        <h3 class="pred-card-title">Prediction Inputs</h3>
-                        <div class="form-group"><label>Date</label><input type="date" class="form-input" id="da-date"></div>
-                        <div class="form-group"><label>Time of Day</label><input type="time" class="form-input" id="da-time" step="3600"></div>
-                        <div class="form-group"><label>Area</label><select class="form-input" id="da-area"></select></div>
-                        <div class="form-group">
-                            <label>Past Ride Demand</label>
-                            <input type="text" class="form-input locked-input" id="da-past-demand" readonly tabindex="-1" placeholder="—">
-                            <div class="detail-sub" style="margin-top:4px; line-height:1.5;">Average completed rides per hour in this area at this hour of day on earlier days.</div>
-                        </div>
-                        <div class="form-group">
-                            <label>Rainfall (mm)</label>
-                            <input type="text" class="form-input locked-input" id="da-rainfall" readonly tabindex="-1" placeholder="—">
-                        </div>
-                        <div class="form-group">
-                            <label>Tide Height (m)</label>
-                            <input type="text" class="form-input locked-input" id="da-tide" readonly tabindex="-1" placeholder="—">
-                            <div class="detail-sub" style="margin-top:4px; line-height:1.5;" id="da-tide-match-note">From the uploaded LGU tide bulletin (ft → m): the reading closest to the selected time on that date.</div>
-                            <input type="file" id="da-tide-file" accept=".xlsx,.xls" style="display:none;">
-                            <button type="button" class="action-btn" id="da-tide-upload-btn" style="background:var(--primary); color:#fff; margin-top:8px; width:100%;">Upload Tide Data (.xlsx)</button>
-                            <div class="detail-sub" id="da-tide-file-status" style="margin-top:6px; line-height:1.5;">No tide data loaded yet.</div>
-                        </div>
-                        <div class="form-group">
-                            <label>High-Water Risk Level</label>
-                            <div><span id="da-risk-badge" class="status-badge processing">—</span></div>
-                        </div>
-                        <div class="detail-sub" id="da-env-status" style="margin-bottom:14px; line-height:1.5;">Rainfall and river data come from Open-Meteo; tide comes from the uploaded LGU bulletin.</div>
-                        <button class="primary-btn" id="da-generate-btn" style="width:100%;">Generate Prediction</button>
+                <div class="form-container fc-card fc-selector">
+                    <div class="fc-card-head">
+                        <h3 class="fc-card-title">Select day, hour and area</h3>
+                        <button type="button" class="btn btn-secondary fc-small-btn" id="fc-next-hour-btn">Use next hour</button>
                     </div>
-
-                    <div>
-                        <div class="fare-preview-box pred-result" id="da-result-box">
-                            <h3>Prediction Result</h3>
-                            <div class="fare-row"><span>Predicted Available Drivers</span><span id="da-value" style="font-weight:700; font-size:16px;">–</span></div>
-                            <div class="fare-row"><span>Driver Availability</span><span id="da-badge" class="status-badge processing">–</span></div>
+                    <div class="fc-selector-grid">
+                        <div class="form-group">
+                            <label for="fc-date">Day</label>
+                            <input type="date" class="form-input" id="fc-date">
+                            <div class="detail-sub fc-hint" id="fc-dow">&nbsp;</div>
                         </div>
-                        <div id="da-range-warning" class="pred-warning" style="display:none; margin-top:16px;"></div>
-                        <div class="pred-note" style="margin-top:16px;">
-                            <p id="da-model-note">Loading the trained model…</p>
-                            <p style="margin-top:8px;"><strong>Available drivers = drivers online − drivers busy</strong>, for one area and one hour. Estimates come from past patterns and are meant to support — not replace — operational judgment.</p>
+                        <div class="form-group">
+                            <label for="fc-hour">Hour</label>
+                            <select class="form-input" id="fc-hour"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="fc-area">Area</label>
+                            <select class="form-input" id="fc-area"></select>
                         </div>
                     </div>
                 </div>
 
-                <div class="form-container pred-card" style="max-width:none; margin-top:24px;">
-                    <div class="pred-card-head">
-                        <div>
-                            <h3 class="pred-card-title" style="margin-bottom:4px;">Model Training</h3>
-                            <div class="detail-sub" style="line-height:1.5; max-width:640px;">Fits the regression (ordinary least squares, 80% training / 20% testing) on what the app has logged. <strong>Drivers online</strong> are the drivers the app located in that area and hour. <strong>Drivers busy</strong> are those who were on a ride that hour — rebuilt from completed rides (booking created → drop-off), because the app doesn't log busy status. These are paired with the hour's rainfall, tide (from the uploaded LGU bulletin), high-water risk and past ride demand.</div>
+                <div class="fc-grid">
+                    <div class="form-container fc-card">
+                        <h3 class="fc-card-title">Conditions at that time</h3>
+
+                        <div class="fc-metric">
+                            <div class="fc-metric-name">Rainfall</div>
+                            <div class="fc-metric-body">
+                                <span class="fc-metric-value" id="fc-rain-value">—</span>
+                                <span class="fc-metric-unit">mm</span>
+                                <span class="fc-label" id="fc-rain-label">—</span>
+                            </div>
                         </div>
+
+                        <div class="fc-metric">
+                            <div class="fc-metric-name">Tide</div>
+                            <div class="fc-metric-body">
+                                <span class="fc-metric-value" id="fc-tide-value">—</span>
+                                <span class="fc-metric-unit">ft</span>
+                                <span class="fc-label" id="fc-tide-label">—</span>
+                            </div>
+                            <div class="detail-sub fc-hint" id="fc-tide-note"></div>
+                        </div>
+
+                        <div class="fc-metric">
+                            <div class="fc-metric-name">High-water risk</div>
+                            <div class="fc-metric-body">
+                                <span class="fc-label" id="fc-risk-label">—</span>
+                            </div>
+                        </div>
+
+                        <div class="fc-upload">
+                            <div class="fc-upload-title">Tide data (Excel)</div>
+                            <input type="file" id="fc-tide-file" accept=".xlsx,.xls" style="display:none;">
+                            <div class="fc-upload-row">
+                                <button type="button" class="primary-btn" id="fc-tide-upload-btn">Upload tide data</button>
+                                <button type="button" class="btn btn-danger" id="fc-tide-clear-btn">Clear data</button>
+                            </div>
+                            <div class="detail-sub fc-hint" id="fc-tide-file-status">No tide data loaded yet.</div>
+                        </div>
+
+                        <div class="detail-sub fc-hint" id="fc-env-status"></div>
+                    </div>
+
+                    <div class="form-container fc-card fc-result-card">
+                        <h3 class="fc-card-title">Predictions</h3>
+
+                        <div class="fc-result" id="fc-driver-result">
+                            <div class="fc-result-name">Driver availability</div>
+                            <div class="fc-result-body">
+                                <span class="fc-result-value" id="fc-drv-value">—</span>
+                                <span class="fc-result-unit">drivers</span>
+                                <span class="fc-label fc-label-lg" id="fc-drv-badge">—</span>
+                            </div>
+                        </div>
+
+                        <div class="fc-result" id="fc-demand-result">
+                            <div class="fc-result-name">Passenger booking demand</div>
+                            <div class="fc-result-body">
+                                <span class="fc-result-value" id="fc-dem-value">—</span>
+                                <span class="fc-result-unit">bookings</span>
+                                <span class="fc-label fc-label-lg" id="fc-dem-badge">—</span>
+                            </div>
+                        </div>
+
+                        <div id="fc-range-warning" class="pred-warning" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <div class="form-container fc-card fc-training">
+                    <div class="fc-card-head">
+                        <h3 class="fc-card-title">Model training</h3>
                         <div class="pred-train-controls">
-                            <select class="form-input" id="da-train-window" style="width:auto;">
-                                <option value="14">Last 14 days</option>
-                                <option value="30" selected>Last 30 days</option>
-                                <option value="60">Last 60 days</option>
-                                <option value="90">Last 90 days</option>
+                            <select class="form-input" id="fc-data-source" style="width:auto;" aria-label="Training data">
+                                <option value="sample">Sample data</option>
+                                <option value="real">Real app data</option>
                             </select>
-                            <button class="primary-btn" id="da-train-btn">Train Model</button>
+                            <button class="primary-btn" id="fc-train-btn">Train models</button>
                         </div>
                     </div>
-                    <div class="detail-sub" id="da-train-status" style="margin:14px 0 0; line-height:1.5;"></div>
-                    <div id="da-train-warnings" class="pred-warning" style="display:none; margin-top:14px;"></div>
-                    <div id="da-train-results" style="display:none;">
-                        <div class="pred-table-wrap">
-                            <table class="data-table compact-table" id="da-metrics-table">
-                                <thead><tr><th>Records (train / test)</th><th>R²</th><th>Avg. error (MAE)</th><th>RMSE</th><th>HIGH / MODERATE / LOW</th></tr></thead>
-                                <tbody></tbody>
-                            </table>
-                        </div>
-                        <div class="detail-sub" id="da-metrics-note" style="margin-top:8px; line-height:1.5;"></div>
+                    <div class="detail-sub fc-hint" id="fc-model-note"></div>
+                    <div class="detail-sub fc-hint" id="fc-train-status"></div>
+                    <div id="fc-train-warnings" class="pred-warning" style="display:none; margin-top:14px;"></div>
 
-                        <h4 class="pred-sub-title">Regression Coefficients</h4>
-                        <div class="detail-sub" style="margin-bottom:8px;">Y = b0 + b1·x1 + b2·x2 + … — each input is multiplied by its coefficient and the results are added to the intercept.</div>
-                        <div class="pred-table-wrap">
-                            <table class="data-table compact-table" id="da-coef-table">
-                                <thead><tr><th>Input</th><th>Coefficient</th></tr></thead>
-                                <tbody></tbody>
-                            </table>
+                    <div id="fc-train-results" style="display:none;">
+                        <h4 class="pred-sub-title">HIGH / MODERATE / LOW thresholds</h4>
+                        <div class="fc-thr-grid">
+                            <div class="fc-thr-box">
+                                <div class="fc-thr-name">Driver availability</div>
+                                <div class="fc-thr-scope">Per barangay</div>
+                                <div class="pred-threshold-grid">
+                                    <div class="form-group"><label for="fc-drv-thr-low">LOW below</label><input type="number" min="0" step="1" class="form-input" id="fc-drv-thr-low"></div>
+                                    <div class="form-group"><label for="fc-drv-thr-high">HIGH from</label><input type="number" min="0" step="1" class="form-input" id="fc-drv-thr-high"></div>
+                                </div>
+                                <div class="fc-thr-scope">All barangays</div>
+                                <div class="pred-threshold-grid">
+                                    <div class="form-group"><label for="fc-drv-all-low">LOW below</label><input type="number" min="0" step="1" class="form-input" id="fc-drv-all-low"></div>
+                                    <div class="form-group"><label for="fc-drv-all-high">HIGH from</label><input type="number" min="0" step="1" class="form-input" id="fc-drv-all-high"></div>
+                                </div>
+                            </div>
+                            <div class="fc-thr-box">
+                                <div class="fc-thr-name">Passenger booking demand</div>
+                                <div class="fc-thr-scope">Per barangay</div>
+                                <div class="pred-threshold-grid">
+                                    <div class="form-group"><label for="fc-dem-thr-low">LOW below</label><input type="number" min="0" step="1" class="form-input" id="fc-dem-thr-low"></div>
+                                    <div class="form-group"><label for="fc-dem-thr-high">HIGH from</label><input type="number" min="0" step="1" class="form-input" id="fc-dem-thr-high"></div>
+                                </div>
+                                <div class="fc-thr-scope">All barangays</div>
+                                <div class="pred-threshold-grid">
+                                    <div class="form-group"><label for="fc-dem-all-low">LOW below</label><input type="number" min="0" step="1" class="form-input" id="fc-dem-all-low"></div>
+                                    <div class="form-group"><label for="fc-dem-all-high">HIGH from</label><input type="number" min="0" step="1" class="form-input" id="fc-dem-all-high"></div>
+                                </div>
+                            </div>
                         </div>
+                        <button class="primary-btn" id="fc-save-thresholds-btn">Save thresholds</button>
 
-                        <h4 class="pred-sub-title">Actual vs. Predicted Available Drivers (held-out test data)</h4>
-                        <div style="position:relative; height:260px; max-width:560px;"><canvas id="da-scatter"></canvas></div>
-                    </div>
+                        <details class="fc-details">
+                            <summary>Technical details</summary>
+                            <div class="fc-tabs" role="tablist">
+                                <button type="button" class="fc-tab active" data-kind="availability" role="tab">Driver availability</button>
+                                <button type="button" class="fc-tab" data-kind="demand" role="tab">Passenger booking demand</button>
+                            </div>
 
-                    <div id="da-threshold-box" style="display:none;">
-                        <h4 class="pred-sub-title">HIGH / MODERATE / LOW Thresholds</h4>
-                        <div class="detail-sub" style="margin-bottom:10px; line-height:1.5;">A predicted count below the first number is LOW, from the second number up is HIGH, and in between is MODERATE. Starting values come from the training data (33rd and 67th percentile of non-zero counts) — set your project thresholds here.</div>
-                        <div class="pred-threshold-grid">
-                            <div class="form-group"><label>LOW below</label><input type="number" min="0" step="1" class="form-input" id="da-thr-low"></div>
-                            <div class="form-group"><label>HIGH from</label><input type="number" min="0" step="1" class="form-input" id="da-thr-high"></div>
-                        </div>
-                        <button class="primary-btn" id="da-save-thresholds-btn">Save Thresholds</button>
+                            <div class="pred-table-wrap">
+                                <table class="data-table compact-table" id="fc-metrics-table">
+                                    <thead><tr><th>Records (train / test)</th><th>R²</th><th>Avg. error (MAE)</th><th>RMSE</th></tr></thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                            <div class="detail-sub fc-hint" id="fc-metrics-note"></div>
+
+                            <h4 class="pred-sub-title">Regression coefficients</h4>
+                            <div class="pred-table-wrap">
+                                <table class="data-table compact-table" id="fc-coef-table">
+                                    <thead><tr><th>Input</th><th>Coefficient</th></tr></thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+
+                            <h4 class="pred-sub-title">Actual vs. predicted (test data)</h4>
+                            <div style="position:relative; height:280px; max-width:560px; margin:0 auto;"><canvas id="fc-scatter"></canvas></div>
+                        </details>
                     </div>
                 </div>
             </div>
@@ -1049,11 +1111,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=30"></script>
-<script src="prediction.js?v=3"></script>
-<script src="driver-availability.js?v=2"></script>
-<script src="script.js?v=74"></script>
-<script src="firestore-ui.js?v=41"></script>
-<script src="driver-availability-ui.js?v=1"></script>
+<script src="firestore-service.js?v=31"></script>
+<script src="prediction.js?v=7"></script>
+<script src="sample-data.js?v=7"></script>
+<script src="forecast.js?v=5"></script>
+<script src="script.js?v=75"></script>
+<script src="firestore-ui.js?v=42"></script>
+<script src="forecast-ui.js?v=5"></script>
 </body>
 </html>

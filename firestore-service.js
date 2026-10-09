@@ -1274,6 +1274,17 @@ const ParaFirestore = (() => {
         return { days: dates.length, readings: readings.length, from: dates[0], to: dates[dates.length - 1] };
     }
 
+    // Removes every uploaded tide day (for when a wrong file was uploaded).
+    async function clearTideBulletin() {
+        const snap = await db.collection('tide_bulletin').get();
+        for (let i = 0; i < snap.docs.length; i += 400) {
+            const batch = db.batch();
+            snap.docs.slice(i, i + 400).forEach((doc) => batch.delete(doc.ref));
+            await batch.commit();
+        }
+        return { days: snap.size };
+    }
+
     async function fetchTideBulletin(sinceDateKey) {
         let query = db.collection('tide_bulletin');
         if (sinceDateKey) query = query.where('date', '>=', sinceDateKey);
@@ -1294,21 +1305,36 @@ const ParaFirestore = (() => {
     // The trained Driver Availability model (coefficients, areas, past-demand
     // table, thresholds). One document per prediction, so the app and the
     // other prediction pages read only what they need.
+    // Passenger booking demand is saved the same way in
+    // settings/passenger_demand_model.
+    const PREDICTION_MODEL_DOCS = {
+        availability: 'driver_availability_model',
+        demand: 'passenger_demand_model'
+    };
+
     async function fetchDriverAvailabilityModel() {
-        const doc = await db.collection(COLLECTIONS.fare).doc('driver_availability_model').get();
+        const doc = await db.collection(COLLECTIONS.fare).doc(PREDICTION_MODEL_DOCS.availability).get();
         return doc.exists ? doc.data() : null;
     }
 
-    async function saveDriverAvailabilityModel(model) {
+    async function fetchPassengerDemandModel() {
+        const doc = await db.collection(COLLECTIONS.fare).doc(PREDICTION_MODEL_DOCS.demand).get();
+        return doc.exists ? doc.data() : null;
+    }
+
+    async function savePredictionModel(kind, model) {
         // Firestore rejects NaN/undefined and nested arrays; the model only
         // holds plain numbers, strings, arrays of those and maps.
         const clean = JSON.parse(JSON.stringify(model));
-        await db.collection(COLLECTIONS.fare).doc('driver_availability_model').set({
+        await db.collection(COLLECTIONS.fare).doc(PREDICTION_MODEL_DOCS[kind]).set({
             ...clean,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
             updatedBy: auth.currentUser ? auth.currentUser.uid : ''
         });
     }
+
+    const saveDriverAvailabilityModel = (model) => savePredictionModel('availability', model);
+    const savePassengerDemandModel = (model) => savePredictionModel('demand', model);
 
     async function getDashboardCounts() {
         const [usersSnap, complaintsSnap] = await Promise.all([
@@ -1407,9 +1433,12 @@ const ParaFirestore = (() => {
         saveFareSettings,
         fetchPredictionTrainingData,
         saveTideBulletin,
+        clearTideBulletin,
         fetchTideBulletin,
         fetchDriverAvailabilityModel,
         saveDriverAvailabilityModel,
+        fetchPassengerDemandModel,
+        savePassengerDemandModel,
         getDashboardCounts,
         getDriverById,
         fetchDriverDocuments,

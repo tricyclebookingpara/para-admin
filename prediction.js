@@ -1,8 +1,7 @@
-// Shared prediction engine (used by the Driver Availability page, and by the
-// Passenger Demand page when it is added).
+// Shared prediction engine (used by the Availability & Demand page).
 //
 // What lives here is everything the two predictions have in common:
-//   - Manila time and geohash area helpers
+//   - Manila time, geohash and Hagonoy barangay helpers
 //   - the weather inputs: rainfall and river discharge from Open-Meteo, and
 //     tide from the LGU bulletin the admin uploads (Excel, stored in Firestore
 //     as tide_bulletin), plus the app's flood-risk rules (FloodRiskClassifier)
@@ -10,16 +9,13 @@
 //     MAE / RMSE / R², and HIGH / MODERATE / LOW thresholds
 //
 // It is pure logic (no DOM, no Firestore). What each prediction counts and
-// which inputs it uses is defined in its own file (driver-availability.js).
+// which inputs it uses is defined in forecast.js.
 (function () {
     'use strict';
 
     const HOUR_MS = 3600 * 1000;
 
     const CONFIG = {
-        // ~5 km geohash cells. The app stores a precision-7 geohash (~150 m);
-        // any prefix is the larger cell that contains it.
-        areaPrecision: 5,
         // Same points the mobile app uses (Hagonoy town centre for rain, the
         // river branch for discharge).
         rainPoint: { lat: 14.83, lng: 120.73 },
@@ -36,6 +32,13 @@
         utcOffsetMs: 8 * HOUR_MS,
         baselineDays: 14,
         dischargeAheadDays: 5,
+        // Rainfall labels for one hour of rain (mm): below rainModerateFrom
+        // is Light, from rainStrongFrom up is Strong (PAGASA-style bands).
+        rainModerateFrom: 2.5,
+        rainStrongFrom: 7.5,
+        // Tide labels are relative to the uploaded bulletin: the lowest third
+        // of its readings is Low, the highest third is High.
+        tideMinReadingsForLabel: 3,
         minTrainingRows: 30,
         splitMinRows: 50,
         testShare: 0.2,
@@ -157,13 +160,17 @@
         const { lat, lng } = CONFIG.rainPoint;
         const common = `latitude=${lat}&longitude=${lng}&hourly=precipitation&timezone=Asia%2FManila`;
 
-        const archiveEnd = toKey < today ? toKey : today;
+        // The archive only holds days up to yesterday and rejects anything
+        // newer (HTTP 400), so stop two days short; the forecast API below
+        // supplies the most recent days.
+        const archiveLimit = addDays(today, -2);
+        const archiveEnd = toKey < archiveLimit ? toKey : archiveLimit;
         if (fromKey <= archiveEnd) {
             const data = await fetchJson(`https://archive-api.open-meteo.com/v1/archive?${common}&start_date=${fromKey}&end_date=${archiveEnd}`);
             putSeries(rain, data?.hourly?.time || [], data?.hourly?.precipitation || [], false);
         }
 
-        const recentFrom = addDays(today, -3);
+        const recentFrom = addDays(today, -5);
         const forecastFrom = fromKey > recentFrom ? fromKey : recentFrom;
         const forecastTo = toKey < addDays(today, 14) ? toKey : addDays(today, 14);
         if (forecastFrom <= forecastTo) {
@@ -420,39 +427,70 @@
         };
     }
 
-    // ── Training data ──────────────────────────────────────────────────
-    function cellOfArea(area) {
-        const text = String(area || '');
-        return text.length >= CONFIG.areaPrecision ? text.slice(0, CONFIG.areaPrecision) : '';
+    // ── Locations: the barangays of Hagonoy, Bulacan ───────────────────
+    const HAGONOY_BARANGAYS = [
+        'Abulalas', 'Carillo', 'Iba', 'Iba-Ibayo', 'Mercado', 'Palapat', 'Pugad', 'Sagrada Familia',
+        'San Agustin', 'San Isidro', 'San Jose', 'San Juan', 'San Miguel', 'San Nicolas', 'San Pablo',
+        'San Pascual', 'San Pedro', 'San Roque', 'San Sebastian', 'Santa Cruz', 'Santa Elena',
+        'Santa Monica', 'Santo Niño', 'Santo Rosario', 'Tampok', 'Tibaguin'
+    ];
+
+    function normalizeName(text) {
+        return String(text || '')
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/\bsto\.?\s/g, 'santo ')
+            .replace(/\bsta\.?\s/g, 'santa ')
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim();
     }
 
-    // Readable name for an area cell: the barangay most often seen in the
-    // pickup addresses inside it ("…, San Agustin, Hagonoy, …"), else its
-    // coordinates.
-    function labelAreas(cells, bookingAddresses) {
-        const barangayVotes = {};
-        (bookingAddresses || []).forEach(({ lat, lng, address }) => {
-            if (!Number.isFinite(lat) || !Number.isFinite(lng) || !address) return;
-            const match = String(address).match(/,\s*([^,]+?),\s*Hagonoy/i);
-            if (!match) return;
-            const cell = geohashEncode(lat, lng, CONFIG.areaPrecision);
-            barangayVotes[cell] = barangayVotes[cell] || {};
-            const name = match[1].trim();
-            barangayVotes[cell][name] = (barangayVotes[cell][name] || 0) + 1;
-        });
+    // Longest names first so "Iba-Ibayo" is not read as "Iba".
+    const BARANGAY_MATCHERS = [...HAGONOY_BARANGAYS]
+        .sort((a, b) => b.length - a.length)
+        .map((name) => ({ name, key: ` ${normalizeName(name)} ` }));
 
-        const labels = {};
-        cells.forEach((cell) => {
-            const center = geohashCenter(cell);
-            const votes = barangayVotes[cell];
-            const top = votes ? Object.entries(votes).sort((a, b) => b[1] - a[1])[0][0] : null;
-            labels[cell] = {
-                label: top ? `${top} (${cell})` : `Area ${cell} (${center.lat.toFixed(3)}°N, ${center.lng.toFixed(3)}°E)`,
-                lat: Number(center.lat.toFixed(5)),
-                lng: Number(center.lng.toFixed(5))
-            };
+    // The barangay named in a pickup address ("…, San Agustin, Hagonoy, …"),
+    // or null.
+    function barangayFromAddress(address) {
+        const text = ` ${normalizeName(address)} `;
+        const found = BARANGAY_MATCHERS.find((m) => text.includes(m.key));
+        return found ? found.name : null;
+    }
+
+    function distanceKm(a, b) {
+        const rad = Math.PI / 180;
+        const dLat = (b.lat - a.lat) * rad;
+        const dLng = (b.lng - a.lng) * rad;
+        const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+        return 12742 * Math.asin(Math.sqrt(h));
+    }
+
+    // Where each barangay is, learned from the pickup coordinates of bookings
+    // whose address names it (mean position). -> { name: {lat, lng} }
+    function barangayCentroids(bookings) {
+        const sums = {};
+        (bookings || []).forEach(({ lat, lng, address }) => {
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+            const name = barangayFromAddress(address);
+            if (!name) return;
+            const s = sums[name] || (sums[name] = { lat: 0, lng: 0, n: 0 });
+            s.lat += lat; s.lng += lng; s.n += 1;
         });
-        return labels;
+        const centroids = {};
+        Object.keys(sums).forEach((name) => { centroids[name] = { lat: sums[name].lat / sums[name].n, lng: sums[name].lng / sums[name].n }; });
+        return centroids;
+    }
+
+    // The barangay whose centroid is nearest to a point, if within maxKm.
+    function nearestBarangay(point, centroids, maxKm) {
+        let best = null;
+        let bestKm = Infinity;
+        Object.keys(centroids).forEach((name) => {
+            const km = distanceKm(point, centroids[name]);
+            if (km < bestKm) { bestKm = km; best = name; }
+        });
+        return best !== null && bestKm <= maxKm ? best : null;
     }
 
     // ── Ordinary least squares ─────────────────────────────────────────
@@ -589,6 +627,30 @@
         return { lowBelow, highFrom, suggested: true };
     }
 
+    // ── Qualitative labels for the inputs shown on the admin page ──────
+    function rainLabel(mm) {
+        if (!Number.isFinite(mm)) return null;
+        if (mm < CONFIG.rainModerateFrom) return 'Light';
+        if (mm < CONFIG.rainStrongFrom) return 'Moderate';
+        return 'Strong';
+    }
+
+    // Low / High cut-offs (metres) from every reading in the uploaded bulletin.
+    function tideLevels(tide) {
+        const heights = [];
+        ((tide && tide.byDate) || new Map()).forEach((list) => list.forEach((r) => heights.push(r.meters)));
+        if (heights.length < CONFIG.tideMinReadingsForLabel) return null;
+        heights.sort((a, b) => a - b);
+        return { lowBelow: percentile(heights, 1 / 3), highFrom: percentile(heights, 2 / 3) };
+    }
+
+    function tideLabel(meters, levels) {
+        if (!Number.isFinite(meters) || !levels) return null;
+        if (meters < levels.lowBelow) return 'Low';
+        if (meters < levels.highFrom) return 'Moderate';
+        return 'High';
+    }
+
     function classify(value, thresholds) {
         if (!thresholds || thresholds.lowBelow == null || thresholds.highFrom == null) return null;
         if (value < thresholds.lowBelow) return 'LOW';
@@ -606,8 +668,10 @@
         addDays,
         geohashEncode,
         geohashCenter,
-        cellOfArea,
-        labelAreas,
+        HAGONOY_BARANGAYS,
+        barangayFromAddress,
+        barangayCentroids,
+        nearestBarangay,
         loadEnvironment,
         parseTideWorkbook,
         indexTide,
@@ -622,6 +686,9 @@
         computeMetrics,
         splitIndices,
         suggestThresholds,
+        rainLabel,
+        tideLevels,
+        tideLabel,
         classify
     };
 })();

@@ -1597,8 +1597,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Everything that shows the president's recommendations, refreshed whenever
     // they, the complaints or the driver list change.
     function refreshRecommendationUi() {
-        const statEl = document.getElementById('complaints-recs-pending');
-        if (statEl) statEl.textContent = String(allComplaints.filter(hasOpenRecommendation).length);
         renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
         const modal = document.getElementById('complaintViewModal');
         if (currentComplaintData && modal && modal.classList.contains('active')) {

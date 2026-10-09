@@ -148,7 +148,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let dashboardChart = null;
     let monthlyRidesChart = null;
     let peakHoursRidesChart = null;
-    let passengerDemandChart = null;
     let paymentMethodChart = null;
     window.currentDashboardDateFilter = 'Today';
     window.dashboardBookings = [];
@@ -645,33 +644,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Passenger demand: completed vs cancelled rides per weekday.
-    const ctxDemand = document.getElementById('passengerDemandChart');
-    if (ctxDemand) {
-        passengerDemandChart = new Chart(ctxDemand, {
-            type: 'bar',
-            data: {
-                labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-                datasets: [
-                    { label: 'Completed', data: Array(7).fill(0), backgroundColor: '#05CD99', borderRadius: 4 },
-                    { label: 'Cancelled', data: Array(7).fill(0), backgroundColor: '#EE5D50', borderRadius: 4 }
-                ]
-            },
-            options: {
-                ...chartDefaults,
-                scales: {
-                    x: { grid: { display: false }, ticks: { font: { size: 11 } } },
-                    y: {
-                        beginAtZero: true,
-                        grid: { color: gridColor },
-                        ticks: { font: { size: 11 }, precision: 0 },
-                        title: { display: true, text: 'Rides', font: { size: 11 } }
-                    }
-                }
-            }
-        });
-    }
-
     const ctxPayment = document.getElementById('paymentMethodChart');
     if (ctxPayment) {
         paymentMethodChart = new Chart(ctxPayment, {
@@ -700,7 +672,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof window.updateDashboardDateCards === 'function') {
             window.updateDashboardDateCards(window.currentDashboardDateFilter || 'Today');
         }
-        // Update Reports & Analytics panels (passenger demand, payment methods, peak hour)
+        // Update Reports & Analytics panels (payment methods, monthly rides, peak hour)
         try {
             updateReportsStats(dashboardBookings);
         } catch (e) {
@@ -712,29 +684,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const d = new Date();
         d.setHours(hour, 0, 0, 0);
         return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    }
-
-    // Completed vs cancelled rides by weekday. Declined, no-show and still-in-
-    // progress bookings are deliberately not charted, so bars add up to fewer
-    // than the total number of requests made.
-    function updatePassengerDemand(bookings) {
-        if (!passengerDemandChart) return;
-
-        const completed = Array(7).fill(0);
-        const cancelled = Array(7).fill(0);
-
-        bookingsInReportsMonth(bookings).forEach((b) => {
-            const day = new Date(b.createdAtRaw).getDay();
-            const status = String(b.status || '').toLowerCase();
-            if (status === 'completed') completed[day] += 1;
-            else if (status === 'cancelled' || status === 'canceled') cancelled[day] += 1;
-        });
-
-        // Chart runs Monday→Sunday; getDay() is Sunday=0.
-        const order = [1, 2, 3, 4, 5, 6, 0];
-        passengerDemandChart.data.datasets[0].data = order.map((d) => completed[d]);
-        passengerDemandChart.data.datasets[1].data = order.map((d) => cancelled[d]);
-        passengerDemandChart.update();
     }
 
     function updatePaymentComparison(bookings) {
@@ -779,7 +728,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateReportsStats(bookings) {
-        updatePassengerDemand(bookings);
         updatePaymentComparison(bookings);
 
         // Peak hour of the selected month lives in the Peak Hours Analysis

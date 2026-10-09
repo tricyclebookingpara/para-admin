@@ -676,6 +676,147 @@ body {
     .pred-grid { grid-template-columns: 1fr; }
 }
 
+/* ── Availability & Demand forecast page ── */
+.fc-subtitle { margin-top: 4px; font-size: 13px; color: var(--text-muted); }
+
+.form-container.fc-card { max-width: none; margin-bottom: 24px; }
+.fc-grid .form-container.fc-card { margin-bottom: 0; }
+
+.fc-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+.fc-card-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin: 0;
+}
+
+.fc-card > .fc-card-title { margin-bottom: 18px; }
+
+.fc-hint { margin-top: 6px; line-height: 1.5; }
+.fc-small-btn { padding: 7px 14px; font-size: 13px; }
+
+.fc-selector-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+}
+.fc-selector-grid .form-group { margin-bottom: 0; }
+
+.fc-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 24px;
+    align-items: stretch;
+    margin-bottom: 24px;
+}
+
+.fc-result-card { flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.fc-result-card .fc-card-title { margin-bottom: 4px; }
+.fc-result-card .fc-result { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.fc-result-card .fc-result-value { font-size: 44px; }
+
+/* One condition (rainfall, tide, risk) per row: name, value, label. */
+.fc-metric {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--table-border);
+}
+.fc-metric:first-of-type { padding-top: 0; }
+.fc-metric-name,
+.fc-result-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.fc-metric-body,
+.fc-result-body {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    margin-top: 6px;
+}
+.fc-metric-value { font-size: 24px; font-weight: 700; color: var(--text-main); line-height: 1.2; }
+.fc-metric-unit,
+.fc-result-unit { font-size: 13px; color: var(--text-muted); margin-right: 6px; }
+
+.fc-result {
+    padding: 18px 20px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-light);
+}
+.fc-result-value { font-size: 38px; font-weight: 700; color: var(--text-main); line-height: 1.1; }
+
+/* HIGH / MODERATE / LOW (and Light / Strong, etc.) pill. */
+.fc-label {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 5px 10px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    color: var(--text-muted);
+    background: var(--table-border);
+}
+.fc-label-lg { font-size: 13px; padding: 6px 14px; align-self: center; }
+.fc-label.tone-green { color: var(--status-appr-text); background: var(--status-appr-bg); }
+.fc-label.tone-amber { color: var(--status-proc-text); background: var(--status-proc-bg); }
+.fc-label.tone-red { color: var(--status-decl-text); background: var(--status-decl-bg); }
+.fc-label.tone-blue { color: var(--primary); background: rgba(26, 115, 232, 0.1); }
+
+.fc-upload {
+    margin: 4px 0 14px;
+    padding: 16px;
+    border: 1px dashed var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-light);
+}
+.fc-upload-title { font-size: 13px; font-weight: 700; color: var(--text-main); }
+.fc-upload-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+
+.fc-training .fc-card-head { margin-bottom: 0; }
+
+.fc-tabs {
+    display: inline-flex;
+    gap: 4px;
+    margin-top: 22px;
+    padding: 4px;
+    background: var(--bg-light);
+    border-radius: 10px;
+}
+.fc-tab {
+    border: none;
+    background: transparent;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.fc-tab.active { background: var(--white); color: var(--primary); box-shadow: 0 1px 3px rgba(27, 37, 75, 0.12); }
+
+@media (max-width: 860px) {
+    .fc-grid { grid-template-columns: 1fr; }
+    .fc-selector-grid { grid-template-columns: 1fr; }
+}
+
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
@@ -1188,6 +1329,8 @@ textarea.form-input { resize: vertical; }
 }
 
 /* ── Reports view ── */
+.report-chart-wide { margin-bottom: 20px; }
+
 .report-chart-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1203,3 +1346,40 @@ textarea.form-input { resize: vertical; }
 }
 
 .chart-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 14px; }
+
+/* ── Forecast: location, training and clear-data additions ── */
+.fc-upload-row .btn { padding: 9px 16px; }
+
+.fc-thr-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin: 14px 0 16px;
+}
+.fc-thr-box {
+    padding: 16px 18px 2px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-light);
+}
+.fc-thr-name { font-size: 13px; font-weight: 700; color: var(--text-main); margin-bottom: 12px; }
+.fc-thr-box .pred-threshold-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.fc-details { margin-top: 26px; border-top: 1px solid var(--table-border); padding-top: 16px; }
+.fc-details > summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--primary);
+    list-style: none;
+}
+.fc-details > summary::-webkit-details-marker { display: none; }
+.fc-details > summary::before { content: '▸ '; }
+.fc-details[open] > summary::before { content: '▾ '; }
+
+@media (max-width: 860px) {
+    .fc-thr-grid { grid-template-columns: 1fr; }
+}
+
+.fc-thr-scope { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 8px; }
+.fc-thr-box .fc-thr-scope:not(:first-of-type) { margin-top: 4px; }
