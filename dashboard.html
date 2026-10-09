@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=40">
+    <link rel="stylesheet" href="style.css?v=43">
 </head>
 <body>
 <div class="app-background">
@@ -64,7 +64,7 @@
                         </a>
                         <div class="nav-submenu" id="reportsNavSubmenu">
                             <a href="#reports" class="nav-link nav-sublink" data-view="reports"><span>Analytics Overview</span></a>
-                            <a href="#driver-prediction" class="nav-link nav-sublink" data-view="driver-prediction"><span>Driver Prediction</span></a>
+                            <a href="#driver-availability" class="nav-link nav-sublink" data-view="driver-availability"><span>Driver Availability</span></a>
                         </div>
                     </div>
                     <a href="#notifications" class="nav-link" data-view="notifications">
@@ -803,50 +803,103 @@
                 </div>
             </div>
 
-            <!-- ══ DRIVER AVAILABILITY FORECAST ═══════════════════════ -->
-            <div class="view-section" id="view-driver-prediction">
-                <div class="page-header"><h1>Driver Availability Forecast</h1></div>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; max-width:860px;">
-                    <div class="form-container">
-                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-                            <h3 style="font-size:14px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin:0;">Forecast Inputs</h3>
-                            <button type="button" class="action-btn" id="forecast-refresh-weather-btn" style="background:var(--bg-light); color:var(--text-main); white-space:nowrap;">↻ Refresh Live Rainfall</button>
-                        </div>
-                        <div id="forecast-weather-status" style="font-size:12px; color:var(--text-muted); margin:-12px 0 16px;">Loading live rainfall from Open-Meteo (Hagonoy, Bulacan)…</div>
-                        <div class="form-group"><label>Date</label><input type="date" class="form-input" id="forecast-date"></div>
-                        <div class="form-group"><label>Time of Day</label><input type="time" class="form-input" id="forecast-hour" step="60" required><div class="detail-sub" style="margin-top:4px;">Training data range: 6:00 AM–8:00 PM</div></div>
-                        <div class="form-group"><label>Zone</label><select class="form-input" id="forecast-location"></select></div>
-                        <div class="form-group"><label>Rainfall (mm)</label><input type="number" class="form-input locked-input" id="forecast-rainfall" value="0" readonly tabindex="-1"><div class="detail-sub" style="margin-top:4px;">Live current reading from Open-Meteo · training data range: 0–14.24 mm</div></div>
+            <!-- ══ DRIVER AVAILABILITY PREDICTION ═════════════════════════ -->
+            <div class="view-section view-centered view-centered-lg" id="view-driver-availability">
+                <div class="page-header"><h1>Driver Availability Prediction</h1></div>
+
+                <div class="pred-grid">
+                    <div class="form-container pred-card">
+                        <h3 class="pred-card-title">Prediction Inputs</h3>
+                        <div class="form-group"><label>Date</label><input type="date" class="form-input" id="da-date"></div>
+                        <div class="form-group"><label>Time of Day</label><input type="time" class="form-input" id="da-time" step="3600"></div>
+                        <div class="form-group"><label>Area</label><select class="form-input" id="da-area"></select></div>
                         <div class="form-group">
-                            <label>High Tide Level (m)</label>
-                            <input type="number" class="form-input locked-input" id="forecast-tide" value="" readonly tabindex="-1">
-                            <div class="detail-sub" style="margin-top:4px;" id="forecast-tide-source-note">From uploaded LGU tide data (ft → m) · training data range: 0.5–2.0 m</div>
-                            <div class="detail-sub" style="margin-top:4px; font-weight:600;" id="forecast-tide-match-note"></div>
-                            <input type="file" id="forecast-tide-file" accept=".xlsx,.xls" style="display:none;">
-                            <button type="button" class="action-btn" id="forecast-tide-upload-btn" style="background:var(--primary); color:#fff; margin-top:8px; width:100%;">Upload Tide Data (.xlsx)</button>
-                            <div class="detail-sub" id="forecast-tide-file-status" style="margin-top:6px;">No tide data uploaded yet.</div>
+                            <label>Past Ride Demand</label>
+                            <input type="text" class="form-input locked-input" id="da-past-demand" readonly tabindex="-1" placeholder="—">
+                            <div class="detail-sub" style="margin-top:4px; line-height:1.5;">Average completed rides per hour in this area at this hour of day on earlier days.</div>
                         </div>
                         <div class="form-group">
-                            <label>Computed Flood Risk</label>
-                            <div><span id="forecast-risk-badge" class="status-badge approved">High-Water Risk: No</span></div>
+                            <label>Rainfall (mm)</label>
+                            <input type="text" class="form-input locked-input" id="da-rainfall" readonly tabindex="-1" placeholder="—">
                         </div>
-                        <div id="forecast-range-warning" style="display:none; font-size:12px; color:var(--status-decl-text); background:var(--status-decl-bg); border-radius:8px; padding:10px 12px; margin-bottom:14px; line-height:1.5;">⚠ Rainfall/tide is outside the training data range — this forecast is extrapolated and may be less reliable.</div>
-                        <button class="primary-btn" id="forecast-generate-btn" style="width:100%;">Generate Forecast</button>
+                        <div class="form-group">
+                            <label>Tide Height (m)</label>
+                            <input type="text" class="form-input locked-input" id="da-tide" readonly tabindex="-1" placeholder="—">
+                            <div class="detail-sub" style="margin-top:4px; line-height:1.5;" id="da-tide-match-note">From the uploaded LGU tide bulletin (ft → m): the reading closest to the selected time on that date.</div>
+                            <input type="file" id="da-tide-file" accept=".xlsx,.xls" style="display:none;">
+                            <button type="button" class="action-btn" id="da-tide-upload-btn" style="background:var(--primary); color:#fff; margin-top:8px; width:100%;">Upload Tide Data (.xlsx)</button>
+                            <div class="detail-sub" id="da-tide-file-status" style="margin-top:6px; line-height:1.5;">No tide data loaded yet.</div>
+                        </div>
+                        <div class="form-group">
+                            <label>High-Water Risk Level</label>
+                            <div><span id="da-risk-badge" class="status-badge processing">—</span></div>
+                        </div>
+                        <div class="detail-sub" id="da-env-status" style="margin-bottom:14px; line-height:1.5;">Rainfall and river data come from Open-Meteo; tide comes from the uploaded LGU bulletin.</div>
+                        <button class="primary-btn" id="da-generate-btn" style="width:100%;">Generate Prediction</button>
                     </div>
+
                     <div>
-                        <div class="fare-preview-box" id="forecast-result-box">
-                            <h3>Forecast Result</h3>
-                            <div class="fare-row"><span style="color:var(--text-muted);">Predicted Available Drivers</span><span id="forecast-value">–</span></div>
-                            <div class="fare-row"><span>Availability Status</span><span id="forecast-status-badge" class="status-badge processing">–</span></div>
+                        <div class="fare-preview-box pred-result" id="da-result-box">
+                            <h3>Prediction Result</h3>
+                            <div class="fare-row"><span>Predicted Available Drivers</span><span id="da-value" style="font-weight:700; font-size:16px;">–</span></div>
+                            <div class="fare-row"><span>Driver Availability</span><span id="da-badge" class="status-badge processing">–</span></div>
                         </div>
-                        <div style="background:var(--white); border:1px solid var(--border-color); border-radius:12px; padding:20px; margin-top:16px;">
-                            <p style="font-size:13px; color:var(--text-muted); line-height:1.6;" id="forecast-model-note">Multiple Linear Regression model.</p>
-                            <p style="font-size:12px; color:var(--text-muted); line-height:1.6; margin-top:8px;">Estimates are based on historical patterns and are meant to support — not replace — operational judgment.</p>
+                        <div id="da-range-warning" class="pred-warning" style="display:none; margin-top:16px;"></div>
+                        <div class="pred-note" style="margin-top:16px;">
+                            <p id="da-model-note">Loading the trained model…</p>
+                            <p style="margin-top:8px;"><strong>Available drivers = drivers online − drivers busy</strong>, for one area and one hour. Estimates come from past patterns and are meant to support — not replace — operational judgment.</p>
                         </div>
-                        <div style="background:var(--white); border:1px solid var(--border-color); border-radius:12px; padding:16px; margin-top:16px;">
-                            <p style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px; font-weight:600;">Model Accuracy — Predicted vs. Actual (Test Set)</p>
-                            <img src="actual_vs_predicted.png" alt="Predicted vs actual available drivers scatter plot" style="width:100%; border-radius:8px; border:1px solid var(--border-color);">
+                    </div>
+                </div>
+
+                <div class="form-container pred-card" style="max-width:none; margin-top:24px;">
+                    <div class="pred-card-head">
+                        <div>
+                            <h3 class="pred-card-title" style="margin-bottom:4px;">Model Training</h3>
+                            <div class="detail-sub" style="line-height:1.5; max-width:640px;">Fits the regression (ordinary least squares, 80% training / 20% testing) on what the app has logged. <strong>Drivers online</strong> are the drivers the app located in that area and hour. <strong>Drivers busy</strong> are those who were on a ride that hour — rebuilt from completed rides (booking created → drop-off), because the app doesn't log busy status. These are paired with the hour's rainfall, tide (from the uploaded LGU bulletin), high-water risk and past ride demand.</div>
                         </div>
+                        <div class="pred-train-controls">
+                            <select class="form-input" id="da-train-window" style="width:auto;">
+                                <option value="14">Last 14 days</option>
+                                <option value="30" selected>Last 30 days</option>
+                                <option value="60">Last 60 days</option>
+                                <option value="90">Last 90 days</option>
+                            </select>
+                            <button class="primary-btn" id="da-train-btn">Train Model</button>
+                        </div>
+                    </div>
+                    <div class="detail-sub" id="da-train-status" style="margin:14px 0 0; line-height:1.5;"></div>
+                    <div id="da-train-warnings" class="pred-warning" style="display:none; margin-top:14px;"></div>
+                    <div id="da-train-results" style="display:none;">
+                        <div class="pred-table-wrap">
+                            <table class="data-table compact-table" id="da-metrics-table">
+                                <thead><tr><th>Records (train / test)</th><th>R²</th><th>Avg. error (MAE)</th><th>RMSE</th><th>HIGH / MODERATE / LOW</th></tr></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div class="detail-sub" id="da-metrics-note" style="margin-top:8px; line-height:1.5;"></div>
+
+                        <h4 class="pred-sub-title">Regression Coefficients</h4>
+                        <div class="detail-sub" style="margin-bottom:8px;">Y = b0 + b1·x1 + b2·x2 + … — each input is multiplied by its coefficient and the results are added to the intercept.</div>
+                        <div class="pred-table-wrap">
+                            <table class="data-table compact-table" id="da-coef-table">
+                                <thead><tr><th>Input</th><th>Coefficient</th></tr></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+
+                        <h4 class="pred-sub-title">Actual vs. Predicted Available Drivers (held-out test data)</h4>
+                        <div style="position:relative; height:260px; max-width:560px;"><canvas id="da-scatter"></canvas></div>
+                    </div>
+
+                    <div id="da-threshold-box" style="display:none;">
+                        <h4 class="pred-sub-title">HIGH / MODERATE / LOW Thresholds</h4>
+                        <div class="detail-sub" style="margin-bottom:10px; line-height:1.5;">A predicted count below the first number is LOW, from the second number up is HIGH, and in between is MODERATE. Starting values come from the training data (33rd and 67th percentile of non-zero counts) — set your project thresholds here.</div>
+                        <div class="pred-threshold-grid">
+                            <div class="form-group"><label>LOW below</label><input type="number" min="0" step="1" class="form-input" id="da-thr-low"></div>
+                            <div class="form-group"><label>HIGH from</label><input type="number" min="0" step="1" class="form-input" id="da-thr-high"></div>
+                        </div>
+                        <button class="primary-btn" id="da-save-thresholds-btn">Save Thresholds</button>
                     </div>
                 </div>
             </div>
@@ -991,8 +1044,10 @@
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
 <script src="firestore-service.js?v=26"></script>
-<script src="driver-prediction.js?v=5"></script>
-<script src="script.js?v=68"></script>
+<script src="prediction.js?v=3"></script>
+<script src="driver-availability.js?v=2"></script>
+<script src="script.js?v=72"></script>
 <script src="firestore-ui.js?v=36"></script>
+<script src="driver-availability-ui.js?v=1"></script>
 </body>
 </html>

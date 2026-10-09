@@ -180,7 +180,7 @@ body {
     background: rgba(255,255,255,0.3);
 }
 
-/* ── Sidebar submenu (e.g. Reports & Analytics → Driver Prediction) ── */
+/* ── Sidebar submenu (e.g. Reports & Analytics → Availability & Demand) ── */
 .nav-group { display: flex; flex-direction: column; }
 
 .nav-parent { cursor: pointer; }
@@ -600,6 +600,81 @@ body {
 .view-section.view-centered { width: 100%; margin-left: auto; margin-right: auto; }
 .view-section.view-centered-md { max-width: 860px; }
 .view-section.view-centered-sm { max-width: 680px; }
+.view-section.view-centered-lg { max-width: 1040px; }
+
+/* ── Availability & Demand prediction ── */
+.pred-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+}
+
+.pred-card { max-width: none; }
+
+/* .fare-row:last-child is styled as a bold "total" line; this box has four equal rows. */
+.pred-result .fare-row:last-child {
+    font-weight: inherit;
+    font-size: inherit;
+    color: inherit;
+}
+
+.pred-card-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 20px;
+}
+
+.pred-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.pred-train-controls { display: flex; gap: 10px; align-items: center; }
+
+.pred-sub-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin: 26px 0 8px;
+}
+
+.pred-table-wrap { overflow-x: auto; margin-top: 16px; }
+
+.pred-warning {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--status-decl-text);
+    background: var(--status-decl-bg);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+.pred-note {
+    background: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 18px 20px;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.6;
+}
+
+.pred-threshold-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 220px));
+    gap: 14px;
+}
+
+@media (max-width: 860px) {
+    .pred-grid { grid-template-columns: 1fr; }
+}
 
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(8px); }

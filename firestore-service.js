@@ -1065,6 +1065,141 @@ const ParaFirestore = (() => {
         ).catch((error) => console.error('Failed to log fare change:', error));
     }
 
+    // ── Prediction (driver availability & passenger demand) ────────────
+    // Training data is what the mobile app already logs: where online drivers
+    // are (driverLocationSamples, every ~5 min) and when they go on/offline
+    // (driverStatusEvents), plus completed bookings. Trained coefficients are
+    // saved in settings/driver_availability_model so every screen reads the
+    // same model.
+    const PREDICTION_PAGE_SIZE = 2000;
+    const PREDICTION_MAX_LOG_DOCS = 60000;
+
+    async function fetchActivityLog(collectionName, sinceDate) {
+        const rows = [];
+        let last = null;
+        for (;;) {
+            let query = db.collection(collectionName)
+                .where('timestamp', '>=', sinceDate)
+                .orderBy('timestamp')
+                .limit(PREDICTION_PAGE_SIZE);
+            if (last) query = query.startAfter(last);
+            const snap = await query.get();
+            snap.docs.forEach((doc) => {
+                const data = doc.data() || {};
+                const date = toDate(data.timestamp);
+                if (!date || Number.isNaN(date.getTime())) return;
+                rows.push({ driverId: data.driverId || '', area: data.area || '', ms: date.getTime() });
+            });
+            if (snap.size < PREDICTION_PAGE_SIZE) return { rows, truncated: false };
+            if (rows.length >= PREDICTION_MAX_LOG_DOCS) return { rows, truncated: true };
+            last = snap.docs[snap.docs.length - 1];
+        }
+    }
+
+    async function fetchPredictionTrainingData(sinceDate) {
+        const sinceMs = sinceDate.getTime();
+        const [samples, events, bookingsSnap] = await Promise.all([
+            fetchActivityLog('driverLocationSamples', sinceDate),
+            fetchActivityLog('driverStatusEvents', sinceDate),
+            db.collection(COLLECTIONS.bookings).where('status', '==', 'COMPLETED').get()
+        ]);
+
+        const bookings = [];
+        bookingsSnap.docs.forEach((doc) => {
+            const data = doc.data() || {};
+            const pickup = data.pickupLatLng || {};
+            const lat = Number(pickup.lat);
+            const lng = Number(pickup.lng);
+            // Counted when the ride ended; older bookings without completedAt
+            // fall back to when they were booked.
+            const ms = Number(data.completedAt) > 0 ? Number(data.completedAt) : Number(data.timestamp);
+            if (!Number.isFinite(ms) || ms < sinceMs) return;
+            const hasPickup = Boolean(lat || lng); // the app's "unset" point is 0,0
+            bookings.push({
+                driverId: data.driverId || '',
+                lat: hasPickup ? lat : NaN,
+                lng: hasPickup ? lng : NaN,
+                ms,
+                // booking created -> drop-off: the stretch the driver was busy
+                createdMs: Number(data.timestamp),
+                completedMs: Number(data.completedAt) > 0 ? Number(data.completedAt) : NaN,
+                address: data.pickupLocation || ''
+            });
+        });
+
+        return {
+            samples: samples.rows,
+            events: events.rows,
+            bookings,
+            truncated: samples.truncated || events.truncated
+        };
+    }
+
+    // The LGU tide bulletin the admin uploads (Excel) is stored one document
+    // per date in `tide_bulletin`, so the prediction page and the mobile app
+    // read the same readings:
+    //   tide_bulletin/{YYYY-MM-DD} = { date, readings: [{ minutes, feet, meters }], uploadedAt, uploadedBy }
+    // `minutes` is minutes after midnight, Manila time. Uploading a date that
+    // already exists replaces that date's readings; other dates are untouched.
+    async function saveTideBulletin(readings) {
+        const byDate = {};
+        readings.forEach((r) => {
+            if (!byDate[r.dateKey]) byDate[r.dateKey] = [];
+            byDate[r.dateKey].push({ minutes: r.minutes, feet: r.feet, meters: r.meters });
+        });
+        const dates = Object.keys(byDate).sort();
+        const uploadedBy = auth.currentUser ? auth.currentUser.uid : '';
+        for (let i = 0; i < dates.length; i += 400) {
+            const batch = db.batch();
+            dates.slice(i, i + 400).forEach((dateKey) => {
+                batch.set(db.collection('tide_bulletin').doc(dateKey), {
+                    date: dateKey,
+                    readings: byDate[dateKey].sort((a, b) => a.minutes - b.minutes),
+                    uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    uploadedBy
+                });
+            });
+            await batch.commit();
+        }
+        return { days: dates.length, readings: readings.length, from: dates[0], to: dates[dates.length - 1] };
+    }
+
+    async function fetchTideBulletin(sinceDateKey) {
+        let query = db.collection('tide_bulletin');
+        if (sinceDateKey) query = query.where('date', '>=', sinceDateKey);
+        const snap = await query.get();
+        const readings = [];
+        snap.docs.forEach((doc) => {
+            const data = doc.data() || {};
+            const dateKey = data.date || doc.id;
+            (Array.isArray(data.readings) ? data.readings : []).forEach((r) => {
+                if (Number.isFinite(r.minutes) && Number.isFinite(r.meters)) {
+                    readings.push({ dateKey, minutes: r.minutes, feet: r.feet, meters: r.meters });
+                }
+            });
+        });
+        return readings;
+    }
+
+    // The trained Driver Availability model (coefficients, areas, past-demand
+    // table, thresholds). One document per prediction, so the app and the
+    // other prediction pages read only what they need.
+    async function fetchDriverAvailabilityModel() {
+        const doc = await db.collection(COLLECTIONS.fare).doc('driver_availability_model').get();
+        return doc.exists ? doc.data() : null;
+    }
+
+    async function saveDriverAvailabilityModel(model) {
+        // Firestore rejects NaN/undefined and nested arrays; the model only
+        // holds plain numbers, strings, arrays of those and maps.
+        const clean = JSON.parse(JSON.stringify(model));
+        await db.collection(COLLECTIONS.fare).doc('driver_availability_model').set({
+            ...clean,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedBy: auth.currentUser ? auth.currentUser.uid : ''
+        });
+    }
+
     async function getDashboardCounts() {
         const [usersSnap, complaintsSnap] = await Promise.all([
             db.collection(COLLECTIONS.users).get(),
@@ -1156,6 +1291,11 @@ const ParaFirestore = (() => {
         updateTodaPresidentStatus,
         getFareSettings,
         saveFareSettings,
+        fetchPredictionTrainingData,
+        saveTideBulletin,
+        fetchTideBulletin,
+        fetchDriverAvailabilityModel,
+        saveDriverAvailabilityModel,
         getDashboardCounts,
         getDriverById,
         computeDriverStats,
