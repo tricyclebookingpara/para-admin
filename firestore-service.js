@@ -480,11 +480,11 @@ const ParaFirestore = (() => {
             .sort((a, b) => Number(b.issuedAt || 0) - Number(a.issuedAt || 0));
     }
 
-    // ── Suspension requests from the TODA president ────────────────────
-    // The president's app saves a Suspension as status PENDING and won't take
-    // a second one for that driver until it is decided here. The admin decides:
-    // APPROVED (the admin then suspends the driver) or REJECTED, with
-    // reviewedAt and adminNote, which the president sees in the app.
+    // ── Recommendations from the TODA president ────────────────────────
+    // When the president isn't sure what penalty a driver should get, the app
+    // saves a driver_actions record (Warning / Invalid / Suspension) with the
+    // reason. The admin site shows it in the complaint case to help the admin
+    // decide, and tells the president's app once the admin has acted.
     function mapDriverActionDoc(doc) {
         const data = doc.data() || {};
         return {
@@ -522,14 +522,22 @@ const ParaFirestore = (() => {
         return ids;
     }
 
-    async function reviewSuspensionRequest(actionId, decision, adminNote) {
+    // The president's app shows a suspension recommendation as "Awaiting admin"
+    // until the admin acts on it. Called when the admin suspends the driver
+    // (APPROVED) or closes the case without suspending (REJECTED), so the
+    // president sees what happened; adminNote is shown under it in the app.
+    async function settleDriverActions(actionIds, decision, adminNote) {
         if (decision !== 'APPROVED' && decision !== 'REJECTED') throw new Error('Unknown decision.');
-        await db.collection('driver_actions').doc(actionId).update({
-            status: decision,
-            reviewedAt: Date.now(),
-            adminNote: String(adminNote || '').trim(),
-            reviewedBy: auth.currentUser ? auth.currentUser.uid : ''
-        });
+        const reviewedAt = Date.now();
+        const reviewedBy = auth.currentUser ? auth.currentUser.uid : '';
+        const note = String(adminNote || '').trim();
+        for (let i = 0; i < actionIds.length; i += 400) {
+            const batch = db.batch();
+            actionIds.slice(i, i + 400).forEach((id) => {
+                batch.update(db.collection('driver_actions').doc(id), { status: decision, reviewedAt, adminNote: note, reviewedBy });
+            });
+            await batch.commit();
+        }
     }
 
     // Suspensions this admin site logged before `status` existed have none, so
@@ -1367,7 +1375,7 @@ const ParaFirestore = (() => {
         fetchDriverActions,
         listenSuspensionRequests,
         fetchAdminIds,
-        reviewSuspensionRequest,
+        settleDriverActions,
         repairAdminSuspensionStatus,
         reactivateExpiredDrivers,
         ensurePassengerProfile,

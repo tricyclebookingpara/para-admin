@@ -48,11 +48,6 @@
                         <span>Complaints</span>
                         <span class="nav-badge">3</span>
                     </a>
-                    <a href="#suspension-requests" class="nav-link" data-view="suspension-requests">
-                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg>
-                        <span>Suspension Requests</span>
-                        <span class="nav-badge hidden"></span>
-                    </a>
                     <a href="#pricing" class="nav-link" data-view="pricing">
                         <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                         <span>Fare Management</span>
@@ -623,6 +618,10 @@
                         <div class="sbi-icon" style="background:rgba(238,93,80,0.1);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EE5D50" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div>
                         <div><div class="sbi-label">Total This Month</div><div class="sbi-value" id="complaints-total-month">0</div></div>
                     </div>
+                    <div class="stats-bar-item">
+                        <div class="sbi-icon" style="background:rgba(238,93,80,0.1);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EE5D50" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg></div>
+                        <div><div class="sbi-label">Suspension Recommended</div><div class="sbi-value" id="complaints-recs-pending">0</div></div>
+                    </div>
                 </div>
 
                 <div class="table-container">
@@ -684,7 +683,7 @@
                         </div>
                         <div class="form-group"><label>Issue Type</label><input type="text" class="form-input" id="c-issue" readonly style="background:var(--bg-light); border-color:transparent;"></div>
                         <div class="form-group"><label>Full Description</label><textarea class="form-input" id="c-desc" rows="4" readonly style="background:var(--bg-light); border-color:transparent; resize:none;"></textarea></div>
-                        <div class="form-group"><label>TODA President Recommendation</label><input type="text" class="form-input" id="c-toda-rec" readonly style="background:var(--bg-light); border-color:transparent; font-weight:600;"></div>
+                        <div class="form-group"><label>TODA President Recommendation</label><div id="c-toda-rec-box" style="background:var(--bg-light); border-radius:10px; padding:12px 14px; font-size:14px;"><div style="color:var(--text-muted);">—</div></div></div>
                         <hr style="border:none; border-top:1px solid var(--border-color); margin:20px 0;">
                         <h3 style="font-size:15px; font-weight:700; margin-bottom:14px;">Take Action</h3>
                         <div class="form-group"><label>Resolution Note</label><textarea id="complaint-admin-notes" class="form-input" rows="3" placeholder="Type your resolution or notes here…"></textarea><div class="detail-sub" style="margin-top:4px;">Sent to the passenger who reported it, and to the driver too when you issue a warning or suspension.</div></div>
@@ -695,33 +694,6 @@
                         <button class="btn btn-success" id="complaintResolveBtn" onclick="window.resolveComplaint()">Mark Resolved</button>
                         <span id="complaintActionedNote" style="display:none; font-size:13px; color:var(--text-muted);">This case has already been reviewed.</span>
                     </div>
-                </div>
-            </div>
-
-            <!-- ══ SUSPENSION REQUESTS ════════════════════════════════ -->
-            <div class="view-section" id="view-suspension-requests">
-                <div class="page-header">
-                    <h1>Suspension Requests</h1>
-                    <div class="header-controls">
-                        <div class="dropdown-wrapper">
-                            <button class="filter-btn" id="suspensionStatusBtn">Status <span class="filter-val">Pending</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
-                            <div class="dropdown-menu" id="suspensionStatusDropdown">
-                                <div class="dropdown-content">
-                                    <div class="dropdown-item" onclick="setSuspensionFilter('Pending')"><span class="item-text">Pending</span></div>
-                                    <div class="dropdown-item" onclick="setSuspensionFilter('Approved')"><span class="item-text">Approved</span></div>
-                                    <div class="dropdown-item" onclick="setSuspensionFilter('Declined')"><span class="item-text">Declined</span></div>
-                                    <div class="dropdown-item" onclick="setSuspensionFilter('All')"><span class="item-text">All</span></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="detail-sub" style="margin-bottom:16px; line-height:1.6; max-width:760px;">The TODA president can only recommend a suspension. The driver stays active until you approve it here, and the president sees your decision and note in the app. Until you decide, the app won't take another suspension recommendation for the same driver.</div>
-                <div class="table-container">
-                    <table class="data-table">
-                        <thead><tr><th>Driver</th><th>Recommended by</th><th>Reason</th><th>Status</th><th style="text-align:center;">Actions</th></tr></thead>
-                        <tbody id="suspensionRequestsBody"></tbody>
-                    </table>
                 </div>
             </div>
 
@@ -1077,11 +1049,11 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=28"></script>
+<script src="firestore-service.js?v=30"></script>
 <script src="prediction.js?v=3"></script>
 <script src="driver-availability.js?v=2"></script>
-<script src="script.js?v=73"></script>
-<script src="firestore-ui.js?v=38"></script>
+<script src="script.js?v=74"></script>
+<script src="firestore-ui.js?v=41"></script>
 <script src="driver-availability-ui.js?v=1"></script>
 </body>
 </html>

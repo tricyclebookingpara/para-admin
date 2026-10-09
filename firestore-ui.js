@@ -708,7 +708,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td><div class="book-id">${escapeHtml(complaint.ref)}</div><div class="book-time">Reporter: ${escapeHtml(complaint.reporter)}</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.reported)}</div><div class="detail-sub">Trip: ${escapeHtml(complaint.tripRef)}</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.issue)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
-                <td>${renderBadge(complaint.status)}</td>
+                <td>${renderBadge(complaint.status)}${hasOpenRecommendation(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#EE5D50; font-weight:600;">Suspension recommended</div>' : ''}</td>
                 <td><button class="action-btn" data-action="view-complaint" data-id="${escapeHtml(complaint.id)}">View Case</button></td>
             </tr>
         `).join('');
@@ -1069,12 +1069,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             listEl.innerHTML = actions.map((action) => {
                 const color = typeColor[action.actionType] || 'var(--text-main)';
                 const when = action.issuedAt ? new Date(Number(action.issuedAt)).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
-                // A suspension the TODA president recommended carries the admin's decision.
-                const isPresidentRecommendation = action.actionType === 'Suspension' && action.issuedByRole !== 'ADMIN' && action.issuedBy !== user.uid;
-                const decision = { APPROVED: 'approved', REJECTED: 'declined' }[String(action.status || '').toUpperCase()] || 'awaiting admin review';
-                const recommendedBy = isPresidentRecommendation
-                    ? `Recommended by ${action.issuedByName || 'the TODA president'} · ${decision}`
-                    : '';
+                // Records the TODA president made (rather than this admin site) say so.
+                const fromPresident = action.issuedByRole !== 'ADMIN' && action.issuedBy && action.issuedBy !== user.uid;
+                const byLine = fromPresident ? `From the TODA president${action.issuedByName ? ` (${action.issuedByName})` : ''}` : '';
+
                 return `
                     <div style="border:1px solid var(--border-color); border-radius:10px; padding:12px 14px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
@@ -1082,8 +1080,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             <span style="font-size:12px; color:var(--text-muted);">${escapeHtml(when)}</span>
                         </div>
                         ${action.reason ? `<div style="font-size:13px; color:var(--text-main);">${escapeHtml(action.reason)}</div>` : ''}
-                        ${recommendedBy ? `<div class="detail-sub" style="margin-top:4px;">${escapeHtml(recommendedBy)}</div>` : ''}
-                        ${action.adminNote ? `<div class="detail-sub" style="margin-top:4px;">Admin note: ${escapeHtml(action.adminNote)}</div>` : ''}
+                        ${byLine ? `<div class="detail-sub" style="margin-top:4px;">${escapeHtml(byLine)}</div>` : ''}
                     </div>
                 `;
             }).join('');
@@ -1163,6 +1160,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const reason = reasonInput ? reasonInput.value.trim() : '';
                     await ParaFirestore.updateDriverAccountStatus(driverId, 'suspended', daysValue, reason);
                     ParaFirestore.logDriverAction(driverId, name, 'Suspension', reason).catch((error) => console.error('Failed to log driver action:', error));
+                    settleOnSuspension(driverId, reason);
                     const durationLabel = daysValue === 'permanent' ? 'indefinitely' : `for ${daysValue} day${daysValue === '1' ? '' : 's'}`;
                     window.showToast(`${name} has been deactivated ${durationLabel}.`, 'error');
                 } catch (error) {
@@ -1266,22 +1264,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-    // One line for the complaint window: what the TODA president recorded
-    // against the driver for this complaint. Only the president's own
-    // recommendations count here, not the admin's earlier actions.
-    function describePresidentRecommendation(actions) {
-        const fromPresident = (actions || []).filter((a) => a.issuedByRole !== 'ADMIN' && a.issuedBy !== user.uid);
-        const suspension = fromPresident.find((a) => a.actionType === 'Suspension');
-        if (suspension) {
-            if (suspension.status === 'APPROVED') return { text: 'Recommended a suspension — you approved it', color: '#EE5D50' };
-            if (suspension.status === 'REJECTED') return { text: 'Recommended a suspension — you declined it', color: 'var(--text-muted)' };
-            return { text: 'Recommends a suspension — waiting for your decision (see Suspension Requests)', color: '#EE5D50' };
-        }
-        if (fromPresident.some((a) => a.actionType === 'Warning')) return { text: 'Issued a warning to the driver', color: '#FF9E2A' };
-        if (fromPresident.some((a) => a.actionType === 'Invalid')) return { text: 'Marked the driver report as invalid', color: 'var(--text-main)' };
-        return { text: 'No recommendation from the TODA president', color: 'var(--text-muted)' };
-    }
-
     window.openComplaintModal = async function(complaintId) {
         try {
             const raw = await ParaFirestore.getComplaintById(complaintId);
@@ -1302,24 +1284,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             const notesEl = document.getElementById('complaint-admin-notes');
             if (notesEl) notesEl.value = data.adminNotes || '';
 
-            // What the TODA president did about this complaint, from the driver
-            // action the app links to it (see fetchDriverActionsForComplaint).
-            const todaEl = document.getElementById('c-toda-rec');
-            if (todaEl) {
-                todaEl.value = 'Checking…';
-                todaEl.style.color = 'var(--text-muted)';
-                ParaFirestore.fetchDriverActionsForComplaint(complaintId).then((actions) => {
-                    if (currentComplaintId !== complaintId) return; // another complaint was opened meanwhile
-                    const summary = describePresidentRecommendation(actions);
-                    todaEl.value = summary.text;
-                    todaEl.style.color = summary.color;
-                }).catch((error) => {
-                    console.error('Failed to load the president recommendation:', error);
-                    if (currentComplaintId !== complaintId) return;
-                    todaEl.value = 'Could not load';
-                    todaEl.style.color = 'var(--text-muted)';
-                });
-            }
+            // What the TODA president recommended for this case, with
+            // Approve / Decline while a suspension is waiting for a decision.
+            currentComplaintData = data;
+            const recBox = document.getElementById('c-toda-rec-box');
+            if (recBox) recBox.innerHTML = '<div style="color:var(--text-muted);">Checking…</div>';
+            renderPresidentRecommendation(data);
 
             const statusEl = document.getElementById('c-status');
             const normalizedStatus = data.status;
@@ -1391,6 +1361,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 if (actionType === 'Suspension') {
                     await ParaFirestore.updateDriverAccountStatus(complaint.reportedId, 'suspended', suspendDays || 3, notes);
+                    settleOnSuspension(complaint.reportedId, notes);
                 }
 
                 const notifTitle = actionType === 'Warning' ? 'Account Warning' : 'Account Suspended';
@@ -1399,6 +1370,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     : 'Your account has been suspended regarding a recent complaint.');
                 ParaFirestore.sendDirectNotification(complaint.reportedId, notifTitle, notifBody).catch((error) => console.error('Failed to notify:', error));
             }
+
+            // Closed without a suspension (a warning, or just resolved): the
+            // president's recommendation for this case no longer waits on the admin.
+            if (complaint && actionType !== 'Suspension') settleOnCaseClosed(complaint, notes);
 
             const normalizedStatus = ParaFirestore.normalizeStatus(status);
             const targetIndex = allComplaints.findIndex((c) => c.id === currentComplaintId);
@@ -1539,206 +1514,139 @@ document.addEventListener('DOMContentLoaded', async () => {
         );
     };
 
-    // ── Suspension Requests (TODA president → admin) ───────────────────
-    // The president's app can only RECOMMEND a suspension: it saves a
-    // driver_actions record with status PENDING, and won't accept another for
-    // that driver until it is decided here. Approving suspends the driver;
-    // either way the decision and the admin's note are written back, and the
-    // president sees them in the app.
+    // ── The TODA president's recommendations (shown inside the complaint) ──
+    // Information for the admin, not a request: when the president isn't sure
+    // what penalty a driver should get, the app saves a driver_actions record
+    // (Warning / Invalid / Suspension) with the reason, and the admin decides
+    // for themselves using Issue Warning / Suspend Account / Mark Resolved.
     let suspensionActions = [];
     let suspensionAdminIds = new Set([user.uid]);
     let suspensionRepairDone = false;
-    window.suspensionRequestFilter = 'pending';
-
-    function suspensionRequestState(action) {
-        const status = String(action.status || '').toUpperCase();
-        if (status === 'APPROVED') return 'approved';
-        if (status === 'REJECTED') return 'declined';
-        if (status === 'PENDING') return 'pending';
-        // No status: written before the field existed. Records this admin site
-        // logged are already decided; older ones from the president still need a decision.
-        return isAdminAction(action) ? 'approved' : 'pending';
-    }
+    let currentComplaintData = null;
 
     function isAdminAction(action) {
         return action.issuedByRole === 'ADMIN' || suspensionAdminIds.has(action.issuedBy);
     }
 
-    function presidentSuspensionRequests() {
+    function presidentSuspensionRecommendations() {
         return suspensionActions
             .filter((action) => !isAdminAction(action))
             .sort((a, b) => b.issuedAt - a.issuedAt);
-    }
-
-    function updateSuspensionBadge() {
-        const badge = document.querySelector('[data-view="suspension-requests"] .nav-badge');
-        if (!badge) return;
-        const pending = presidentSuspensionRequests().filter((a) => suspensionRequestState(a) === 'pending').length;
-        badge.textContent = pending > 0 ? String(pending) : '';
-        badge.classList.toggle('hidden', pending === 0);
     }
 
     function formatActionTime(ms) {
         return ms ? new Date(ms).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
     }
 
-    function findDriverForAction(action) {
-        return (window.allDriversForLookup || []).find((d) => d.id === action.driverId) || null;
+    // Does this recommendation belong to this complaint? The app links one by
+    // complaintId when it was sent from a complaint; one sent for the driver in
+    // general has none, so it shows on that driver's complaints.
+    function recommendationBelongsTo(action, complaint) {
+        return action.complaintId
+            ? action.complaintId === complaint.id
+            : Boolean(action.driverId && action.driverId === complaint.driverId);
     }
 
-    function renderSuspensionRequests() {
-        updateSuspensionBadge();
-        const tbody = document.getElementById('suspensionRequestsBody');
-        if (!tbody) return;
+    function suspensionRecommendationsFor(complaint) {
+        return presidentSuspensionRecommendations().filter((action) => recommendationBelongsTo(action, complaint));
+    }
 
-        const all = presidentSuspensionRequests();
-        const filter = window.suspensionRequestFilter;
-        const list = filter === 'all' ? all : all.filter((a) => suspensionRequestState(a) === filter);
+    // Still "Awaiting admin" in the president's app: status PENDING, or none at
+    // all on a record written before the field existed.
+    function isAwaitingAdmin(action) {
+        const status = String(action.status || '').toUpperCase();
+        return status === 'PENDING' || status === '';
+    }
 
-        if (!list.length) {
-            const messages = {
-                pending: 'No suspension requests are waiting for your decision.',
-                approved: 'No approved suspension requests yet.',
-                declined: 'No declined suspension requests yet.',
-                all: 'The TODA president has not recommended any suspensions yet.'
-            };
-            tbody.innerHTML = emptyRow(5, messages[filter] || messages.all);
-            return;
+    // A case that is still open and has a suspension recommendation the admin
+    // hasn't acted on yet.
+    function hasOpenRecommendation(complaint) {
+        return ['pending', 'reviewing'].includes(complaint.status)
+            && suspensionRecommendationsFor(complaint).some(isAwaitingAdmin);
+    }
+
+    // Tell the president's app what the admin did. Best-effort: the admin's own
+    // action has already gone through, so a failure here only leaves the
+    // recommendation showing "Awaiting admin".
+    async function settleRecommendations(actions, decision, note) {
+        if (!actions.length) return;
+        try {
+            await ParaFirestore.settleDriverActions(actions.map((a) => a.id), decision, note);
+        } catch (error) {
+            console.error('Failed to update the president recommendation:', error);
         }
-
-        tbody.innerHTML = list.map((action) => {
-            const state = suspensionRequestState(action);
-            const driver = findDriverForAction(action);
-            const name = (driver && driver.name) || action.driverName || 'Unknown driver';
-            const currentlySuspended = driver && driver.accountStatus === 'suspended';
-            const complaint = action.complaintId ? allComplaints.find((c) => c.id === action.complaintId) : null;
-            const badge = state === 'approved'
-                ? renderBadge('approved', 'APPROVED')
-                : (state === 'declined' ? renderBadge('declined', 'DECLINED') : renderBadge('processing', 'AWAITING REVIEW'));
-            const decidedLine = state !== 'pending' && action.reviewedAt
-                ? `<div class="detail-sub" style="margin-top:4px;">${escapeHtml(formatActionTime(action.reviewedAt))}</div>` : '';
-            const adminNoteLine = action.adminNote
-                ? `<div class="detail-sub" style="margin-top:4px;">Your note: ${escapeHtml(action.adminNote)}</div>` : '';
-            const actions = state === 'pending'
-                ? `<div style="display:flex; gap:6px; justify-content:center;">
-                        <button class="action-btn" style="background:#EE5D50;" data-action="approve-suspension" data-id="${escapeHtml(action.id)}">Approve</button>
-                        <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="decline-suspension" data-id="${escapeHtml(action.id)}">Decline</button>
-                   </div>`
-                : '<div style="text-align:center; color:var(--text-muted);">—</div>';
-            return `<tr>
-                <td><div class="detail-main">${escapeHtml(name)}</div><div class="detail-sub">Plate: ${escapeHtml((driver && driver.plate) || '—')}</div>${currentlySuspended ? '<div class="detail-sub" style="margin-top:4px; color:#EE5D50;">Currently suspended</div>' : ''}</td>
-                <td><div class="detail-main">${escapeHtml(action.issuedByName || 'TODA president')}</div><div class="detail-sub">${escapeHtml(formatActionTime(action.issuedAt))}</div></td>
-                <td style="max-width:280px; font-size:13px; line-height:1.5;">${escapeHtml(action.reason || '—')}${complaint ? `<div class="detail-sub" style="margin-top:4px;">From complaint ${escapeHtml(complaint.ref)}</div>` : ''}</td>
-                <td>${badge}${decidedLine}${adminNoteLine}</td>
-                <td>${actions}</td>
-            </tr>`;
-        }).join('');
-
-        bindRowActions(tbody, {
-            'approve-suspension': (ds) => window.approveSuspensionRequest(ds.id),
-            'decline-suspension': (ds) => window.declineSuspensionRequest(ds.id)
-        });
     }
 
-    window.setSuspensionFilter = function(label) {
-        const key = String(label || 'Pending').toLowerCase();
-        window.suspensionRequestFilter = key;
-        const btn = document.getElementById('suspensionStatusBtn');
-        if (btn) btn.querySelector('.filter-val').textContent = label;
-        const dropdown = document.getElementById('suspensionStatusDropdown');
-        if (dropdown) dropdown.classList.remove('show');
-        renderSuspensionRequests();
-    };
+    // The admin suspended the driver (from a case or from Driver Management):
+    // every recommendation to suspend them is now carried out.
+    function settleOnSuspension(driverId, reason) {
+        const waiting = presidentSuspensionRecommendations().filter((a) => a.driverId === driverId && isAwaitingAdmin(a));
+        return settleRecommendations(waiting, 'APPROVED', reason ? `Driver suspended: ${reason}` : 'Driver suspended by admin.');
+    }
 
-    window.approveSuspensionRequest = function(actionId) {
-        const action = suspensionActions.find((a) => a.id === actionId);
-        if (!action) return;
-        const driver = findDriverForAction(action);
-        const name = (driver && driver.name) || action.driverName || 'this driver';
-        const alreadySuspended = Boolean(driver && driver.accountStatus === 'suspended');
+    // The admin closed a case without suspending: the recommendation attached
+    // to it is done with. One sent for the driver in general stays until their
+    // last open case is closed.
+    function settleOnCaseClosed(complaint, note) {
+        const otherOpenCases = allComplaints.filter((c) => c.driverId === complaint.driverId && c.id !== complaint.id && ['pending', 'reviewing'].includes(c.status));
+        const waiting = presidentSuspensionRecommendations().filter((a) => a.driverId === complaint.driverId && isAwaitingAdmin(a)
+            && (a.complaintId ? a.complaintId === complaint.id : otherOpenCases.length === 0));
+        return settleRecommendations(waiting, 'REJECTED', note || 'Case closed without a suspension.');
+    }
 
-        const durationHtml = alreadySuspended
-            ? `<div style="text-align:left; margin-top:14px; color:var(--text-muted);">${escapeHtml(name)} is already suspended, so this only records your decision — their suspension is not changed.</div>`
-            : `<div style="text-align:left; margin-top:14px;">
-                    <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Suspend for</label>
-                    <select id="suspensionRequestDays" class="form-input" style="width:100%; min-height:42px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px; background:#fff;">
-                        <option value="1">1 day</option>
-                        <option value="3" selected>3 days</option>
-                        <option value="7">7 days</option>
-                        <option value="14">14 days</option>
-                        <option value="30">30 days</option>
-                        <option value="permanent">Indefinitely (until manually reactivated)</option>
-                    </select>
-               </div>`;
-        const bodyHtml = `
-            <div style="text-align:left; color:var(--text-muted);"><strong style="color:var(--text-main);">President's reason:</strong> ${escapeHtml(action.reason || '—')}</div>
-            ${durationHtml}
-            <div style="text-align:left; margin-top:14px;">
-                <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Note to the TODA president (optional)</label>
-                <textarea id="suspensionRequestNote" class="form-input" rows="2" style="width:100%; resize:vertical;"></textarea>
-            </div>`;
+    // Everything that shows the president's recommendations, refreshed whenever
+    // they, the complaints or the driver list change.
+    function refreshRecommendationUi() {
+        const statEl = document.getElementById('complaints-recs-pending');
+        if (statEl) statEl.textContent = String(allComplaints.filter(hasOpenRecommendation).length);
+        renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
+        const modal = document.getElementById('complaintViewModal');
+        if (currentComplaintData && modal && modal.classList.contains('active')) {
+            renderPresidentRecommendation(currentComplaintData);
+        }
+    }
 
-        showConfirmModal(
-            `Approve suspension for ${name}?`,
-            alreadySuspended ? 'Records your decision.' : 'The driver will be suspended and notified, and the president will see your decision in the app.',
-            alreadySuspended ? 'Approve' : 'Approve & Suspend',
-            '#EE5D50',
-            async () => {
-                const days = document.getElementById('suspensionRequestDays')?.value || '3';
-                const note = document.getElementById('suspensionRequestNote')?.value.trim() || '';
-                try {
-                    if (!alreadySuspended) {
-                        await ParaFirestore.updateDriverAccountStatus(action.driverId, 'suspended', days, action.reason);
-                    }
-                    await ParaFirestore.reviewSuspensionRequest(action.id, 'APPROVED', note);
-                    if (!alreadySuspended) {
-                        ParaFirestore.sendDirectNotification(
-                            action.driverId,
-                            'Account Suspended',
-                            action.reason ? `Your account has been suspended: ${action.reason}` : 'Your account has been suspended after a review by PARA admin.'
-                        ).catch((error) => console.error('Failed to notify the driver:', error));
-                    }
-                    window.showToast(alreadySuspended ? 'Request approved.' : `${name} has been suspended.`, alreadySuspended ? 'success' : 'error');
-                } catch (error) {
-                    console.error('Failed to approve the suspension request:', error);
-                    window.showToast('Could not approve the request. Nothing was recorded — please try again.', 'error');
-                }
-            },
-            bodyHtml
-        );
-    };
+    // The "TODA President Recommendation" block in the case window: what the
+    // president recommended for the driver and why, plus any warning or
+    // "invalid" mark they attached to this complaint.
+    async function renderPresidentRecommendation(complaint) {
+        const box = document.getElementById('c-toda-rec-box');
+        if (!box) return;
+        const complaintId = complaint.id;
 
-    window.declineSuspensionRequest = function(actionId) {
-        const action = suspensionActions.find((a) => a.id === actionId);
-        if (!action) return;
-        const driver = findDriverForAction(action);
-        const name = (driver && driver.name) || action.driverName || 'this driver';
-        const bodyHtml = `
-            <div style="text-align:left; color:var(--text-muted);"><strong style="color:var(--text-main);">President's reason:</strong> ${escapeHtml(action.reason || '—')}</div>
-            <div style="text-align:left; margin-top:14px;">
-                <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Note to the TODA president (optional)</label>
-                <textarea id="suspensionRequestNote" class="form-input" rows="2" style="width:100%; resize:vertical;" placeholder="e.g. Not enough evidence yet"></textarea>
-            </div>`;
+        let linked = [];
+        try {
+            linked = await ParaFirestore.fetchDriverActionsForComplaint(complaintId);
+        } catch (error) {
+            console.error('Failed to load the president recommendation:', error);
+        }
+        if (!currentComplaintData || currentComplaintData.id !== complaintId) return; // another case was opened meanwhile
 
-        showConfirmModal(
-            `Decline the suspension of ${name}?`,
-            'The driver stays active, and the president will see that you declined it.',
-            'Decline',
-            '#1A73E8',
-            async () => {
-                const note = document.getElementById('suspensionRequestNote')?.value.trim() || '';
-                try {
-                    await ParaFirestore.reviewSuspensionRequest(action.id, 'REJECTED', note);
-                    window.showToast('Request declined.', 'success');
-                } catch (error) {
-                    console.error('Failed to decline the suspension request:', error);
-                    window.showToast('Could not decline the request. Please try again.', 'error');
-                }
-            },
-            bodyHtml
-        );
-    };
+        const suspensionHeading = (action) => {
+            const status = String(action.status || '').toUpperCase();
+            if (status === 'APPROVED') return { text: 'Recommended suspending the driver — the driver was suspended', color: '#EE5D50' };
+            if (status === 'REJECTED') return { text: 'Recommended suspending the driver — the case was closed without one', color: 'var(--text-muted)' };
+            return { text: 'Recommends suspending the driver', color: '#EE5D50' };
+        };
+        const entries = [
+            ...suspensionRecommendationsFor(complaint).map((action) => ({ action, ...suspensionHeading(action) })),
+            ...linked
+                .filter((a) => a.actionType !== 'Suspension' && a.issuedByRole !== 'ADMIN' && a.issuedBy !== user.uid)
+                .map((action) => ({
+                    action,
+                    text: action.actionType === 'Warning' ? 'Issued a warning to the driver' : (action.actionType === 'Invalid' ? 'Marked the driver report as invalid' : action.actionType),
+                    color: action.actionType === 'Warning' ? '#FF9E2A' : 'var(--text-main)'
+                }))
+        ];
 
+        box.innerHTML = entries.length
+            ? entries.map(({ action, text, color }) => `<div style="padding:2px 0;">
+                    <div style="font-weight:600; color:${color};">${escapeHtml(text)}</div>
+                    <div class="detail-sub" style="margin-top:4px; line-height:1.5;">${escapeHtml(action.issuedByName || 'TODA president')} · ${escapeHtml(formatActionTime(action.issuedAt))}</div>
+                    ${action.reason ? `<div style="margin-top:6px; font-size:13px; line-height:1.5;">“${escapeHtml(action.reason)}”</div>` : ''}
+                </div>`).join('<hr style="border:none; border-top:1px solid var(--border-color); margin:10px 0;">')
+            : '<div style="font-weight:600; color:var(--text-muted);">No recommendation from the TODA president</div>';
+    }
     const AUDIENCE_LABELS = { allDrivers: 'All Drivers', allPassengers: 'All Passengers', everyone: 'Everyone', individual: 'Individual' };
     const NOTIFICATIONS_PAGE_SIZE = 10;
     let notificationHistoryData = [];
@@ -1866,7 +1774,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     ParaFirestore.listenDrivers(null, (drivers) => {
         window.allDriversForLookup = drivers;
         refreshComplaintDisplay();
-        renderSuspensionRequests();
+        refreshRecommendationUi();
     });
     ParaFirestore.reactivateExpiredDrivers().catch((error) => {
         console.error('Failed to auto-reactivate expired drivers:', error);
@@ -1910,16 +1818,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         updateComplaintStats();
         renderComplaintTable(allComplaints);
-        renderSuspensionRequests();
+        refreshRecommendationUi();
     });
     ParaFirestore.listenSuspensionRequests((actions) => {
         suspensionActions = actions;
-        renderSuspensionRequests();
+        refreshRecommendationUi();
         if (suspensionRepairDone) return;
         suspensionRepairDone = true;
         ParaFirestore.fetchAdminIds().then((ids) => {
             suspensionAdminIds = ids;
-            renderSuspensionRequests();
+            refreshRecommendationUi();
             return ParaFirestore.repairAdminSuspensionStatus(suspensionActions, ids);
         }).catch((error) => console.error('Failed to tidy older suspension records:', error));
     });
