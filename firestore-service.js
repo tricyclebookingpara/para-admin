@@ -1,5 +1,5 @@
 const ParaFirestore = (() => {
-    const { auth, db } = window.ParaFirebase;
+    const { auth, db, storage } = window.ParaFirebase;
 
     const COLLECTIONS = {
         admins: 'admins',
@@ -188,6 +188,12 @@ const ParaFirestore = (() => {
             accountStatus: resolveAccountStatus(data),
             suspendedUntilRaw: toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until')),
             suspensionReason: data.suspensionReason || '',
+            // Written by the app (DriverRepository.updateDriverStatus): OFFLINE /
+            // ONLINE / AVAILABLE / BUSY (on a ride), and the time of the last
+            // position ping — a driver whose app was killed keeps their last
+            // status, so presence is judged by how fresh that ping is.
+            driverStatus: String(data.driverStatus || 'OFFLINE').toUpperCase(),
+            lastLocationAt: Number(data.currentLatLngUpdatedAt) || 0,
             rating: Number.isFinite(rawRating) && rawRating > 0 ? rawRating.toFixed(1) : '—',
             memberSince: formatDateTime(getField(data, 'createdAt', 'created_at', 'memberSince')),
             memberSinceRaw: toDate(getField(data, 'createdAt', 'created_at', 'memberSince')),
@@ -195,13 +201,36 @@ const ParaFirestore = (() => {
             submittedAtRaw: toDate(getField(data, 'submittedAt', 'submitted_at', 'createdAt', 'created_at')),
             verifiedAtRaw: toDate(getField(data, 'verifiedAt', 'verified_at')),
             infoRequest: data.infoRequest || null,
-            documents: {
-                licenseFront: getField(data, 'licenseFront', 'license_front') || (data.documents && data.documents.licenseFront),
-                licenseBack: getField(data, 'licenseBack', 'license_back') || (data.documents && data.documents.licenseBack),
-                vehiclePhoto: getField(data, 'vehiclePhoto', 'vehicle_photo') || (data.documents && data.documents.vehiclePhoto),
-                franchisePermit: getField(data, 'franchisePermit', 'franchise_permit') || (data.documents && data.documents.franchisePermit)
-            }
+            // What the driver typed when signing up (DriverSignupScreen); the
+            // document photos themselves are in Storage, see fetchDriverDocuments.
+            governmentId: getField(data, 'governmentId'),
+            licenseExpiry: getField(data, 'licenseExpiryDate'),
+            vehicleRegistrationDate: getField(data, 'vehicleRegistrationDate')
         };
+    }
+
+    // The app uploads each driver's documents to Firebase Storage:
+    //   driver_documents/{driver uid}/government_id.jpg
+    //   driver_documents/{driver uid}/license.jpg
+    //   driver_documents/{driver uid}/vehicle_registration.jpg
+    // Matched by file name without the extension, so a .png upload also works.
+    // A missing file is null; a Storage rules problem throws (code
+    // storage/unauthorized) so the screen can say why nothing is shown.
+    const DRIVER_DOCUMENT_FILES = {
+        governmentId: 'government_id',
+        license: 'license',
+        vehicleRegistration: 'vehicle_registration'
+    };
+
+    async function fetchDriverDocuments(driverId) {
+        if (!storage) throw new Error('Firebase Storage is not loaded on this page.');
+        const listing = await storage.ref(`driver_documents/${driverId}`).listAll();
+        const documents = {};
+        await Promise.all(Object.entries(DRIVER_DOCUMENT_FILES).map(async ([key, baseName]) => {
+            const item = listing.items.find((entry) => entry.name.replace(/\.[^.]+$/, '').toLowerCase() === baseName);
+            documents[key] = item ? await item.getDownloadURL() : null;
+        }));
+        return documents;
     }
 
     function mapPassengerDoc(doc) {
@@ -361,8 +390,7 @@ const ParaFirestore = (() => {
             updatedAt,
             updatedAtRaw: updatedAt,
             resolvedAt,
-            resolvedAtRaw: resolvedAt,
-            todaRec: getField(data, 'todaRecommendation', 'toda_recommendation', 'todaRec') || 'Waiting for Recommendation...'
+            resolvedAtRaw: resolvedAt
         };
     }
 
@@ -422,9 +450,13 @@ const ParaFirestore = (() => {
         });
     }
 
-    // Matches the existing driver_actions schema (actionId/actionType/driverId/
-    // driverName/issuedAt/reason) already used elsewhere in this Firestore project.
-    async function logDriverAction(driverId, driverName, actionType, reason) {
+    // driver_actions is shared with the mobile app (model/DriverAction.kt): the
+    // TODA president writes Warning / Invalid / Suspension records there, and a
+    // Suspension from the president is only a PENDING recommendation until the
+    // admin decides on it. The app defaults a missing `status` to PENDING, so
+    // every record written here must carry one: a suspension the admin issues
+    // is already decided (APPROVED); everything else is NOT_APPLICABLE.
+    async function logDriverAction(driverId, driverName, actionType, reason, options = {}) {
         const ref = db.collection('driver_actions').doc();
         await ref.set({
             actionId: ref.id,
@@ -433,7 +465,11 @@ const ParaFirestore = (() => {
             driverName: driverName || '',
             issuedAt: Date.now(),
             reason: reason || '',
-            issuedBy: auth.currentUser ? auth.currentUser.uid : ''
+            status: actionType === 'Suspension' ? 'APPROVED' : 'NOT_APPLICABLE',
+            issuedBy: auth.currentUser ? auth.currentUser.uid : '',
+            issuedByName: window.ParaAdminName || 'PARA Admin',
+            issuedByRole: 'ADMIN',
+            complaintId: options.complaintId || ''
         });
     }
 
@@ -442,6 +478,72 @@ const ParaFirestore = (() => {
         return snapshot.docs
             .map((doc) => doc.data() || {})
             .sort((a, b) => Number(b.issuedAt || 0) - Number(a.issuedAt || 0));
+    }
+
+    // ── Suspension requests from the TODA president ────────────────────
+    // The president's app saves a Suspension as status PENDING and won't take
+    // a second one for that driver until it is decided here. The admin decides:
+    // APPROVED (the admin then suspends the driver) or REJECTED, with
+    // reviewedAt and adminNote, which the president sees in the app.
+    function mapDriverActionDoc(doc) {
+        const data = doc.data() || {};
+        return {
+            id: doc.id,
+            driverId: data.driverId || '',
+            driverName: data.driverName || '',
+            actionType: data.actionType || '',
+            reason: data.reason || '',
+            issuedAt: Number(data.issuedAt) || 0,
+            status: String(data.status || '').toUpperCase(),
+            issuedBy: data.issuedBy || '',
+            issuedByName: data.issuedByName || '',
+            issuedByRole: data.issuedByRole || '',
+            complaintId: data.complaintId || '',
+            reviewedAt: Number(data.reviewedAt) || 0,
+            adminNote: data.adminNote || ''
+        };
+    }
+
+    function listenSuspensionRequests(callback) {
+        return db.collection('driver_actions')
+            .where('actionType', '==', 'Suspension')
+            .onSnapshot((snapshot) => callback(snapshot.docs.map(mapDriverActionDoc)));
+    }
+
+    async function fetchAdminIds() {
+        const ids = new Set();
+        if (auth.currentUser) ids.add(auth.currentUser.uid);
+        try {
+            const snapshot = await db.collection(COLLECTIONS.admins).get();
+            snapshot.docs.forEach((doc) => ids.add(doc.id));
+        } catch (error) {
+            console.error('Could not list admin accounts:', error);
+        }
+        return ids;
+    }
+
+    async function reviewSuspensionRequest(actionId, decision, adminNote) {
+        if (decision !== 'APPROVED' && decision !== 'REJECTED') throw new Error('Unknown decision.');
+        await db.collection('driver_actions').doc(actionId).update({
+            status: decision,
+            reviewedAt: Date.now(),
+            adminNote: String(adminNote || '').trim(),
+            reviewedBy: auth.currentUser ? auth.currentUser.uid : ''
+        });
+    }
+
+    // Suspensions this admin site logged before `status` existed have none, so
+    // the president's app shows them as "awaiting admin". Mark them decided.
+    async function repairAdminSuspensionStatus(actions, adminIds) {
+        const stale = actions.filter((a) => a.actionType === 'Suspension' && !a.status && adminIds.has(a.issuedBy));
+        for (let i = 0; i < stale.length; i += 400) {
+            const batch = db.batch();
+            stale.slice(i, i + 400).forEach((a) => {
+                batch.update(db.collection('driver_actions').doc(a.id), { status: 'APPROVED' });
+            });
+            await batch.commit();
+        }
+        return stale.length;
     }
 
     async function updateDriverVerification(driverId, status) {
@@ -799,7 +901,7 @@ const ParaFirestore = (() => {
         return [];
     }
 
-    async function writeNotificationDocs(userIds, title, message) {
+    async function writeNotificationDocs(userIds, title, message, bookingId = '') {
         const createdAt = Date.now();
         for (let i = 0; i < userIds.length; i += NOTIFICATION_BATCH_SIZE) {
             const batch = db.batch();
@@ -810,7 +912,7 @@ const ParaFirestore = (() => {
                     userId,
                     title,
                     message,
-                    bookingId: '',
+                    bookingId,
                     isRead: false,
                     createdAt
                 });
@@ -857,9 +959,9 @@ const ParaFirestore = (() => {
 
     // Targets one specific user (e.g. a warned/suspended driver) — recipientId
     // is their users/{uid} document id, which is the same as their auth uid.
-    async function sendDirectNotification(recipientId, title, body) {
+    async function sendDirectNotification(recipientId, title, body, bookingId = '') {
         if (!recipientId) return;
-        await writeNotificationDocs([recipientId], title, body);
+        await writeNotificationDocs([recipientId], title, body, bookingId);
         await logAdminNotification({ title, message: body, audience: 'individual', recipientId, recipientCount: 1 });
     }
 
@@ -892,15 +994,11 @@ const ParaFirestore = (() => {
         });
     }
 
-    async function updateComplaintRecommendation(complaintId, recommendation) {
-        const value = String(recommendation || '').trim();
-        if (!value) throw new Error('A recommendation is required.');
-        await db.collection(COLLECTIONS.complaints).doc(complaintId).update({
-            todaRecommendation: value,
-            todaRecommendationBy: auth.currentUser ? auth.currentUser.uid : '',
-            todaRecommendationAt: firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+    // What the TODA president did about a complaint: the app links a driver
+    // action (Warning / Invalid / Suspension recommendation) to it by complaintId.
+    async function fetchDriverActionsForComplaint(complaintId) {
+        const snapshot = await db.collection('driver_actions').where('complaintId', '==', complaintId).get();
+        return snapshot.docs.map(mapDriverActionDoc).sort((a, b) => b.issuedAt - a.issuedAt);
     }
 
     function getOrCreateSecondaryAuth() {
@@ -995,27 +1093,34 @@ const ParaFirestore = (() => {
         });
     }
 
+    // The mobile app prices a ride as (util/FareCalculator.kt):
+    //   fare = minimumFare + max(0, distanceKm - includedDistanceKm) * perKmRate
+    // and a shared ride splits it (each rider pays half of the solo fare). The
+    // app currently has these three numbers fixed in its code (₱20, 1 km, ₱20/km),
+    // so they are the defaults here, and what the admin saves in settings/fare
+    // is for the app to read.
+    const APP_FARE_DEFAULTS = { minimumFare: 20, includedDistanceKm: 1, perKmRate: 20 };
+
     async function getFareSettings() {
         const doc = await db.collection(COLLECTIONS.fare).doc('fare').get();
-        if (!doc.exists) {
-            return { baseFare: 40, perKmRate: 15, minimumFare: 40, serviceFeePercent: 5, updatedAtRaw: null };
-        }
-        const data = doc.data() || {};
+        const data = doc.exists ? (doc.data() || {}) : {};
+        const read = (value, fallback) => {
+            const number = Number(value);
+            return value !== undefined && value !== null && value !== '' && Number.isFinite(number) ? number : fallback;
+        };
         return {
-            baseFare: Number(getField(data, 'baseFare', 'base_fare') || 40),
-            perKmRate: Number(getField(data, 'perKmRate', 'per_km_rate') || 15),
-            minimumFare: Number(getField(data, 'minimumFare', 'minimum_fare') || 40),
-            serviceFeePercent: Number(getField(data, 'serviceFeePercent', 'service_fee_percent') || 5),
+            minimumFare: read(data.minimumFare, APP_FARE_DEFAULTS.minimumFare),
+            includedDistanceKm: read(data.includedDistanceKm, APP_FARE_DEFAULTS.includedDistanceKm),
+            perKmRate: read(data.perKmRate, APP_FARE_DEFAULTS.perKmRate),
             updatedAtRaw: toDate(getField(data, 'updatedAt', 'updated_at'))
         };
     }
 
     function validateFareSettings(settings) {
         const fields = [
-            ['baseFare', 'Base Fare'],
-            ['perKmRate', 'Per Kilometer Rate'],
             ['minimumFare', 'Minimum Fare'],
-            ['serviceFeePercent', 'Service Fee']
+            ['includedDistanceKm', 'Included Distance'],
+            ['perKmRate', 'Per Kilometer Rate']
         ];
         for (const [key, label] of fields) {
             const value = settings[key];
@@ -1025,9 +1130,6 @@ const ParaFirestore = (() => {
             if (value < 0) {
                 throw new Error(`${label} cannot be negative.`);
             }
-        }
-        if (settings.serviceFeePercent > 100) {
-            throw new Error('Service Fee cannot be more than 100%.');
         }
     }
 
@@ -1048,23 +1150,23 @@ const ParaFirestore = (() => {
 
         const previous = await getFareSettings();
         const next = {
-            baseFare: settings.baseFare,
-            perKmRate: settings.perKmRate,
             minimumFare: settings.minimumFare,
-            serviceFeePercent: settings.serviceFeePercent
+            includedDistanceKm: settings.includedDistanceKm,
+            perKmRate: settings.perKmRate
         };
 
+        // Replace the document (not merge) so the old base-fare / service-fee
+        // fields from the earlier version of this page don't linger.
         await db.collection(COLLECTIONS.fare).doc('fare').set({
             ...next,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        });
 
         logFareChange(
-            { baseFare: previous.baseFare, perKmRate: previous.perKmRate, minimumFare: previous.minimumFare, serviceFeePercent: previous.serviceFeePercent },
+            { minimumFare: previous.minimumFare, includedDistanceKm: previous.includedDistanceKm, perKmRate: previous.perKmRate },
             next
         ).catch((error) => console.error('Failed to log fare change:', error));
     }
-
     // ── Prediction (driver availability & passenger demand) ────────────
     // Training data is what the mobile app already logs: where online drivers
     // are (driverLocationSamples, every ~5 min) and when they go on/offline
@@ -1263,6 +1365,10 @@ const ParaFirestore = (() => {
         requestDriverInfo,
         logDriverAction,
         fetchDriverActions,
+        listenSuspensionRequests,
+        fetchAdminIds,
+        reviewSuspensionRequest,
+        repairAdminSuspensionStatus,
         reactivateExpiredDrivers,
         ensurePassengerProfile,
         setPassengerStats,
@@ -1281,7 +1387,7 @@ const ParaFirestore = (() => {
         fetchComplaints,
         listenComplaints,
         updateComplaintStatus,
-        updateComplaintRecommendation,
+        fetchDriverActionsForComplaint,
         sendDirectNotification,
         sendBroadcastNotification,
         fetchNotifications,
@@ -1298,6 +1404,7 @@ const ParaFirestore = (() => {
         saveDriverAvailabilityModel,
         getDashboardCounts,
         getDriverById,
+        fetchDriverDocuments,
         computeDriverStats,
         getComplaintById,
         formatDateTime,

@@ -18,6 +18,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (error) {
             console.error('Failed to load admin profile:', error);
         }
+        // Shown to the president in the app on suspension requests the admin decides.
+        window.ParaAdminName = displayName === user.email ? 'PARA Admin' : displayName;
 
         const nameInput = document.getElementById('settingsAdminName');
         if (nameInput) nameInput.value = displayName === user.email ? '' : displayName;
@@ -141,6 +143,43 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (empty) empty.style.display = 'none';
     }
 
+    // The document photos the driver uploaded in the app, from Firebase Storage
+    // (see fetchDriverDocuments). Nothing is shown in place of a missing file.
+    const VERIFICATION_DOC_SLOTS = [
+        { key: 'governmentId', prefix: 'gov' },
+        { key: 'license', prefix: 'license' },
+        { key: 'vehicleRegistration', prefix: 'reg' }
+    ];
+
+    function setDocMessage(prefix, message) {
+        setDocImage(`v-${prefix}-link`, `v-${prefix}-img`, '', `v-${prefix}-empty`);
+        const empty = document.getElementById(`v-${prefix}-empty`);
+        if (empty) empty.textContent = message;
+    }
+
+    async function loadVerificationDocuments(driverId) {
+        VERIFICATION_DOC_SLOTS.forEach(({ prefix }) => setDocMessage(prefix, 'Loading…'));
+        try {
+            const documents = await ParaFirestore.fetchDriverDocuments(driverId);
+            if (currentVerificationDriverId !== driverId) return; // another application was opened meanwhile
+            VERIFICATION_DOC_SLOTS.forEach(({ key, prefix }) => {
+                if (documents[key]) {
+                    setDocImage(`v-${prefix}-link`, `v-${prefix}-img`, documents[key], `v-${prefix}-empty`);
+                } else {
+                    setDocMessage(prefix, 'Not uploaded');
+                }
+            });
+        } catch (error) {
+            console.error('Failed to load driver documents:', error);
+            if (currentVerificationDriverId !== driverId) return;
+            const blocked = error && (error.code === 'storage/unauthorized' || error.code === 'storage/unauthenticated');
+            VERIFICATION_DOC_SLOTS.forEach(({ prefix }) => setDocMessage(
+                prefix,
+                blocked ? 'Can’t open — Storage rules don’t allow the admin site to read this file' : 'Could not load'
+            ));
+        }
+    }
+
     function renderVerificationTable(drivers) {
         const tbody = document.querySelector('#view-driver-verification .data-table tbody');
         if (!tbody) return;
@@ -180,6 +219,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         const normalized = Math.min(Math.max(numericRating, 0), 5);
         const filled = Math.round(normalized);
         return '★'.repeat(filled) + '☆'.repeat(5 - filled);
+    }
+
+    // Whether a driver is on the road right now, from what the app writes
+    // (driverStatus + the time of the last position ping). The app only goes
+    // OFFLINE when the driver taps it, so a driver whose app was closed keeps
+    // their last status; a ping older than the app's own 5-minute cutoff
+    // means they aren't really reachable.
+    const DRIVER_PING_FRESH_MS = 5 * 60 * 1000;
+
+    function driverPresenceLine(driver) {
+        // A suspended driver isn't offered to passengers whatever their last status was.
+        if (driver.accountStatus === 'suspended') return '';
+        if (driver.driverStatus === 'OFFLINE') {
+            return '<div class="detail-sub" style="margin-top:4px;"><span style="color:#A3AED0;">●</span> Offline</div>';
+        }
+        const fresh = driver.lastLocationAt && (Date.now() - driver.lastLocationAt) <= DRIVER_PING_FRESH_MS;
+        if (!fresh) {
+            return '<div class="detail-sub" style="margin-top:4px;"><span style="color:#A3AED0;">●</span> Not responding</div>';
+        }
+        if (driver.driverStatus === 'BUSY') {
+            return '<div class="detail-sub" style="margin-top:4px;"><span style="color:#FF9E2A;">●</span> On a ride</div>';
+        }
+        return '<div class="detail-sub" style="margin-top:4px;"><span style="color:#05CD99;">●</span> Online</div>';
     }
 
     function renderDriverManagementTable(drivers) {
@@ -242,7 +304,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td><div class="detail-main">${escapeHtml(driver.name)}</div><div class="detail-sub">Member since ${escapeHtml(driver.memberSince)}</div></td>
                 <td><div class="detail-main">${escapeHtml(driver.vehicle || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(driver.plate || '—')}</div></td>
                 <td style="white-space:nowrap;"><div class="rating-stars">${escapeHtml(getDriverPerformanceStars(ratingValue))} <span>${escapeHtml(driver.rating === '—' ? '—' : Number(driver.rating).toFixed(1))}</span></div><div class="detail-sub">${escapeHtml(Number(driver.totalRides || 0))} completed ${Number(driver.totalRides || 0) === 1 ? 'ride' : 'rides'} · ${escapeHtml(driver.acceptanceRate || '—')} acceptance</div></td>
-                <td>${renderBadge(isSuspended ? 'suspended' : 'active')}${suspensionNote}</td>
+                <td>${renderBadge(isSuspended ? 'suspended' : 'active')}${suspensionNote}${driverPresenceLine(driver)}</td>
                 <td style="white-space:nowrap;">
                     <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
                         <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="edit-driver" data-id="${escapeHtml(driver.id)}">Edit</button>
@@ -414,6 +476,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         return `<div class="detail-sub" style="margin-top:4px;">${escapeHtml(label)} ${escapeHtml(text)}</div>`;
     }
 
+    // "Cash" / "GCash · Paid" under the fare. A GCash ride is paid through
+    // Xendit after the trip (the app's Cloud Function sets paymentStatus to
+    // PAID or FAILED), so the status only means something once it's completed.
+    function paymentLine(booking) {
+        const method = String(booking.paymentMethod || '').toUpperCase();
+        if (!method) return '';
+        const methodLabel = method === 'GCASH' ? 'GCash' : (method === 'CASH' ? 'Cash' : method);
+        let statusLabel = '';
+        if (method === 'GCASH' && ParaFirestore.normalizeStatus(booking.status) === 'completed') {
+            const labels = { paid: 'Paid', pending: 'Payment pending', failed: 'Payment failed' };
+            statusLabel = labels[ParaFirestore.normalizeStatus(booking.paymentStatus)] || '';
+        }
+        const color = statusLabel === 'Payment failed' ? 'color:#EE5D50;' : '';
+        return `<div class="detail-sub" style="margin-top:2px; ${color}">${escapeHtml(statusLabel ? `${methodLabel} · ${statusLabel}` : methodLabel)}</div>`;
+    }
+
     function fareColor(status) {
         const colors = {
             completed: '#05CD99',
@@ -475,7 +553,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td>${escapeHtml(booking.passengerName || '—')}</td>
                 <td style="max-width:190px; font-size:13px; line-height:1.4;">${escapeHtml(booking.pickupLocation)}${eventTimeLine('Arrived', booking.arrivedAtRaw, booking.createdAtRaw)}</td>
                 <td style="max-width:190px; font-size:13px; line-height:1.4;">${escapeHtml(booking.dropoffLocation)}${eventTimeLine('Dropped off', booking.completedAtRaw, booking.createdAtRaw)}</td>
-                <td style="color:${fareColor(booking.status)}; font-weight:600;">&#8369;${escapeHtml(Number(booking.totalFare || 0).toFixed(2))}</td>
+                <td><div style="color:${fareColor(booking.status)}; font-weight:600;">&#8369;${escapeHtml(Number(booking.totalFare || 0).toFixed(2))}</div>${paymentLine(booking)}</td>
             </tr>
         `).join('');
 
@@ -820,15 +898,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const el = document.getElementById(id);
                 if (el) el.value = value;
             };
-            setValue('fare-base', fare.baseFare);
-            setValue('fare-perkm', fare.perKmRate);
             setValue('fare-min', fare.minimumFare);
-            setValue('fare-svc', fare.serviceFeePercent);
+            setValue('fare-included', fare.includedDistanceKm);
+            setValue('fare-perkm', fare.perKmRate);
             const lastUpdatedEl = document.getElementById('fareLastUpdated');
             if (lastUpdatedEl) {
                 lastUpdatedEl.textContent = fare.updatedAtRaw
                     ? `Last updated ${ParaFirestore.formatDateTime(fare.updatedAtRaw)}`
-                    : 'No changes recorded yet.';
+                    : 'Showing the fares currently built into the app. Nothing saved yet.';
             }
             if (typeof updateFarePreview === 'function') updateFarePreview();
         } catch (error) {
@@ -851,13 +928,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('v-model').textContent = mapped.vehicle;
             document.getElementById('v-plate').textContent = mapped.plate;
 
-            // Presentation fallback: if a driver record has no uploaded document URL,
-            // show a local sample photo instead of the empty state. Real uploaded
-            // documents (when present) still take priority.
-            setDocImage('v-license-front-link', 'v-license-front-img', mapped.documents.licenseFront || 'license-front.png', 'v-license-front-empty');
-            setDocImage('v-license-back-link', 'v-license-back-img', mapped.documents.licenseBack || 'license-back.jpg', 'v-license-back-empty');
-            setDocImage('v-vehicle-photo-link', 'v-vehicle-photo-img', mapped.documents.vehiclePhoto || 'vehicle-photo.png', 'v-vehicle-photo-empty');
-            setDocImage('v-franchise-link', 'v-franchise-img', mapped.documents.franchisePermit || 'franchise-permit.png', 'v-franchise-empty');
+            document.getElementById('v-lic-expiry').textContent = mapped.licenseExpiry || '—';
+            document.getElementById('v-gov-no').textContent = mapped.governmentId || '—';
+            document.getElementById('v-reg-date').textContent = mapped.vehicleRegistrationDate || '—';
+
+            loadVerificationDocuments(driverId);
 
             // "View Details" (Approved/Rejected tabs) is read-only — only a pending
             // application should expose Approve/Reject/Request Info, so browsing an
@@ -994,6 +1069,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             listEl.innerHTML = actions.map((action) => {
                 const color = typeColor[action.actionType] || 'var(--text-main)';
                 const when = action.issuedAt ? new Date(Number(action.issuedAt)).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+                // A suspension the TODA president recommended carries the admin's decision.
+                const isPresidentRecommendation = action.actionType === 'Suspension' && action.issuedByRole !== 'ADMIN' && action.issuedBy !== user.uid;
+                const decision = { APPROVED: 'approved', REJECTED: 'declined' }[String(action.status || '').toUpperCase()] || 'awaiting admin review';
+                const recommendedBy = isPresidentRecommendation
+                    ? `Recommended by ${action.issuedByName || 'the TODA president'} · ${decision}`
+                    : '';
                 return `
                     <div style="border:1px solid var(--border-color); border-radius:10px; padding:12px 14px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
@@ -1001,6 +1082,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                             <span style="font-size:12px; color:var(--text-muted);">${escapeHtml(when)}</span>
                         </div>
                         ${action.reason ? `<div style="font-size:13px; color:var(--text-main);">${escapeHtml(action.reason)}</div>` : ''}
+                        ${recommendedBy ? `<div class="detail-sub" style="margin-top:4px;">${escapeHtml(recommendedBy)}</div>` : ''}
+                        ${action.adminNote ? `<div class="detail-sub" style="margin-top:4px;">Admin note: ${escapeHtml(action.adminNote)}</div>` : ''}
                     </div>
                 `;
             }).join('');
@@ -1183,6 +1266,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
+    // One line for the complaint window: what the TODA president recorded
+    // against the driver for this complaint. Only the president's own
+    // recommendations count here, not the admin's earlier actions.
+    function describePresidentRecommendation(actions) {
+        const fromPresident = (actions || []).filter((a) => a.issuedByRole !== 'ADMIN' && a.issuedBy !== user.uid);
+        const suspension = fromPresident.find((a) => a.actionType === 'Suspension');
+        if (suspension) {
+            if (suspension.status === 'APPROVED') return { text: 'Recommended a suspension — you approved it', color: '#EE5D50' };
+            if (suspension.status === 'REJECTED') return { text: 'Recommended a suspension — you declined it', color: 'var(--text-muted)' };
+            return { text: 'Recommends a suspension — waiting for your decision (see Suspension Requests)', color: '#EE5D50' };
+        }
+        if (fromPresident.some((a) => a.actionType === 'Warning')) return { text: 'Issued a warning to the driver', color: '#FF9E2A' };
+        if (fromPresident.some((a) => a.actionType === 'Invalid')) return { text: 'Marked the driver report as invalid', color: 'var(--text-main)' };
+        return { text: 'No recommendation from the TODA president', color: 'var(--text-muted)' };
+    }
+
     window.openComplaintModal = async function(complaintId) {
         try {
             const raw = await ParaFirestore.getComplaintById(complaintId);
@@ -1203,10 +1302,23 @@ document.addEventListener('DOMContentLoaded', async () => {
             const notesEl = document.getElementById('complaint-admin-notes');
             if (notesEl) notesEl.value = data.adminNotes || '';
 
+            // What the TODA president did about this complaint, from the driver
+            // action the app links to it (see fetchDriverActionsForComplaint).
             const todaEl = document.getElementById('c-toda-rec');
             if (todaEl) {
-                todaEl.value = data.todaRec;
-                todaEl.style.color = { Warning: '#FF9E2A', Suspension: '#EE5D50' }[data.todaRec] || 'var(--text-main)';
+                todaEl.value = 'Checking…';
+                todaEl.style.color = 'var(--text-muted)';
+                ParaFirestore.fetchDriverActionsForComplaint(complaintId).then((actions) => {
+                    if (currentComplaintId !== complaintId) return; // another complaint was opened meanwhile
+                    const summary = describePresidentRecommendation(actions);
+                    todaEl.value = summary.text;
+                    todaEl.style.color = summary.color;
+                }).catch((error) => {
+                    console.error('Failed to load the president recommendation:', error);
+                    if (currentComplaintId !== complaintId) return;
+                    todaEl.value = 'Could not load';
+                    todaEl.style.color = 'var(--text-muted)';
+                });
             }
 
             const statusEl = document.getElementById('c-status');
@@ -1255,11 +1367,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             await ParaFirestore.updateComplaintStatus(currentComplaintId, status, notes);
 
+            // Tell the passenger how their complaint ended — same notification
+            // the app sends when the TODA president closes one.
+            if (complaint && complaint.passengerId) {
+                const type = String(complaint.complaintType || '').trim() || 'complaint';
+                const outcome = status === 'RESOLVED'
+                    ? `Your ${type} report has been resolved by PARA admin.`
+                    : `Your ${type} report was reviewed and closed without action.`;
+                ParaFirestore.sendDirectNotification(
+                    complaint.passengerId,
+                    'Complaint update',
+                    notes ? `${outcome}\n\nNote: ${notes}` : outcome,
+                    complaint.bookingId || ''
+                ).catch((error) => console.error('Failed to notify the passenger:', error));
+            }
+
             // Warning/Suspension also act on the actual reported account (always
             // the driver per the real schema) — logged to driver_actions and
             // notified directly, not just recorded on the complaint itself.
             if (actionType && complaint && complaint.reportedId) {
-                ParaFirestore.logDriverAction(complaint.reportedId, complaint.reported, actionType, notes)
+                ParaFirestore.logDriverAction(complaint.reportedId, complaint.reported, actionType, notes, { complaintId: complaint.id })
                     .catch((error) => console.error('Failed to log complaint action:', error));
 
                 if (actionType === 'Suspension') {
@@ -1383,38 +1510,232 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     window.saveFareSettings = function() {
         const settings = {
-            baseFare: Number(document.getElementById('fare-base').value),
-            perKmRate: Number(document.getElementById('fare-perkm').value),
             minimumFare: Number(document.getElementById('fare-min').value),
-            serviceFeePercent: Number(document.getElementById('fare-svc').value)
+            includedDistanceKm: Number(document.getElementById('fare-included').value),
+            perKmRate: Number(document.getElementById('fare-perkm').value)
         };
 
         const invalidField = Object.entries(settings).find(([, value]) => !Number.isFinite(value) || value < 0);
-        if (invalidField || settings.serviceFeePercent > 100) {
-            window.showToast('Please enter valid, non-negative fare values (service fee 0-100%) before saving.', 'warning');
+        if (invalidField) {
+            window.showToast('Please enter valid, non-negative fare values before saving.', 'warning');
             return;
         }
 
         showConfirmModal(
-            'Update fare settings?',
-            `This takes effect on all new bookings immediately: ₱${settings.baseFare} base fare, ₱${settings.perKmRate}/km, ₱${settings.minimumFare} minimum, ${settings.serviceFeePercent}% service fee. Drivers and passengers will be notified.`,
+            'Save fare settings?',
+            `Saves ₱${settings.minimumFare} minimum fare (first ${settings.includedDistanceKm} km included) and ₱${settings.perKmRate} per km after that. The mobile app has these numbers built in and does not read them yet, so ride prices in the app will not change until it does. Nobody is notified.`,
             'Save Changes',
             '#1A73E8',
             async () => {
                 try {
                     await ParaFirestore.saveFareSettings(settings);
-                    ParaFirestore.sendBroadcastNotification(
-                        'Fare Update',
-                        `Fares have been updated: ₱${settings.baseFare} base fare, ₱${settings.perKmRate}/km, ₱${settings.minimumFare} minimum fare, ${settings.serviceFeePercent}% service fee.`,
-                        'everyone'
-                    ).catch((error) => console.error('Failed to send fare update notification:', error));
-                    window.showToast('Fare settings saved and drivers/passengers notified.', 'success');
+                    window.showToast('Fare settings saved.', 'success');
                     if (typeof loadFareSettings === 'function') loadFareSettings();
                 } catch (error) {
                     console.error('Failed to save fare settings:', error);
                     window.showToast(error.message || 'Failed to save fare settings.', 'error');
                 }
             }
+        );
+    };
+
+    // ── Suspension Requests (TODA president → admin) ───────────────────
+    // The president's app can only RECOMMEND a suspension: it saves a
+    // driver_actions record with status PENDING, and won't accept another for
+    // that driver until it is decided here. Approving suspends the driver;
+    // either way the decision and the admin's note are written back, and the
+    // president sees them in the app.
+    let suspensionActions = [];
+    let suspensionAdminIds = new Set([user.uid]);
+    let suspensionRepairDone = false;
+    window.suspensionRequestFilter = 'pending';
+
+    function suspensionRequestState(action) {
+        const status = String(action.status || '').toUpperCase();
+        if (status === 'APPROVED') return 'approved';
+        if (status === 'REJECTED') return 'declined';
+        if (status === 'PENDING') return 'pending';
+        // No status: written before the field existed. Records this admin site
+        // logged are already decided; older ones from the president still need a decision.
+        return isAdminAction(action) ? 'approved' : 'pending';
+    }
+
+    function isAdminAction(action) {
+        return action.issuedByRole === 'ADMIN' || suspensionAdminIds.has(action.issuedBy);
+    }
+
+    function presidentSuspensionRequests() {
+        return suspensionActions
+            .filter((action) => !isAdminAction(action))
+            .sort((a, b) => b.issuedAt - a.issuedAt);
+    }
+
+    function updateSuspensionBadge() {
+        const badge = document.querySelector('[data-view="suspension-requests"] .nav-badge');
+        if (!badge) return;
+        const pending = presidentSuspensionRequests().filter((a) => suspensionRequestState(a) === 'pending').length;
+        badge.textContent = pending > 0 ? String(pending) : '';
+        badge.classList.toggle('hidden', pending === 0);
+    }
+
+    function formatActionTime(ms) {
+        return ms ? new Date(ms).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+    }
+
+    function findDriverForAction(action) {
+        return (window.allDriversForLookup || []).find((d) => d.id === action.driverId) || null;
+    }
+
+    function renderSuspensionRequests() {
+        updateSuspensionBadge();
+        const tbody = document.getElementById('suspensionRequestsBody');
+        if (!tbody) return;
+
+        const all = presidentSuspensionRequests();
+        const filter = window.suspensionRequestFilter;
+        const list = filter === 'all' ? all : all.filter((a) => suspensionRequestState(a) === filter);
+
+        if (!list.length) {
+            const messages = {
+                pending: 'No suspension requests are waiting for your decision.',
+                approved: 'No approved suspension requests yet.',
+                declined: 'No declined suspension requests yet.',
+                all: 'The TODA president has not recommended any suspensions yet.'
+            };
+            tbody.innerHTML = emptyRow(5, messages[filter] || messages.all);
+            return;
+        }
+
+        tbody.innerHTML = list.map((action) => {
+            const state = suspensionRequestState(action);
+            const driver = findDriverForAction(action);
+            const name = (driver && driver.name) || action.driverName || 'Unknown driver';
+            const currentlySuspended = driver && driver.accountStatus === 'suspended';
+            const complaint = action.complaintId ? allComplaints.find((c) => c.id === action.complaintId) : null;
+            const badge = state === 'approved'
+                ? renderBadge('approved', 'APPROVED')
+                : (state === 'declined' ? renderBadge('declined', 'DECLINED') : renderBadge('processing', 'AWAITING REVIEW'));
+            const decidedLine = state !== 'pending' && action.reviewedAt
+                ? `<div class="detail-sub" style="margin-top:4px;">${escapeHtml(formatActionTime(action.reviewedAt))}</div>` : '';
+            const adminNoteLine = action.adminNote
+                ? `<div class="detail-sub" style="margin-top:4px;">Your note: ${escapeHtml(action.adminNote)}</div>` : '';
+            const actions = state === 'pending'
+                ? `<div style="display:flex; gap:6px; justify-content:center;">
+                        <button class="action-btn" style="background:#EE5D50;" data-action="approve-suspension" data-id="${escapeHtml(action.id)}">Approve</button>
+                        <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="decline-suspension" data-id="${escapeHtml(action.id)}">Decline</button>
+                   </div>`
+                : '<div style="text-align:center; color:var(--text-muted);">—</div>';
+            return `<tr>
+                <td><div class="detail-main">${escapeHtml(name)}</div><div class="detail-sub">Plate: ${escapeHtml((driver && driver.plate) || '—')}</div>${currentlySuspended ? '<div class="detail-sub" style="margin-top:4px; color:#EE5D50;">Currently suspended</div>' : ''}</td>
+                <td><div class="detail-main">${escapeHtml(action.issuedByName || 'TODA president')}</div><div class="detail-sub">${escapeHtml(formatActionTime(action.issuedAt))}</div></td>
+                <td style="max-width:280px; font-size:13px; line-height:1.5;">${escapeHtml(action.reason || '—')}${complaint ? `<div class="detail-sub" style="margin-top:4px;">From complaint ${escapeHtml(complaint.ref)}</div>` : ''}</td>
+                <td>${badge}${decidedLine}${adminNoteLine}</td>
+                <td>${actions}</td>
+            </tr>`;
+        }).join('');
+
+        bindRowActions(tbody, {
+            'approve-suspension': (ds) => window.approveSuspensionRequest(ds.id),
+            'decline-suspension': (ds) => window.declineSuspensionRequest(ds.id)
+        });
+    }
+
+    window.setSuspensionFilter = function(label) {
+        const key = String(label || 'Pending').toLowerCase();
+        window.suspensionRequestFilter = key;
+        const btn = document.getElementById('suspensionStatusBtn');
+        if (btn) btn.querySelector('.filter-val').textContent = label;
+        const dropdown = document.getElementById('suspensionStatusDropdown');
+        if (dropdown) dropdown.classList.remove('show');
+        renderSuspensionRequests();
+    };
+
+    window.approveSuspensionRequest = function(actionId) {
+        const action = suspensionActions.find((a) => a.id === actionId);
+        if (!action) return;
+        const driver = findDriverForAction(action);
+        const name = (driver && driver.name) || action.driverName || 'this driver';
+        const alreadySuspended = Boolean(driver && driver.accountStatus === 'suspended');
+
+        const durationHtml = alreadySuspended
+            ? `<div style="text-align:left; margin-top:14px; color:var(--text-muted);">${escapeHtml(name)} is already suspended, so this only records your decision — their suspension is not changed.</div>`
+            : `<div style="text-align:left; margin-top:14px;">
+                    <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Suspend for</label>
+                    <select id="suspensionRequestDays" class="form-input" style="width:100%; min-height:42px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px; background:#fff;">
+                        <option value="1">1 day</option>
+                        <option value="3" selected>3 days</option>
+                        <option value="7">7 days</option>
+                        <option value="14">14 days</option>
+                        <option value="30">30 days</option>
+                        <option value="permanent">Indefinitely (until manually reactivated)</option>
+                    </select>
+               </div>`;
+        const bodyHtml = `
+            <div style="text-align:left; color:var(--text-muted);"><strong style="color:var(--text-main);">President's reason:</strong> ${escapeHtml(action.reason || '—')}</div>
+            ${durationHtml}
+            <div style="text-align:left; margin-top:14px;">
+                <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Note to the TODA president (optional)</label>
+                <textarea id="suspensionRequestNote" class="form-input" rows="2" style="width:100%; resize:vertical;"></textarea>
+            </div>`;
+
+        showConfirmModal(
+            `Approve suspension for ${name}?`,
+            alreadySuspended ? 'Records your decision.' : 'The driver will be suspended and notified, and the president will see your decision in the app.',
+            alreadySuspended ? 'Approve' : 'Approve & Suspend',
+            '#EE5D50',
+            async () => {
+                const days = document.getElementById('suspensionRequestDays')?.value || '3';
+                const note = document.getElementById('suspensionRequestNote')?.value.trim() || '';
+                try {
+                    if (!alreadySuspended) {
+                        await ParaFirestore.updateDriverAccountStatus(action.driverId, 'suspended', days, action.reason);
+                    }
+                    await ParaFirestore.reviewSuspensionRequest(action.id, 'APPROVED', note);
+                    if (!alreadySuspended) {
+                        ParaFirestore.sendDirectNotification(
+                            action.driverId,
+                            'Account Suspended',
+                            action.reason ? `Your account has been suspended: ${action.reason}` : 'Your account has been suspended after a review by PARA admin.'
+                        ).catch((error) => console.error('Failed to notify the driver:', error));
+                    }
+                    window.showToast(alreadySuspended ? 'Request approved.' : `${name} has been suspended.`, alreadySuspended ? 'success' : 'error');
+                } catch (error) {
+                    console.error('Failed to approve the suspension request:', error);
+                    window.showToast('Could not approve the request. Nothing was recorded — please try again.', 'error');
+                }
+            },
+            bodyHtml
+        );
+    };
+
+    window.declineSuspensionRequest = function(actionId) {
+        const action = suspensionActions.find((a) => a.id === actionId);
+        if (!action) return;
+        const driver = findDriverForAction(action);
+        const name = (driver && driver.name) || action.driverName || 'this driver';
+        const bodyHtml = `
+            <div style="text-align:left; color:var(--text-muted);"><strong style="color:var(--text-main);">President's reason:</strong> ${escapeHtml(action.reason || '—')}</div>
+            <div style="text-align:left; margin-top:14px;">
+                <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Note to the TODA president (optional)</label>
+                <textarea id="suspensionRequestNote" class="form-input" rows="2" style="width:100%; resize:vertical;" placeholder="e.g. Not enough evidence yet"></textarea>
+            </div>`;
+
+        showConfirmModal(
+            `Decline the suspension of ${name}?`,
+            'The driver stays active, and the president will see that you declined it.',
+            'Decline',
+            '#1A73E8',
+            async () => {
+                const note = document.getElementById('suspensionRequestNote')?.value.trim() || '';
+                try {
+                    await ParaFirestore.reviewSuspensionRequest(action.id, 'REJECTED', note);
+                    window.showToast('Request declined.', 'success');
+                } catch (error) {
+                    console.error('Failed to decline the suspension request:', error);
+                    window.showToast('Could not decline the request. Please try again.', 'error');
+                }
+            },
+            bodyHtml
         );
     };
 
@@ -1545,6 +1866,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     ParaFirestore.listenDrivers(null, (drivers) => {
         window.allDriversForLookup = drivers;
         refreshComplaintDisplay();
+        renderSuspensionRequests();
     });
     ParaFirestore.reactivateExpiredDrivers().catch((error) => {
         console.error('Failed to auto-reactivate expired drivers:', error);
@@ -1588,6 +1910,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         updateComplaintStats();
         renderComplaintTable(allComplaints);
+        renderSuspensionRequests();
+    });
+    ParaFirestore.listenSuspensionRequests((actions) => {
+        suspensionActions = actions;
+        renderSuspensionRequests();
+        if (suspensionRepairDone) return;
+        suspensionRepairDone = true;
+        ParaFirestore.fetchAdminIds().then((ids) => {
+            suspensionAdminIds = ids;
+            renderSuspensionRequests();
+            return ParaFirestore.repairAdminSuspensionStatus(suspensionActions, ids);
+        }).catch((error) => console.error('Failed to tidy older suspension records:', error));
     });
 
     loadDashboardStats();

@@ -8,5 +8,7 @@ if (!firebase.apps.length) {
 
 window.ParaFirebase = {
     auth: firebase.auth(),
-    db: firebase.firestore()
+    db: firebase.firestore(),
+    // Only the dashboard loads the Storage SDK (driver documents); the login page doesn't.
+    storage: typeof firebase.storage === 'function' ? firebase.storage() : null
 };

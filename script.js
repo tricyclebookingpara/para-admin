@@ -72,6 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
     registerDropdown('driverMgmtSortBtn', 'driverMgmtSortDropdown');
     registerDropdown('passengerMgmtStatusBtn', 'passengerMgmtStatusDropdown');
     registerDropdown('complaintStatusBtn', 'complaintStatusDropdown');
+    registerDropdown('suspensionStatusBtn', 'suspensionStatusDropdown');
 
     // ── SPA Router ────────────────────────────────────────────────
     const navLinks = document.querySelectorAll('.nav-link');
@@ -1003,33 +1004,36 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // ── Fare Calculator Preview ───────────────────────────────────
+    // Same formula as the mobile app's FareCalculator:
+    //   fare = minimumFare + max(0, km - includedDistanceKm) * perKmRate
+    // and a shared ride splits it (each rider pays half of the solo fare).
     function updateFarePreview() {
-        const base = parseFloat(document.getElementById('fare-base')?.value) || 0;
-        const perKm = parseFloat(document.getElementById('fare-perkm')?.value) || 0;
         const minFare = parseFloat(document.getElementById('fare-min')?.value) || 0;
-        const svcFee = parseFloat(document.getElementById('fare-svc')?.value) || 0;
+        const included = parseFloat(document.getElementById('fare-included')?.value) || 0;
+        const perKm = parseFloat(document.getElementById('fare-perkm')?.value) || 0;
 
         const exampleKm = 3;
-        let raw = base + (perKm * exampleKm);
-        raw = Math.max(raw, minFare);
-        const fee = raw * (svcFee / 100);
-        const total = raw + fee;
+        const extraKm = Math.max(0, exampleKm - included);
+        const extra = extraKm * perKm;
+        const solo = minFare + extra;
 
         const el = (id) => document.getElementById(id);
-        if (el('prev-base')) el('prev-base').textContent = `₱${base.toFixed(2)}`;
-        if (el('prev-km')) el('prev-km').textContent = `₱${(perKm * exampleKm).toFixed(2)}`;
-        if (el('prev-fee')) el('prev-fee').textContent = `₱${fee.toFixed(2)}`;
-        if (el('prev-total')) el('prev-total').textContent = `₱${total.toFixed(2)}`;
+        const peso = (value) => `₱${value.toFixed(2)}`;
+        const kmText = (value) => String(Number(value.toFixed(2)));
+        if (el('prev-min')) el('prev-min').textContent = peso(minFare);
+        if (el('prev-km-label')) el('prev-km-label').textContent = `Extra distance (${kmText(extraKm)} km beyond the first ${kmText(included)} km)`;
+        if (el('prev-km')) el('prev-km').textContent = peso(extra);
+        if (el('prev-total')) el('prev-total').textContent = peso(solo);
+        if (el('prev-shared')) el('prev-shared').textContent = peso(solo / 2);
     }
 
     window.updateFarePreview = updateFarePreview;
 
-    ['fare-base', 'fare-perkm', 'fare-min', 'fare-svc'].forEach(id => {
+    ['fare-min', 'fare-included', 'fare-perkm'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('input', updateFarePreview);
     });
     updateFarePreview();
-
     // Driver Management controls are handled by dropdown menu selections.
 });
 
@@ -1059,60 +1063,6 @@ window.confirmSignOut = function() {
 window.closeModal = function(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) modal.classList.remove('active');
-};
-
-// ── Driver / Passenger Management ────────────────────────────────
-window.openDriverEditModal = function(name, vehicle, plate) {
-    document.getElementById('d-edit-name').value = name;
-    document.getElementById('d-edit-vehicle').value = vehicle;
-    document.getElementById('d-edit-plate').value = plate;
-    document.getElementById('driverEditModal').classList.add('active');
-};
-
-window.saveDriverEdit = function() {
-    closeModal('driverEditModal');
-    showToast('Driver details updated.', 'success');
-};
-
-window.confirmDriverBan = function(name) {
-    showConfirmModal(
-        `Deactivate ${name}?`,
-        `This driver's account will be suspended. They won't be able to accept rides until reactivated.`,
-        'Deactivate',
-        '#EE5D50',
-        () => showToast(`${name} has been deactivated.`, 'error')
-    );
-};
-
-window.confirmPassengerBan = function(name) {
-    showConfirmModal(
-        `Deactivate ${name}?`,
-        `This passenger's account will be suspended. They won't be able to book rides.`,
-        'Deactivate',
-        '#EE5D50',
-        () => showToast(`${name} has been deactivated.`, 'error')
-    );
-};
-
-// ── Complaints ────────────────────────────────────────────────────
-window.openComplaintModal = function(ref, reporter, reported, issue, desc, status, todaRec) {
-    document.getElementById('c-ref').textContent = ref;
-    document.getElementById('c-reporter').textContent = reporter;
-    document.getElementById('c-reported').textContent = reported;
-    document.getElementById('c-issue').value = issue;
-    document.getElementById('c-desc').value = desc;
-
-    const todaEl = document.getElementById('c-toda-rec');
-    if (todaEl) {
-        todaEl.value = todaRec || 'Waiting for Recommendation...';
-        todaEl.style.color = { 'Warning': '#FF9E2A', 'Suspension': '#EE5D50' }[todaRec] || 'var(--text-main)';
-    }
-
-    const statusEl = document.getElementById('c-status');
-    statusEl.textContent = status;
-    statusEl.className = 'status-badge ' + (status === 'RESOLVED' ? 'approved' : 'processing');
-
-    document.getElementById('complaintViewModal').classList.add('active');
 };
 
 // ── Request Info Modal ────────────────────────────────────────────
@@ -1187,11 +1137,6 @@ function showConfirmModal(title, body, confirmLabel, confirmColor, onConfirm, cu
 
     modal.classList.add('active');
 }
-
-// ── Fare Save ─────────────────────────────────────────────────────
-window.saveFareSettings = function() {
-    showToast('Fare settings saved successfully.', 'success');
-};
 
 // ── Password Update ───────────────────────────────────────────────
 window.updatePassword = async function() {

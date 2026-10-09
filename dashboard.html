@@ -48,6 +48,11 @@
                         <span>Complaints</span>
                         <span class="nav-badge">3</span>
                     </a>
+                    <a href="#suspension-requests" class="nav-link" data-view="suspension-requests">
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg>
+                        <span>Suspension Requests</span>
+                        <span class="nav-badge hidden"></span>
+                    </a>
                     <a href="#pricing" class="nav-link" data-view="pricing">
                         <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                         <span>Fare Management</span>
@@ -260,18 +265,26 @@
                                 <h3>Personal Information</h3>
                                 <p><strong>Name:</strong> <span id="v-name"></span></p>
                                 <p><strong>License No:</strong> <span id="v-lic"></span></p>
-                                <div style="display:flex; gap:10px;">
-                                    <div class="doc-preview" style="flex:1; padding:0; overflow:hidden; background:#fff;">
-                                        <a href="license-front.png" id="v-license-front-link" target="_blank" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
-                                            <img src="license-front.png" id="v-license-front-img" style="max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in;" alt="License Front">
-                                        </a>
-                                        <span id="v-license-front-empty" style="display:none; color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">No document uploaded</span>
+                                <p><strong>License Expiry:</strong> <span id="v-lic-expiry"></span></p>
+                                <p><strong>Government ID No:</strong> <span id="v-gov-no"></span></p>
+                                <div style="display:flex; gap:10px; margin-top:12px;">
+                                    <div style="flex:1; min-width:0;">
+                                        <div class="doc-preview" style="margin-top:0; padding:0; overflow:hidden; background:#fff;">
+                                            <a href="#" id="v-gov-link" target="_blank" rel="noopener" style="display:none; width:100%; height:100%; align-items:center; justify-content:center;">
+                                                <img id="v-gov-img" style="max-width:100%; max-height:100%; object-fit:contain; cursor:zoom-in;" alt="Government ID">
+                                            </a>
+                                            <span id="v-gov-empty" style="color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">Loading…</span>
+                                        </div>
+                                        <div class="detail-sub" style="margin-top:6px; text-align:center;">Government ID</div>
                                     </div>
-                                    <div class="doc-preview" style="flex:1; padding:0; overflow:hidden; background:#fff;">
-                                        <a href="license-back.jpg" id="v-license-back-link" target="_blank" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
-                                            <img src="license-back.jpg" id="v-license-back-img" style="max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in;" alt="License Back">
-                                        </a>
-                                        <span id="v-license-back-empty" style="display:none; color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">No document uploaded</span>
+                                    <div style="flex:1; min-width:0;">
+                                        <div class="doc-preview" style="margin-top:0; padding:0; overflow:hidden; background:#fff;">
+                                            <a href="#" id="v-license-link" target="_blank" rel="noopener" style="display:none; width:100%; height:100%; align-items:center; justify-content:center;">
+                                                <img id="v-license-img" style="max-width:100%; max-height:100%; object-fit:contain; cursor:zoom-in;" alt="Driver's License">
+                                            </a>
+                                            <span id="v-license-empty" style="color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">Loading…</span>
+                                        </div>
+                                        <div class="detail-sub" style="margin-top:6px; text-align:center;">Driver's License</div>
                                     </div>
                                 </div>
                             </div>
@@ -279,21 +292,18 @@
                                 <h3>Vehicle Information</h3>
                                 <p><strong>Model:</strong> <span id="v-model"></span></p>
                                 <p><strong>Plate No:</strong> <span id="v-plate"></span></p>
-                                <div class="doc-preview" style="padding:0; overflow:hidden; background:#fff;">
-                                    <a href="vehicle-photo.png" id="v-vehicle-photo-link" target="_blank" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
-                                        <img src="vehicle-photo.png" id="v-vehicle-photo-img" style="max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in;" alt="Vehicle Photo">
-                                    </a>
-                                    <span id="v-vehicle-photo-empty" style="display:none; color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">No document uploaded</span>
+                                <p><strong>Registered:</strong> <span id="v-reg-date"></span></p>
+                                <div style="display:flex; gap:10px; margin-top:12px;">
+                                    <div style="flex:1; min-width:0;">
+                                        <div class="doc-preview" style="margin-top:0; padding:0; overflow:hidden; background:#fff;">
+                                            <a href="#" id="v-reg-link" target="_blank" rel="noopener" style="display:none; width:100%; height:100%; align-items:center; justify-content:center;">
+                                                <img id="v-reg-img" style="max-width:100%; max-height:100%; object-fit:contain; cursor:zoom-in;" alt="Vehicle Registration (OR/CR)">
+                                            </a>
+                                            <span id="v-reg-empty" style="color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">Loading…</span>
+                                        </div>
+                                        <div class="detail-sub" style="margin-top:6px; text-align:center;">Vehicle Registration (OR/CR)</div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
-                        <div class="doc-section mt-16">
-                            <h3>Franchise / Permit</h3>
-                            <div class="doc-preview" style="padding:0; overflow:hidden; background:#fff; height:300px;">
-                                <a href="franchise-permit.png" id="v-franchise-link" target="_blank" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
-                                    <img src="franchise-permit.png" id="v-franchise-img" style="max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in;" alt="Franchise Permit">
-                                </a>
-                                <span id="v-franchise-empty" style="display:none; color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">No document uploaded</span>
                             </div>
                         </div>
                     </div>
@@ -317,14 +327,11 @@
                         <div class="form-group">
                             <label style="font-weight:600;">Required Documents</label>
                             <div id="requestInfoCheckboxes" style="display:flex; flex-direction:column; gap:4px; margin-top:8px;">
-                                <label class="req-checkbox-label"><input type="checkbox" value="Driver's License (Front)"> Driver's License (Front)</label>
-                                <label class="req-checkbox-label"><input type="checkbox" value="Driver's License (Back)"> Driver's License (Back)</label>
-                                <label class="req-checkbox-label"><input type="checkbox" value="Vehicle Photo"> Vehicle Photo</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="Government ID"> Government ID</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="Driver's License"> Driver's License</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="Vehicle Registration (OR/CR)"> Vehicle Registration (OR/CR)</label>
                                 <label class="req-checkbox-label"><input type="checkbox" value="Franchise / Permit"> Franchise / Permit</label>
-                                <label class="req-checkbox-label"><input type="checkbox" value="Valid Government ID"> Valid Government ID</label>
                                 <label class="req-checkbox-label"><input type="checkbox" value="Proof of Residence"> Proof of Residence</label>
-                                <label class="req-checkbox-label"><input type="checkbox" value="Certificate of Registration (CR)"> Certificate of Registration (CR)</label>
-                                <label class="req-checkbox-label"><input type="checkbox" value="Official Receipt (OR)"> Official Receipt (OR)</label>
                                 <label class="req-checkbox-label"><input type="checkbox" value="NBI Clearance"> NBI Clearance</label>
                                 <label class="req-checkbox-label"><input type="checkbox" value="Barangay Clearance"> Barangay Clearance</label>
                             </div>
@@ -680,7 +687,7 @@
                         <div class="form-group"><label>TODA President Recommendation</label><input type="text" class="form-input" id="c-toda-rec" readonly style="background:var(--bg-light); border-color:transparent; font-weight:600;"></div>
                         <hr style="border:none; border-top:1px solid var(--border-color); margin:20px 0;">
                         <h3 style="font-size:15px; font-weight:700; margin-bottom:14px;">Take Action</h3>
-                        <div class="form-group"><label>Admin Resolution Notes</label><textarea id="complaint-admin-notes" class="form-input" rows="3" placeholder="Type your resolution or notes here…"></textarea></div>
+                        <div class="form-group"><label>Resolution Note</label><textarea id="complaint-admin-notes" class="form-input" rows="3" placeholder="Type your resolution or notes here…"></textarea><div class="detail-sub" style="margin-top:4px;">Sent to the passenger who reported it, and to the driver too when you issue a warning or suspension.</div></div>
                     </div>
                     <div class="modal-footer" style="justify-content:center; flex-wrap:wrap;" id="complaintModalActions">
                         <button class="btn" id="complaintWarnBtn" style="background:#EE5D50;color:white;" onclick="window.warnComplaint()">Issue Warning</button>
@@ -691,29 +698,55 @@
                 </div>
             </div>
 
+            <!-- ══ SUSPENSION REQUESTS ════════════════════════════════ -->
+            <div class="view-section" id="view-suspension-requests">
+                <div class="page-header">
+                    <h1>Suspension Requests</h1>
+                    <div class="header-controls">
+                        <div class="dropdown-wrapper">
+                            <button class="filter-btn" id="suspensionStatusBtn">Status <span class="filter-val">Pending</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
+                            <div class="dropdown-menu" id="suspensionStatusDropdown">
+                                <div class="dropdown-content">
+                                    <div class="dropdown-item" onclick="setSuspensionFilter('Pending')"><span class="item-text">Pending</span></div>
+                                    <div class="dropdown-item" onclick="setSuspensionFilter('Approved')"><span class="item-text">Approved</span></div>
+                                    <div class="dropdown-item" onclick="setSuspensionFilter('Declined')"><span class="item-text">Declined</span></div>
+                                    <div class="dropdown-item" onclick="setSuspensionFilter('All')"><span class="item-text">All</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="detail-sub" style="margin-bottom:16px; line-height:1.6; max-width:760px;">The TODA president can only recommend a suspension. The driver stays active until you approve it here, and the president sees your decision and note in the app. Until you decide, the app won't take another suspension recommendation for the same driver.</div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Driver</th><th>Recommended by</th><th>Reason</th><th>Status</th><th style="text-align:center;">Actions</th></tr></thead>
+                        <tbody id="suspensionRequestsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- ══ FARE MANAGEMENT ════════════════════════════════════ -->
             <div class="view-section view-centered view-centered-md" id="view-pricing">
                 <div class="page-header"><h1>Fare Management</h1></div>
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; max-width:860px;">
                     <div class="form-container">
                         <h3 style="font-size:14px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:20px;">Fare Settings</h3>
-                        <div class="form-group"><label>Base Fare (₱)</label><input type="number" class="form-input" id="fare-base" value="40" min="0"></div>
-                        <div class="form-group"><label>Per Kilometer Rate (₱)</label><input type="number" class="form-input" id="fare-perkm" value="15" min="0"></div>
-                        <div class="form-group"><label>Minimum Fare (₱)</label><input type="number" class="form-input" id="fare-min" value="40" min="0"></div>
-                        <div class="form-group"><label>Service Fee (%)</label><input type="number" class="form-input" id="fare-svc" value="5" min="0" max="100"></div>
+                        <div class="form-group"><label>Minimum Fare (₱)</label><input type="number" class="form-input" id="fare-min" value="20" min="0"><div class="detail-sub" style="margin-top:4px;">What every ride costs, up to the included distance.</div></div>
+                        <div class="form-group"><label>Included Distance (km)</label><input type="number" class="form-input" id="fare-included" value="1" min="0" step="0.1"><div class="detail-sub" style="margin-top:4px;">Distance covered by the minimum fare.</div></div>
+                        <div class="form-group"><label>Per Kilometer Rate (₱)</label><input type="number" class="form-input" id="fare-perkm" value="20" min="0"><div class="detail-sub" style="margin-top:4px;">Charged for each km beyond the included distance.</div></div>
                         <button class="primary-btn mt-16" onclick="saveFareSettings()" style="width:100%;">Save Fare Settings</button>
                         <div id="fareLastUpdated" style="font-size:12px; color:var(--text-muted); margin-top:10px; text-align:center;"></div>
                     </div>
                     <div>
-                        <div class="fare-preview-box">
+                        <div class="fare-preview-box pred-result">
                             <h3>Live Preview — 3 km trip</h3>
-                            <div class="fare-row"><span style="color:var(--text-muted);">Base fare</span><span id="prev-base">₱40.00</span></div>
-                            <div class="fare-row"><span style="color:var(--text-muted);">Distance (3 km)</span><span id="prev-km">₱45.00</span></div>
-                            <div class="fare-row"><span style="color:var(--text-muted);">Service fee</span><span id="prev-fee">₱4.25</span></div>
-                            <div class="fare-row"><span>Total Fare</span><span id="prev-total">₱89.25</span></div>
+                            <div class="fare-row"><span style="color:var(--text-muted);">Minimum fare</span><span id="prev-min">₱20.00</span></div>
+                            <div class="fare-row"><span style="color:var(--text-muted);" id="prev-km-label">Extra distance (2 km beyond the first 1 km)</span><span id="prev-km">₱40.00</span></div>
+                            <div class="fare-row"><span style="font-weight:700;">Solo fare</span><span id="prev-total" style="font-weight:700; color:var(--primary);">₱60.00</span></div>
+                            <div class="fare-row"><span style="color:var(--text-muted);">Shared ride (each rider pays half)</span><span id="prev-shared">₱30.00</span></div>
                         </div>
                         <div style="background:var(--white); border:1px solid var(--border-color); border-radius:12px; padding:20px; margin-top:16px;">
-                            <p style="font-size:13px; color:var(--text-muted); line-height:1.6;"><strong style="color:var(--text-main);">Note:</strong> Fare changes apply to all new bookings immediately. Ongoing rides are not affected. Drivers and passengers will be notified of updates.</p>
+                            <p style="font-size:13px; color:var(--text-muted); line-height:1.6;"><strong style="color:var(--text-main);">Note:</strong> These are the numbers the mobile app prices rides with — ₱20 minimum, first 1 km included, ₱20 for each km after, and shared rides split the fare. The app currently has them built in and does not read this page yet; what you save here is stored in Firestore (<code>settings/fare</code>) for the app to use once it does. Saving does not notify users.</p>
                         </div>
                     </div>
                 </div>
@@ -1041,13 +1074,14 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=26"></script>
+<script src="firestore-service.js?v=28"></script>
 <script src="prediction.js?v=3"></script>
 <script src="driver-availability.js?v=2"></script>
-<script src="script.js?v=72"></script>
-<script src="firestore-ui.js?v=36"></script>
+<script src="script.js?v=73"></script>
+<script src="firestore-ui.js?v=38"></script>
 <script src="driver-availability-ui.js?v=1"></script>
 </body>
 </html>
