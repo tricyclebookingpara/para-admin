@@ -512,6 +512,20 @@ const ParaFirestore = (() => {
             .onSnapshot((snapshot) => callback(snapshot.docs.map(mapDriverActionDoc)));
     }
 
+    // Every approval / rejection this admin site has logged, for the Approved and
+    // Rejected lists in Driver Verification (who decided, when, and why).
+    function listenVerificationDecisions(callback) {
+        return db.collection('driver_actions')
+            .where('actionType', 'in', ['Approval', 'Rejection'])
+            .onSnapshot(
+                (snapshot) => callback(snapshot.docs.map(mapDriverActionDoc)),
+                (error) => {
+                    console.error('Failed to load verification decisions:', error);
+                    callback([]);
+                }
+            );
+    }
+
     async function fetchAdminIds() {
         const ids = new Set();
         if (auth.currentUser) ids.add(auth.currentUser.uid);
@@ -1380,6 +1394,7 @@ const ParaFirestore = (() => {
         logDriverAction,
         fetchDriverActions,
         listenSuspensionRequests,
+        listenVerificationDecisions,
         fetchAdminIds,
         settleDriverActions,
         repairAdminSuspensionStatus,

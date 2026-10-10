@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=49">
+    <link rel="stylesheet" href="style.css?v=50">
 </head>
 <body>
 <div class="app-background">
@@ -207,44 +207,21 @@
                 <div class="page-header">
                     <h1>Driver Verification</h1>
                     <div class="header-controls">
-                        <div class="dropdown-wrapper">
-                            <button class="filter-btn" id="driverVerificationStatusBtn">
-                                Status: <span class="filter-val" id="driverVerificationStatusText">Pending</span>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-                            </button>
-                            <div class="dropdown-menu" id="driverVerificationStatusDropdown">
-                                <div class="dropdown-content">
-                                    <div class="dropdown-item" onclick="selectVerificationStatus('Pending')"><span class="item-text">Pending</span></div>
-                                    <div class="dropdown-item" onclick="selectVerificationStatus('Approved')"><span class="item-text">Approved</span></div>
-                                    <div class="dropdown-item" onclick="selectVerificationStatus('Rejected')"><span class="item-text">Rejected</span></div>
-                            </div>
-                            </div>
-                        </div>
+                        <input type="search" class="vf-search" id="verificationSearch" placeholder="Search name, license or plate" autocomplete="off">
                     </div>
+                </div>
+                <div class="vf-tabs" id="verificationTabs">
+                    <button class="vf-tab active" data-status="pending">Pending <span class="vf-count" id="vf-count-pending">0</span></button>
+                    <button class="vf-tab" data-status="approved">Approved <span class="vf-count" id="vf-count-approved">0</span></button>
+                    <button class="vf-tab" data-status="rejected">Rejected <span class="vf-count" id="vf-count-rejected">0</span></button>
                 </div>
                 <div class="table-container">
                     <table class="data-table">
-                        <thead><tr><th>Driver Name</th><th>Vehicle Details</th><th>Submitted On</th><th>Status</th><th>Actions</th></tr></thead>
-                        <tbody>
-                            <tr>
-                                <td><div class="detail-main">Juan dela Cruz</div><div class="detail-sub">Lic: N12-34-56789</div></td>
-                                <td><div class="detail-main">Honda TMX 155</div><div class="detail-sub">Plate: XYZ-1234</div></td>
-                                <td style="font-size:13px; color:var(--text-muted);">March 21, 2026 · 10:30 AM</td>
-                                <td><span class="status-badge processing">PENDING</span></td>
-                                <td><button class="action-btn" onclick="openVerificationModal('Juan dela Cruz','N12-34-56789','Honda TMX 155','XYZ-1234')">Review</button></td>
-                            </tr>
-                            <tr>
-                                <td><div class="detail-main">Pedro Penduko</div><div class="detail-sub">Lic: N01-98-76543</div></td>
-                                <td><div class="detail-main">Yamaha Barako 175</div><div class="detail-sub">Plate: ABC-9876</div></td>
-                                <td style="font-size:13px; color:var(--text-muted);">March 20, 2026 · 2:15 PM</td>
-                                <td><span class="status-badge processing">PENDING</span></td>
-                                <td><button class="action-btn" onclick="openVerificationModal('Pedro Penduko','N01-98-76543','Yamaha Barako 175','ABC-9876')">Review</button></td>
-                            </tr>
-                        </tbody>
+                        <thead id="verificationHead"></thead>
+                        <tbody></tbody>
                     </table>
                 </div>
             </div>
-
             <!-- ══ DRIVER VERIFICATION MODAL ═══════════════════════════ -->
             <div class="modal-overlay" id="verificationModal">
                 <div class="modal-content">
@@ -255,6 +232,7 @@
                         </button>
                     </div>
                     <div class="modal-body">
+                        <div id="v-duplicate-box" style="display:none;"></div>
                         <div class="docs-grid">
                             <div class="doc-section">
                                 <h3>Personal Information</h3>
@@ -1109,12 +1087,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=34"></script>
+<script src="firestore-service.js?v=35"></script>
 <script src="prediction.js?v=7"></script>
 <script src="sample-data.js?v=7"></script>
 <script src="forecast.js?v=5"></script>
-<script src="script.js?v=77"></script>
-<script src="firestore-ui.js?v=55"></script>
+<script src="script.js?v=78"></script>
+<script src="firestore-ui.js?v=56"></script>
 <script src="forecast-ui.js?v=5"></script>
 </body>
 </html>

@@ -178,30 +178,107 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    // ── Duplicate accounts ───────────────────────────────────────
+    // The app lets anyone register, so the check happens here, at approval: two
+    // accounts that share a license number, government ID number or mobile
+    // number are the same person. A match with an already-APPROVED account
+    // blocks approval; a match with a pending or rejected one is a warning.
+    // A shared plate number alone is only noted — a tricycle can have more
+    // than one driver.
+    const DUPLICATE_FIELDS = [
+        { key: 'license', label: 'license number', normalize: (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '') },
+        { key: 'governmentId', label: 'government ID number', normalize: (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '') },
+        { key: 'phone', label: 'mobile number', normalize: (v) => {
+            const digits = String(v || '').replace(/\D/g, '');
+            if (digits.length === 12 && digits.startsWith('63')) return `0${digits.slice(2)}`;
+            if (digits.length === 10 && digits.startsWith('9')) return `0${digits}`;
+            return digits;
+        } }
+    ];
+    const PLATE_FIELD = { key: 'plate', label: 'plate number', normalize: (v) => ParaFirestore.normalizePlate(v) };
+
+    function findDuplicates(driver) {
+        if (!driver) return [];
+        const matches = new Map();
+        const check = (field, soft) => {
+            const value = field.normalize(driver[field.key]);
+            if (value.length < 4) return; // nothing real to compare
+            allDrivers.forEach((other) => {
+                if (other.id === driver.id || field.normalize(other[field.key]) !== value) return;
+                const entry = matches.get(other.id) || { other, fields: [], soft: true };
+                entry.fields.push(field.label);
+                if (!soft) entry.soft = false;
+                matches.set(other.id, entry);
+            });
+        };
+        DUPLICATE_FIELDS.forEach((field) => check(field, false));
+        check(PLATE_FIELD, true);
+        return [...matches.values()].map((entry) => ({
+            ...entry,
+            blocking: !entry.soft && entry.other.verificationStatus === 'approved'
+        }));
+    }
+
+    function renderVerificationHead() {
+        const head = document.getElementById('verificationHead');
+        if (!head) return;
+        head.innerHTML = currentVerificationFilter === 'pending'
+            ? '<tr><th>Driver Name</th><th>Vehicle Details</th><th>Submitted On</th><th>Status</th><th>Actions</th></tr>'
+            : `<tr><th>Driver Name</th><th>Vehicle Details</th><th>${currentVerificationFilter === 'approved' ? 'Approved On' : 'Rejected On'}</th><th>Decision</th><th>Actions</th></tr>`;
+    }
+
     function renderVerificationTable(drivers) {
         const tbody = document.querySelector('#view-driver-verification .data-table tbody');
         if (!tbody) return;
+        renderVerificationHead();
 
         if (!drivers.length) {
-            tbody.innerHTML = emptyRow(5, 'No driver applications found for this status.');
+            const emptyLabels = {
+                pending: 'No pending applications.',
+                approved: 'No approved drivers yet.',
+                rejected: 'No rejected applications.'
+            };
+            tbody.innerHTML = emptyRow(5, verificationSearchTerm ? 'No applications match your search.' : emptyLabels[currentVerificationFilter]);
             return;
         }
 
+        const isPending = currentVerificationFilter === 'pending';
         tbody.innerHTML = drivers.map((driver) => {
-            const label = currentVerificationFilter === 'pending' ? 'Review' : 'View Details';
-            const btnStyle = currentVerificationFilter === 'pending' ? '' : ' style="background:var(--bg-light);color:var(--text-main);"';
+            const label = isPending ? 'Review' : 'View Details';
+            const btnStyle = isPending ? '' : ' style="background:var(--bg-light);color:var(--text-main);"';
             const btn = `<button class="action-btn"${btnStyle} data-action="review-driver" data-id="${escapeHtml(driver.id)}">${label}</button>`;
+            const nameCell = `<td><div class="detail-main">${escapeHtml(driver.name)}</div><div class="detail-sub">Lic: ${escapeHtml(driver.license)}</div></td>`;
+            const vehicleCell = `<td><div class="detail-main">${escapeHtml(driver.vehicle)}</div><div class="detail-sub">Plate: ${escapeHtml(driver.plate)}</div></td>`;
+
+            if (!isPending) {
+                // The decision log: when, who, and (for a rejection) why.
+                const decision = verificationDecisions.get(driver.id);
+                const decidedAt = driver.verifiedAtRaw || (decision && decision.issuedAt ? new Date(decision.issuedAt) : null);
+                const detail = currentVerificationFilter === 'rejected'
+                    ? (decision && decision.reason ? decision.reason : '')
+                    : (decision && decision.issuedByName ? `By ${decision.issuedByName}` : '');
+                return `<tr>
+                    ${nameCell}${vehicleCell}
+                    <td style="font-size:13px; color:var(--text-muted);">${escapeHtml(decidedAt ? ParaFirestore.formatDateTime(decidedAt) : '—')}</td>
+                    <td>${renderBadge(driver.verificationStatus)}${detail ? `<div class="detail-sub" style="margin-top:4px; max-width:240px; line-height:1.4;">${escapeHtml(detail)}</div>` : ''}</td>
+                    <td>${btn}</td>
+                </tr>`;
+            }
+
             // Pending covers both "never looked at" and "already reviewed once, waiting
             // on the driver to resubmit requested documents" — flag the latter so it
             // doesn't get mistaken for (or re-requested as) a fresh application.
-            const infoRequestNote = (currentVerificationFilter === 'pending' && driver.infoRequest)
+            const infoRequestNote = driver.infoRequest
                 ? `<div class="detail-sub" style="color:#B8860B; margin-top:4px;">Awaiting driver response</div>`
                 : '';
+            const duplicates = findDuplicates(driver).filter((d) => !d.soft);
+            const duplicateNote = duplicates.length
+                ? `<div class="detail-sub" style="color:#EE5D50; font-weight:600; margin-top:4px;">${duplicates.some((d) => d.blocking) ? 'Duplicate account' : 'Possible duplicate'}</div>`
+                : '';
             return `<tr>
-                <td><div class="detail-main">${escapeHtml(driver.name)}</div><div class="detail-sub">Lic: ${escapeHtml(driver.license)}</div></td>
-                <td><div class="detail-main">${escapeHtml(driver.vehicle)}</div><div class="detail-sub">Plate: ${escapeHtml(driver.plate)}</div></td>
+                ${nameCell}${vehicleCell}
                 <td style="font-size:13px; color:var(--text-muted);">${escapeHtml(driver.submittedAt)}</td>
-                <td>${renderBadge(driver.verificationStatus)}${infoRequestNote}</td>
+                <td>${renderBadge(driver.verificationStatus)}${infoRequestNote}${duplicateNote}</td>
                 <td>${btn}</td>
             </tr>`;
         }).join('');
@@ -929,6 +1006,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    // The warning at the top of the review window, and the Approve button: off
+    // while the application matches an approved account.
+    function renderDuplicateNotice(driver) {
+        const box = document.getElementById('v-duplicate-box');
+        const approveBtn = document.getElementById('verifyApproveBtn');
+        const duplicates = findDuplicates(driver);
+        const blocking = duplicates.some((d) => d.blocking);
+        if (approveBtn) {
+            approveBtn.disabled = blocking;
+            approveBtn.title = blocking ? 'This application matches an approved account' : '';
+        }
+        if (!box) return;
+        if (!duplicates.length) {
+            box.style.display = 'none';
+            box.innerHTML = '';
+            return;
+        }
+        const statusLabel = (d) => d.other.verificationStatus.charAt(0).toUpperCase() + d.other.verificationStatus.slice(1);
+        const items = duplicates.map((d) => `<li><strong>${escapeHtml(d.other.name || 'Unnamed driver')}</strong> (${escapeHtml(statusLabel(d))}) — same ${escapeHtml(d.fields.join(', '))}</li>`).join('');
+        box.className = `vf-dup ${blocking ? 'block' : 'warn'}`;
+        box.style.display = '';
+        box.innerHTML = blocking
+            ? `<strong>Duplicate account — approval is blocked.</strong> This application matches a driver who is already approved. Reject it, or sort out the duplicate first.<ul>${items}</ul>`
+            : `<strong>Check before approving.</strong> This application shares details with another account.<ul>${items}</ul>`;
+    }
+
     window.openVerificationModal = async function(driverId) {
         try {
             const mapped = await ParaFirestore.getDriverById(driverId);
@@ -958,6 +1061,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const btn = document.getElementById(id);
                 if (btn) btn.style.display = isPending ? '' : 'none';
             });
+            renderDuplicateNotice(mapped);
 
             const driverBadge = document.querySelector('[data-view="driver-verification"] .nav-badge');
             if (driverBadge) {
@@ -973,13 +1077,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     let allDrivers = [];
+    let verificationSearchTerm = '';
+    // Latest approval / rejection logged for each driver (see logDriverAction).
+    const verificationDecisions = new Map();
 
     function timeValue(date) {
         return date && date.getTime ? date.getTime() : 0;
     }
 
     function applyVerificationFilter() {
-        const filtered = allDrivers.filter((d) => d.verificationStatus === currentVerificationFilter);
+        ['pending', 'approved', 'rejected'].forEach((status) => {
+            const el = document.getElementById(`vf-count-${status}`);
+            if (el) el.textContent = allDrivers.filter((d) => d.verificationStatus === status).length;
+        });
+        document.querySelectorAll('#verificationTabs .vf-tab').forEach((tab) => {
+            tab.classList.toggle('active', tab.dataset.status === currentVerificationFilter);
+        });
+
+        const filtered = allDrivers.filter((d) => d.verificationStatus === currentVerificationFilter
+            && (!verificationSearchTerm || [d.name, d.license, d.plate, d.vehicle].some((v) => String(v || '').toLowerCase().includes(verificationSearchTerm))));
 
         if (currentVerificationFilter === 'pending') {
             // Oldest application first — a FIFO queue so nobody waits indefinitely
@@ -1002,17 +1118,34 @@ document.addEventListener('DOMContentLoaded', async () => {
         applyVerificationFilter();
     });
 
-    window.selectVerificationStatus = function(statusStr) {
-        const textSpan = document.getElementById('driverVerificationStatusText');
-        const dropdown = document.getElementById('driverVerificationStatusDropdown');
-        if (textSpan) textSpan.textContent = statusStr;
-        if (dropdown) dropdown.classList.remove('show');
-        currentVerificationFilter = statusStr.toLowerCase();
+    ParaFirestore.listenVerificationDecisions((actions) => {
+        verificationDecisions.clear();
+        actions
+            .filter((a) => a.driverId)
+            .sort((a, b) => a.issuedAt - b.issuedAt)
+            .forEach((a) => verificationDecisions.set(a.driverId, a)); // newest ends up last
         applyVerificationFilter();
-    };
+    });
+
+    document.getElementById('verificationTabs')?.addEventListener('click', (e) => {
+        const tab = e.target.closest('.vf-tab');
+        if (!tab) return;
+        currentVerificationFilter = tab.dataset.status;
+        applyVerificationFilter();
+    });
+    document.getElementById('verificationSearch')?.addEventListener('input', (e) => {
+        verificationSearchTerm = e.target.value.trim().toLowerCase();
+        applyVerificationFilter();
+    });
 
     window.approveDriver = function() {
         if (!currentVerificationDriverId) return;
+        // Checked again here, against the live list, not just by the disabled button.
+        const current = allDrivers.find((d) => d.id === currentVerificationDriverId);
+        if (findDuplicates(current).some((d) => d.blocking)) {
+            window.showToast('Duplicate account — this driver matches an approved account.', 'error');
+            return;
+        }
         const name = document.getElementById('v-name')?.textContent || 'this driver';
         showConfirmModal(
             `Approve ${name}?`,

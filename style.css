@@ -958,6 +958,24 @@ body {
 /* ── Ratings ── */
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
+/* Driver Verification: status tabs, search, duplicate warning */
+.vf-search { width: 260px; max-width: 100%; padding: 9px 14px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--white); font: inherit; font-size: 13px; color: var(--text-main); }
+.vf-search:focus { outline: none; border-color: var(--primary); }
+.vf-tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+.vf-tab {
+    display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border: 1px solid var(--border-color); border-radius: 999px;
+    background: var(--white); color: var(--text-muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+}
+.vf-tab:hover { color: var(--text-main); }
+.vf-tab.active { background: rgba(26, 115, 232, 0.1); border-color: var(--primary); color: var(--primary); }
+.vf-count { min-width: 20px; padding: 1px 7px; border-radius: 999px; background: var(--bg-light); color: var(--text-muted); font-size: 11px; text-align: center; }
+.vf-tab.active .vf-count { background: var(--primary); color: #fff; }
+.vf-dup { border-radius: 12px; padding: 12px 16px; margin-bottom: 18px; font-size: 13px; line-height: 1.55; }
+.vf-dup.block { background: var(--status-decl-bg); color: var(--status-decl-text); }
+.vf-dup.warn { background: var(--status-proc-bg); color: #9A6200; }
+.vf-dup strong { font-weight: 700; }
+.vf-dup ul { margin: 6px 0 0 18px; padding: 0; }
+
 /* Complaint case window: reporter / party / status strip. Every column has the
    same label, value and sub-line, so the three line up row for row. */
 .case-parties { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; padding: 16px 18px; background: var(--bg-light); border-radius: 12px; }

@@ -67,7 +67,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     registerDropdown('statusFilterBtn', 'statusDropdown');
     registerDropdown('dashboardDateBtn', 'dashboardDateDropdown');
-    registerDropdown('driverVerificationStatusBtn', 'driverVerificationStatusDropdown');
     registerDropdown('driverMgmtStatusBtn', 'driverMgmtStatusDropdown');
     registerDropdown('driverMgmtSortBtn', 'driverMgmtSortDropdown');
     registerDropdown('passengerMgmtStatusBtn', 'passengerMgmtStatusDropdown');
