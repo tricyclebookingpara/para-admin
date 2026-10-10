@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=47">
+    <link rel="stylesheet" href="style.css?v=49">
 </head>
 <body>
 <div class="app-background">
@@ -661,19 +661,16 @@
 
             <!-- ══ COMPLAINT MODAL ════════════════════════════════════ -->
             <div class="modal-overlay" id="complaintViewModal">
-                <div class="modal-content" style="max-width:580px;">
+                <div class="modal-content" style="max-width:680px;">
                     <div class="modal-header">
                         <h2>Case: <span id="c-ref" style="color:var(--primary);">CPL-0000</span></h2>
-                        <div style="display:flex; align-items:center; gap:10px;">
-                            <button class="btn btn-secondary" id="complaintExportBtn" onclick="window.exportComplaintPdf()" title="Download this case as a PDF" style="padding:7px 14px; font-size:13px; display:inline-flex; align-items:center; gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export PDF</button>
-                            <button class="close-btn" onclick="closeModal('complaintViewModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-                        </div>
+                        <button class="close-btn" onclick="closeModal('complaintViewModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
                     </div>
                     <div class="modal-body">
-                        <div style="display:flex; gap:16px; margin-bottom:20px; padding:16px; background:var(--bg-light); border-radius:10px;">
-                            <div style="flex:1;"><label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">Reporter</label><strong id="c-reporter" style="font-size:14px;">–</strong><div id="c-reporter-role" style="font-size:10px; color:var(--text-muted); margin-top:4px;">–</div></div>
-                            <div style="flex:1;"><label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">Party Involved</label><strong id="c-reported" style="font-size:14px;">–</strong><div id="c-reported-role" style="font-size:10px; color:var(--text-muted); margin-top:4px;">–</div></div>
-                            <div style="flex:1;"><label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">Status</label><span id="c-status" class="status-badge processing">UNDER REVIEW</span></div>
+                        <div class="case-parties">
+                            <div class="case-party"><div class="case-label">Reporter</div><div class="case-value" id="c-reporter">–</div><div class="case-sub" id="c-reporter-role">–</div></div>
+                            <div class="case-party"><div class="case-label">Party Involved</div><div class="case-value" id="c-reported">–</div><div class="case-sub" id="c-reported-role">–</div></div>
+                            <div class="case-party"><div class="case-label">Status</div><div class="case-value"><span id="c-status" class="status-badge processing">UNDER REVIEW</span></div><div class="case-sub" id="c-filed">–</div></div>
                         </div>
                         <div class="form-group"><label>Issue Type</label><input type="text" class="form-input" id="c-issue" readonly style="background:var(--bg-light); border-color:transparent;"></div>
                         <div class="form-group"><label>Full Description</label><textarea class="form-input" id="c-desc" rows="4" readonly style="background:var(--bg-light); border-color:transparent; resize:none;"></textarea></div>
@@ -682,11 +679,14 @@
                         <h3 style="font-size:15px; font-weight:700; margin-bottom:14px;">Take Action</h3>
                         <div class="form-group"><label>Resolution Note</label><textarea id="complaint-admin-notes" class="form-input" rows="3" placeholder="Type your resolution or notes here…"></textarea><div class="detail-sub" style="margin-top:4px;">Sent to the passenger who reported it, and to the driver too when you issue a warning or suspension.</div></div>
                     </div>
-                    <div class="modal-footer" style="justify-content:center; flex-wrap:wrap;" id="complaintModalActions">
-                        <button class="btn" id="complaintWarnBtn" style="background:#EE5D50;color:white;" onclick="window.warnComplaint()">Issue Warning</button>
-                        <button class="btn" id="complaintSuspendBtn" style="background:var(--text-main);color:white;" onclick="window.suspendComplaint()">Suspend Account</button>
-                        <button class="btn btn-success" id="complaintResolveBtn" onclick="window.resolveComplaint()">Mark Resolved</button>
-                        <span id="complaintActionedNote" style="display:none; font-size:13px; color:var(--text-muted);">This case has already been reviewed.</span>
+                    <div class="modal-footer case-actions" id="complaintModalActions">
+                        <button class="btn btn-secondary case-export-btn" id="complaintExportBtn" onclick="window.exportComplaintPdf()" title="Download this case as a PDF"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export PDF</button>
+                        <div class="case-actions-main">
+                            <span id="complaintActionedNote" style="display:none; font-size:13px; color:var(--text-muted);">This case has already been reviewed.</span>
+                            <button class="btn" id="complaintWarnBtn" style="background:#EE5D50;color:white;" onclick="window.warnComplaint()">Issue Warning</button>
+                            <button class="btn" id="complaintSuspendBtn" style="background:var(--text-main);color:white;" onclick="window.suspendComplaint()">Suspend Account</button>
+                            <button class="btn btn-success" id="complaintResolveBtn" onclick="window.resolveComplaint()">Mark Resolved</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1114,7 +1114,7 @@
 <script src="sample-data.js?v=7"></script>
 <script src="forecast.js?v=5"></script>
 <script src="script.js?v=77"></script>
-<script src="firestore-ui.js?v=54"></script>
+<script src="firestore-ui.js?v=55"></script>
 <script src="forecast-ui.js?v=5"></script>
 </body>
 </html>

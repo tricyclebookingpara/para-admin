@@ -1638,6 +1638,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const reportedRoleEl = document.getElementById('c-reported-role');
             if (reporterRoleEl) reporterRoleEl.textContent = data.reporterRole || 'Passenger';
             if (reportedRoleEl) reportedRoleEl.textContent = data.reportedRole || 'Driver';
+            const filedEl = document.getElementById('c-filed');
+            if (filedEl) filedEl.textContent = data.createdAtRaw ? `Filed ${ParaFirestore.formatDateTime(data.createdAtRaw)}` : '—';
             document.getElementById('c-issue').value = data.issue || '';
             document.getElementById('c-desc').value = data.description || '';
 
