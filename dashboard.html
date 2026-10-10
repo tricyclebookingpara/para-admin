@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=43">
+    <link rel="stylesheet" href="style.css?v=47">
 </head>
 <body>
 <div class="app-background">
@@ -304,7 +304,7 @@
                     </div>
                     <div class="modal-footer" id="verificationModalActions">
                         <button class="btn btn-danger" id="verifyRejectBtn" onclick="rejectDriver()">Reject</button>
-                        <button class="btn" id="verifyRequestInfoBtn" style="background:#B8860B; color:#fff;" onclick="openRequestInfoModal()">Request Info</button>
+                        <button class="btn" id="verifyRequestInfoBtn" style="background:#B8860B; color:#fff;" onclick="openRequestInfoModal()">Resubmit Document</button>
                         <button class="btn btn-success" id="verifyApproveBtn" onclick="approveDriver()">Approve Driver</button>
                     </div>
                 </div>
@@ -314,11 +314,11 @@
             <div class="modal-overlay" id="requestInfoModal">
                 <div class="modal-content" style="max-width:480px;">
                     <div class="modal-header">
-                        <h2>Request Information</h2>
+                        <h2>Resubmit Document</h2>
                         <button class="close-btn" onclick="closeModal('requestInfoModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
                     </div>
                     <div class="modal-body">
-                        <p style="color:var(--text-muted); font-size:14px; margin-bottom:16px; line-height:1.6;">Select documents to request from the driver. The request will be saved to their account record.</p>
+                        <p style="color:var(--text-muted); font-size:14px; margin-bottom:16px; line-height:1.6;">Select the documents the driver needs to resubmit. The request will be saved to their account record.</p>
                         <div class="form-group">
                             <label style="font-weight:600;">Required Documents</label>
                             <div id="requestInfoCheckboxes" style="display:flex; flex-direction:column; gap:4px; margin-top:8px;">
@@ -399,8 +399,7 @@
                                 <td><div class="rating-stars">★★★★★ <span>4.9</span></div><div class="detail-sub">1,204 rides · 98% acceptance</div></td>
                                 <td><span class="status-badge approved">ACTIVE</span></td>
                                 <td>
-                                    <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" onclick="openDriverEditModal('Jose Rizal','TVS King 200','DEF-5678')">Edit</button>
-                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Jose Rizal')">Deactivate</button>
+                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Jose Rizal')">Suspend</button>
                                 </td>
                             </tr>
                             <tr>
@@ -409,7 +408,6 @@
                                 <td><div class="rating-stars">★★★★☆ <span>4.2</span></div><div class="detail-sub">432 rides · 85% acceptance</div></td>
                                 <td><span class="status-badge declined">SUSPENDED</span></td>
                                 <td>
-                                    <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" onclick="openDriverEditModal('Andres Bonifacio','Piaggio Ape','LMN-3456')">Edit</button>
                                     <button class="action-btn" style="background:#05CD99;margin-left:6px;" onclick="showToast('Andres Bonifacio reactivated.','success')">Reactivate</button>
                                 </td>
                             </tr>
@@ -419,8 +417,7 @@
                                 <td><div class="rating-stars">★★★★★ <span>4.8</span></div><div class="detail-sub">850 rides · 92% acceptance</div></td>
                                 <td><span class="status-badge approved">ACTIVE</span></td>
                                 <td>
-                                    <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" onclick="openDriverEditModal('Apolinario Mabini','Bajaj RE','OPQ-9012')">Edit</button>
-                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Apolinario Mabini')">Deactivate</button>
+                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Apolinario Mabini')">Suspend</button>
                                 </td>
                             </tr>
                             <tr>
@@ -429,8 +426,7 @@
                                 <td><div class="rating-stars">★★★★☆ <span>4.5</span></div><div class="detail-sub">512 rides · 88% acceptance</div></td>
                                 <td><span class="status-badge approved">ACTIVE</span></td>
                                 <td>
-                                    <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" onclick="openDriverEditModal('Emilio Jacinto','Kawasaki Barako 175','RST-3456')">Edit</button>
-                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Emilio Jacinto')">Deactivate</button>
+                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Emilio Jacinto')">Suspend</button>
                                 </td>
                             </tr>
                             <tr>
@@ -439,7 +435,6 @@
                                 <td><div class="rating-stars">★★★☆☆ <span>3.9</span></div><div class="detail-sub">2,104 rides · 76% acceptance</div></td>
                                 <td><span class="status-badge declined">SUSPENDED</span></td>
                                 <td>
-                                    <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" onclick="openDriverEditModal('Melchora Aquino','Yamaha Tricity','UVW-7890')">Edit</button>
                                     <button class="action-btn" style="background:#05CD99;margin-left:6px;" onclick="showToast('Melchora Aquino reactivated.','success')">Reactivate</button>
                                 </td>
                             </tr>
@@ -449,31 +444,11 @@
                                 <td><div class="rating-stars">★★★★★ <span>4.9</span></div><div class="detail-sub">120 rides · 99% acceptance</div></td>
                                 <td><span class="status-badge approved">ACTIVE</span></td>
                                 <td>
-                                    <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" onclick="openDriverEditModal('Juan Luna','Honda TMX 125','XYZ-1234')">Edit</button>
-                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Juan Luna')">Deactivate</button>
+                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Juan Luna')">Suspend</button>
                                 </td>
                             </tr>
                         </tbody>
                     </table>
-                </div>
-            </div>
-
-            <!-- ══ DRIVER EDIT MODAL ══════════════════════════════════ -->
-            <div class="modal-overlay" id="driverEditModal">
-                <div class="modal-content" style="max-width:480px;">
-                    <div class="modal-header">
-                        <h2>Edit Driver Details</h2>
-                        <button class="close-btn" onclick="closeModal('driverEditModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="form-group"><label>Driver Name</label><input type="text" class="form-input" id="d-edit-name"></div>
-                        <div class="form-group"><label>Vehicle Model</label><input type="text" class="form-input" id="d-edit-vehicle"></div>
-                        <div class="form-group"><label>Plate Number</label><input type="text" class="form-input" id="d-edit-plate"></div>
-                    </div>
-                    <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="closeModal('driverEditModal')">Cancel</button>
-                        <button class="btn btn-success" onclick="saveDriverEdit()">Save Changes</button>
-                    </div>
                 </div>
             </div>
 
@@ -493,13 +468,53 @@
                 </div>
             </div>
 
+            <!-- ══ DRIVER DETAILS MODAL ═══════════════════════════════ -->
+            <div class="modal-overlay" id="driverDetailsModal">
+                <div class="modal-content dd-modal">
+                    <div class="dd-header">
+                        <div class="dd-avatar" id="dd-avatar"></div>
+                        <div class="dd-header-main">
+                            <h2 id="dd-title">Driver Details</h2>
+                            <div class="dd-header-meta" id="dd-meta"></div>
+                        </div>
+                        <button class="close-btn" onclick="closeModal('driverDetailsModal')" title="Close"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                    <div class="dd-tabs">
+                        <button class="dd-tab active" data-tab="info">Information</button>
+                        <button class="dd-tab" data-tab="bookings">Bookings <span id="dd-bookings-count"></span></button>
+                        <button class="dd-tab" data-tab="complaints">Complaints <span id="dd-complaints-count"></span></button>
+                    </div>
+                    <div class="modal-body dd-body" id="dd-body"></div>
+                </div>
+            </div>
+
+            <!-- ══ PASSENGER DETAILS MODAL ════════════════════════════ -->
+            <div class="modal-overlay" id="passengerDetailsModal">
+                <div class="modal-content dd-modal">
+                    <div class="dd-header">
+                        <div class="dd-avatar" id="pd-avatar"></div>
+                        <div class="dd-header-main">
+                            <h2 id="pd-title">Passenger Details</h2>
+                            <div class="dd-header-meta" id="pd-meta"></div>
+                        </div>
+                        <button class="close-btn" onclick="closeModal('passengerDetailsModal')" title="Close"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                    <div class="dd-tabs">
+                        <button class="dd-tab active" data-tab="info">Information</button>
+                        <button class="dd-tab" data-tab="bookings">Bookings <span id="pd-bookings-count"></span></button>
+                        <button class="dd-tab" data-tab="complaints">Complaints <span id="pd-complaints-count"></span></button>
+                    </div>
+                    <div class="modal-body dd-body" id="pd-body"></div>
+                </div>
+            </div>
+
             <!-- ══ PASSENGER MANAGEMENT ═══════════════════════════════ -->
             <div class="view-section" id="view-passenger-management">
                 <div class="page-header">
                     <h1>Passenger Management</h1>
                     <div class="header-controls">
                         <div class="dropdown-wrapper">
-                            <button class="filter-btn" id="passengerMgmtStatusBtn">Status <span class="filter-val">All</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
+                            <button class="filter-btn" id="passengerMgmtStatusBtn">Account Status <span class="filter-val">All</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
                             <div class="dropdown-menu" id="passengerMgmtStatusDropdown">
                                 <div class="dropdown-content">
                                     <div class="dropdown-item" onclick="setPassengerManagementStatus('All')"><span class="item-text">All</span></div>
@@ -512,21 +527,21 @@
                 </div>
                 <div class="table-container">
                     <table class="data-table">
-                        <thead><tr><th>Passenger Name</th><th>Contact Info</th><th>Total Rides</th><th>Cancelled</th><th>Cancel Rate</th><th>Status</th><th style="text-align:center;">Actions</th></tr></thead>
+                        <thead><tr><th>Passenger Name</th><th>Contact Info</th><th>Total Rides</th><th>Cancelled</th><th>Cancellation Rate</th><th>Account Status</th><th style="text-align:center;">Actions</th></tr></thead>
                         <tbody>
                             <tr>
                                 <td><div class="detail-main">Maria Clara</div><div class="detail-sub">Member since Feb 2024</div></td>
                                 <td><div class="detail-main">+63 912 345 6789</div><div class="detail-sub">maria.clara@email.com</div></td>
                                 <td>142</td><td>5</td><td>3.5%</td>
                                 <td><span class="status-badge approved">ACTIVE</span></td>
-                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Maria Clara')">Deactivate</button></td>
+                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Maria Clara')">Suspend</button></td>
                             </tr>
                             <tr>
                                 <td><div class="detail-main">Emilio Aguinaldo</div><div class="detail-sub">Member since Dec 2023</div></td>
                                 <td><div class="detail-main">+63 998 765 4321</div><div class="detail-sub">emilio.agui@email.com</div></td>
                                 <td>56</td><td>8</td><td style="color:#FF9E2A; font-weight:600;">14.3%</td>
                                 <td><span class="status-badge processing" style="background:#FFF1D6;color:#FF9E2A;">FLAGGED</span></td>
-                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Emilio Aguinaldo')">Deactivate</button></td>
+                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Emilio Aguinaldo')">Suspend</button></td>
                             </tr>
                             <tr>
                                 <td><div class="detail-main">Antonio Luna</div><div class="detail-sub">Member since Jan 2024</div></td>
@@ -540,51 +555,31 @@
                                 <td><div class="detail-main">+63 917 222 3333</div><div class="detail-sub">greg.delpilar@email.com</div></td>
                                 <td>25</td><td>1</td><td>4.0%</td>
                                 <td><span class="status-badge approved">ACTIVE</span></td>
-                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Gregorio del Pilar')">Deactivate</button></td>
+                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Gregorio del Pilar')">Suspend</button></td>
                             </tr>
                             <tr>
                                 <td><div class="detail-main">Gabriela Silang</div><div class="detail-sub">Member since Nov 2023</div></td>
                                 <td><div class="detail-main">+63 920 555 6666</div><div class="detail-sub">g.silang@email.com</div></td>
                                 <td>210</td><td>10</td><td style="color:#FF9E2A; font-weight:600;">5.1%</td>
                                 <td><span class="status-badge processing" style="background:#FFF1D6;color:#FF9E2A;">FLAGGED</span></td>
-                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Gabriela Silang')">Deactivate</button></td>
+                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Gabriela Silang')">Suspend</button></td>
                             </tr>
                             <tr>
                                 <td><div class="detail-main">Apolinario Mabini</div><div class="detail-sub">Member since Aug 2023</div></td>
                                 <td><div class="detail-main">+63 919 888 7777</div><div class="detail-sub">apolinario.m@email.com</div></td>
                                 <td>150</td><td>2</td><td>1.3%</td>
                                 <td><span class="status-badge approved">ACTIVE</span></td>
-                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Apolinario Mabini')">Deactivate</button></td>
+                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Apolinario Mabini')">Suspend</button></td>
                             </tr>
                             <tr>
                                 <td><div class="detail-main">Marcelo H. del Pilar</div><div class="detail-sub">Member since May 2024</div></td>
                                 <td><div class="detail-main">+63 915 444 5555</div><div class="detail-sub">marcelo.hp@email.com</div></td>
                                 <td>64</td><td>0</td><td style="color:#05CD99; font-weight:600;">0.0%</td>
                                 <td><span class="status-badge approved">ACTIVE</span></td>
-                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Marcelo H. del Pilar')">Deactivate</button></td>
+                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Marcelo H. del Pilar')">Suspend</button></td>
                             </tr>
                         </tbody>
                     </table>
-                </div>
-            </div>
-
-            <!-- ══ PASSENGER EDIT MODAL ═══════════════════════════════ -->
-            <div class="modal-overlay" id="passengerEditModal">
-                <div class="modal-content" style="max-width:480px;">
-                    <div class="modal-header">
-                        <h2>Edit Passenger Profile</h2>
-                        <button class="close-btn" onclick="closeModal('passengerEditModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="form-group"><label>First Name</label><input type="text" class="form-input" id="p-edit-first-name"></div>
-                        <div class="form-group"><label>Last Name</label><input type="text" class="form-input" id="p-edit-last-name"></div>
-                        <div class="form-group"><label>Phone Number</label><input type="text" class="form-input" id="p-edit-phone"></div>
-                        <div class="form-group"><label>Email Address</label><input type="email" class="form-input" id="p-edit-email"></div>
-                    </div>
-                    <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="closeModal('passengerEditModal')">Cancel</button>
-                        <button class="btn btn-success" onclick="savePassengerEdit()">Save Changes</button>
-                    </div>
                 </div>
             </div>
 
@@ -669,7 +664,10 @@
                 <div class="modal-content" style="max-width:580px;">
                     <div class="modal-header">
                         <h2>Case: <span id="c-ref" style="color:var(--primary);">CPL-0000</span></h2>
-                        <button class="close-btn" onclick="closeModal('complaintViewModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <button class="btn btn-secondary" id="complaintExportBtn" onclick="window.exportComplaintPdf()" title="Download this case as a PDF" style="padding:7px 14px; font-size:13px; display:inline-flex; align-items:center; gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export PDF</button>
+                            <button class="close-btn" onclick="closeModal('complaintViewModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                        </div>
                     </div>
                     <div class="modal-body">
                         <div style="display:flex; gap:16px; margin-bottom:20px; padding:16px; background:var(--bg-light); border-radius:10px;">
@@ -1111,12 +1109,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=31"></script>
+<script src="firestore-service.js?v=34"></script>
 <script src="prediction.js?v=7"></script>
 <script src="sample-data.js?v=7"></script>
 <script src="forecast.js?v=5"></script>
-<script src="script.js?v=75"></script>
-<script src="firestore-ui.js?v=42"></script>
+<script src="script.js?v=77"></script>
+<script src="firestore-ui.js?v=54"></script>
 <script src="forecast-ui.js?v=5"></script>
 </body>
 </html>

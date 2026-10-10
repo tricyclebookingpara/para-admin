@@ -181,6 +181,8 @@ const ParaFirestore = (() => {
             name: composedName || getField(data, 'fullName', 'name', 'driverName'),
             firstName,
             lastName,
+            phone: getField(data, 'phoneNumber', 'phone', 'contact'),
+            email: getField(data, 'email'),
             license: getField(data, 'licenseNumber', 'license', 'licenseNo'),
             vehicle: getField(data, 'tricycleNumber', 'vehicleModel', 'vehicle', 'model'),
             plate: getField(data, 'plateNumber', 'plate', 'plateNo'),
@@ -562,17 +564,6 @@ const ParaFirestore = (() => {
         });
     }
 
-    async function updateDriver(driverId, updates) {
-        const { firstName, lastName } = splitFullName(updates.name);
-        await db.collection(COLLECTIONS.users).doc(driverId).update({
-            firstName,
-            lastName,
-            tricycleNumber: updates.vehicle,
-            plateNumber: updates.plate,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-    }
-
     async function updateDriverAccountStatus(driverId, status, suspensionDays = 3, reason = '') {
         const payload = {
             accountStatus: status,
@@ -724,16 +715,6 @@ const ParaFirestore = (() => {
         return snapshot.docs
             .filter((doc) => isPassengerRole(doc.data() || {}))
             .map(mapPassengerDoc);
-    }
-
-    async function updatePassenger(userId, updates) {
-        await db.collection(COLLECTIONS.users).doc(userId).update({
-            firstName: updates.firstName,
-            lastName: updates.lastName,
-            phoneNumber: updates.phone,
-            email: updates.email,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
     }
 
     // Same shape as driver_actions (actionId/actionType/.../issuedAt/reason) for
@@ -1394,7 +1375,6 @@ const ParaFirestore = (() => {
         fetchApprovedDrivers,
         listenApprovedDrivers,
         updateDriverVerification,
-        updateDriver,
         updateDriverAccountStatus,
         requestDriverInfo,
         logDriverAction,
@@ -1410,7 +1390,6 @@ const ParaFirestore = (() => {
         applyBookingOutcomeToPassenger,
         fetchPassengers,
         listenPassengers,
-        updatePassenger,
         updatePassengerStatus,
         logPassengerAction,
         fetchPassengerActions,
@@ -1443,6 +1422,7 @@ const ParaFirestore = (() => {
         getDriverById,
         fetchDriverDocuments,
         computeDriverStats,
+        normalizePlate,
         getComplaintById,
         formatDateTime,
         normalizeStatus

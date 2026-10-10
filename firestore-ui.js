@@ -59,8 +59,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     let currentVerificationDriverId = null;
-    let currentEditDriverId = null;
-    let currentEditPassengerId = null;
     let currentComplaintId = null;
     let currentVerificationFilter = 'pending';
 
@@ -256,6 +254,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return { ...d, totalRides: stats.completed, acceptanceRate: stats.acceptanceRate };
         });
         window.driverManagementDrivers = drivers;
+        refreshDriverDetails();
 
         const statusFilter = window.driverMgmtStatusFilter || 'all';
         const sortMode = window.driverMgmtSortMode || 'rating-desc';
@@ -293,21 +292,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             const ratingValue = Number(driver.rating) || 0;
             const actionBtn = isSuspended
                 ? `<button class="action-btn" style="background:#05CD99;" data-action="reactivate-driver" data-id="${escapeHtml(driver.id)}" data-name="${escapeHtml(driver.name)}">Reactivate</button>`
-                : `<button class="action-btn" style="background:#EE5D50;" data-action="ban-driver" data-id="${escapeHtml(driver.id)}" data-name="${escapeHtml(driver.name)}">Deactivate</button>`;
+                : `<button class="action-btn" style="background:#EE5D50;" data-action="ban-driver" data-id="${escapeHtml(driver.id)}" data-name="${escapeHtml(driver.name)}">Suspend</button>`;
             let suspensionNote = '';
             if (isSuspended) {
                 const untilText = driver.suspendedUntilRaw ? `Until ${ParaFirestore.formatDateTime(driver.suspendedUntilRaw)}` : 'Indefinitely';
                 const reasonText = driver.suspensionReason ? ` — ${driver.suspensionReason}` : '';
                 suspensionNote = `<div class="detail-sub" style="margin-top:4px;">${escapeHtml(untilText + reasonText)}</div>`;
             }
-            return `<tr>
+            return `<tr class="row-clickable" data-driver-id="${escapeHtml(driver.id)}" title="View driver details">
                 <td><div class="detail-main">${escapeHtml(driver.name)}</div><div class="detail-sub">Member since ${escapeHtml(driver.memberSince)}</div></td>
                 <td><div class="detail-main">${escapeHtml(driver.vehicle || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(driver.plate || '—')}</div></td>
                 <td style="white-space:nowrap;"><div class="rating-stars">${escapeHtml(getDriverPerformanceStars(ratingValue))} <span>${escapeHtml(driver.rating === '—' ? '—' : Number(driver.rating).toFixed(1))}</span></div><div class="detail-sub">${escapeHtml(Number(driver.totalRides || 0))} completed ${Number(driver.totalRides || 0) === 1 ? 'ride' : 'rides'} · ${escapeHtml(driver.acceptanceRate || '—')} acceptance</div></td>
                 <td>${renderBadge(isSuspended ? 'suspended' : 'active')}${suspensionNote}${driverPresenceLine(driver)}</td>
                 <td style="white-space:nowrap;">
                     <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
-                        <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="edit-driver" data-id="${escapeHtml(driver.id)}">Edit</button>
                         <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-driver" data-id="${escapeHtml(driver.id)}" data-name="${escapeHtml(driver.name)}">History</button>
                         ${actionBtn}
                     </div>
@@ -316,11 +314,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         }).join('');
 
         bindRowActions(tbody, {
-            'edit-driver': (ds) => window.openDriverEditModal(ds.id),
             'history-driver': (ds) => window.openDriverHistoryModal(ds.id, ds.name),
             'reactivate-driver': (ds) => window.reactivateDriver(ds.id, ds.name),
             'ban-driver': (ds) => window.confirmDriverBan(ds.id, ds.name)
         });
+
+        // Clicking anywhere on a row (except its buttons) opens the driver's details.
+        if (!tbody.dataset.rowClickBound) {
+            tbody.dataset.rowClickBound = '1';
+            tbody.addEventListener('click', (e) => {
+                if (e.target.closest('button')) return;
+                const row = e.target.closest('tr[data-driver-id]');
+                if (row && tbody.contains(row)) window.openDriverDetailsModal(row.dataset.driverId);
+            });
+        }
     }
 
     window.setDriverManagementStatus = function(statusKey) {
@@ -382,6 +389,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function renderPassengerTable(passengers) {
+        refreshPassengerDetails();
         const tbody = document.querySelector('#view-passenger-management .data-table tbody');
         if (!tbody) return;
 
@@ -402,7 +410,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     : 'color:#05CD99; font-weight:600;';
             const actionBtn = isSuspended
                 ? `<button class="action-btn" style="background:#05CD99;" data-action="reactivate-passenger" data-id="${escapeHtml(passenger.id)}" data-name="${escapeHtml(passenger.name)}">Reactivate</button>`
-                : `<button class="action-btn" style="background:#EE5D50;" data-action="ban-passenger" data-id="${escapeHtml(passenger.id)}" data-name="${escapeHtml(passenger.name)}">Deactivate</button>`;
+                : `<button class="action-btn" style="background:#EE5D50;" data-action="ban-passenger" data-id="${escapeHtml(passenger.id)}" data-name="${escapeHtml(passenger.name)}">Suspend</button>`;
             const statusKey = isFlagged ? 'flagged' : (isSuspended ? 'suspended' : 'active');
             let suspensionNote = '';
             if (isSuspended) {
@@ -411,7 +419,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 suspensionNote = `<div class="detail-sub" style="margin-top:4px;">${escapeHtml(untilText + reasonText)}</div>`;
             }
 
-            return `<tr>
+            return `<tr class="row-clickable" data-passenger-id="${escapeHtml(passenger.id)}" title="View passenger details">
                 <td><div class="detail-main">${escapeHtml(passenger.name)}</div><div class="detail-sub">Member since ${escapeHtml(passenger.memberSince)}</div></td>
                 <td><div class="detail-main">${escapeHtml(passenger.phone)}</div><div class="detail-sub">${escapeHtml(passenger.email)}</div></td>
                 <td>${escapeHtml(passenger.totalRides)}</td>
@@ -420,7 +428,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td>${renderBadge(statusKey)}${suspensionNote}</td>
                 <td style="white-space:nowrap;">
                     <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
-                        <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="edit-passenger" data-id="${escapeHtml(passenger.id)}">Edit</button>
                         <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-passenger" data-id="${escapeHtml(passenger.id)}" data-name="${escapeHtml(passenger.name)}">History</button>
                         ${actionBtn}
                     </div>
@@ -429,11 +436,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         }).join('');
 
         bindRowActions(tbody, {
-            'edit-passenger': (ds) => window.openPassengerEditModal(ds.id),
             'history-passenger': (ds) => window.openPassengerHistoryModal(ds.id, ds.name),
             'reactivate-passenger': (ds) => window.reactivatePassenger(ds.id, ds.name),
             'ban-passenger': (ds) => window.confirmPassengerBan(ds.id, ds.name)
         });
+
+        // Clicking anywhere on a row (except its buttons) opens the passenger's details.
+        if (!tbody.dataset.rowClickBound) {
+            tbody.dataset.rowClickBound = '1';
+            tbody.addEventListener('click', (e) => {
+                if (e.target.closest('button')) return;
+                const row = e.target.closest('tr[data-passenger-id]');
+                if (row && tbody.contains(row)) window.openPassengerDetailsModal(row.dataset.passengerId);
+            });
+        }
     }
 
     const BOOKINGS_PAGE_SIZE = 25;
@@ -1094,44 +1110,418 @@ document.addEventListener('DOMContentLoaded', async () => {
         openActionHistoryModal(name, () => ParaFirestore.fetchDriverActions(driverId), 'No actions recorded for this driver yet.');
     };
 
+    // ── Driver details window (click a row in Driver Management) ──
+    const DD_BOOKINGS_PAGE_SIZE = 8;
+    let ddDriver = null;
+    let ddTab = 'info';
+    let ddBookingPage = 1;
+    let ddBookingFilter = 'all';
+
+    // A driver's bookings: the ones carrying their id, plus the driver-declined
+    // requests whose driverId the app blanks — matched by plate, same as
+    // ParaFirestore.computeDriverStats so the counts agree with the table.
+    function bookingsForDriver(driver) {
+        const plate = ParaFirestore.normalizePlate(driver.plate);
+        return (window.allBookings || []).filter((b) => {
+            if (b.driverId) return b.driverId === driver.id;
+            const declined = ParaFirestore.normalizeStatus(b.status) === 'declined' && !b.joinRequestExpired;
+            return declined && plate && ParaFirestore.normalizePlate(b.plate) === plate;
+        }).sort((a, b) => {
+            const ta = a.createdAtRaw ? new Date(a.createdAtRaw).getTime() || 0 : 0;
+            const tb = b.createdAtRaw ? new Date(b.createdAtRaw).getTime() || 0 : 0;
+            return tb - ta;
+        });
+    }
+
+    function complaintsForDriver(driver) {
+        return allComplaints.filter((c) => c.driverId === driver.id).sort((a, b) => {
+            const ta = a.createdAtRaw ? new Date(a.createdAtRaw).getTime() || 0 : 0;
+            const tb = b.createdAtRaw ? new Date(b.createdAtRaw).getTime() || 0 : 0;
+            return tb - ta;
+        });
+    }
+
+    // One "label ........ value" line inside an info card. `html` values (badges)
+    // are passed pre-escaped.
+    function ddRow(label, value, { html = false } = {}) {
+        const empty = value === undefined || value === null || value === '';
+        const shown = empty ? '—' : (html ? value : escapeHtml(value));
+        return `<div class="dd-row"><span class="dd-row-label">${escapeHtml(label)}</span><span class="dd-row-value">${shown}</span></div>`;
+    }
+
+    function ddStat(value, label) {
+        return `<div class="dd-stat"><div class="dd-stat-value">${escapeHtml(value)}</div><div class="dd-stat-label">${escapeHtml(label)}</div></div>`;
+    }
+
+    function ddEmpty(message) {
+        return `<div class="dd-empty">${escapeHtml(message)}</div>`;
+    }
+
+    function ddInfoHtml(driver) {
+        const stats = ParaFirestore.computeDriverStats(driver, window.allBookings || []);
+        const isSuspended = driver.accountStatus === 'suspended';
+        const rating = driver.rating === '—' ? '—' : `${Number(driver.rating).toFixed(1)} ★`;
+        let suspension = '';
+        if (isSuspended) {
+            const until = driver.suspendedUntilRaw ? `until ${ParaFirestore.formatDateTime(driver.suspendedUntilRaw)}` : 'indefinitely';
+            suspension = `<div class="dd-notice"><strong>Suspended ${escapeHtml(until)}.</strong>${driver.suspensionReason ? ` ${escapeHtml(driver.suspensionReason)}` : ''}</div>`;
+        }
+        return `
+            ${suspension}
+            <div class="dd-stats">
+                ${ddStat(rating, 'Rating')}
+                ${ddStat(stats.completed, 'Completed rides')}
+                ${ddStat(stats.acceptanceRate, 'Acceptance rate')}
+            </div>
+            <div class="dd-cards">
+                <div class="dd-card">
+                    <div class="dd-card-title">Contact &amp; account</div>
+                    ${ddRow('Phone', driver.phone)}
+                    ${ddRow('Email', driver.email)}
+                    ${ddRow('Verification', renderBadge(driver.verificationStatus), { html: true })}
+                    ${ddRow('Member since', driver.memberSince)}
+                </div>
+                <div class="dd-card">
+                    <div class="dd-card-title">Vehicle</div>
+                    ${ddRow('Tricycle number', driver.vehicle)}
+                    ${ddRow('Plate number', driver.plate)}
+                    ${ddRow('Registration date', driver.vehicleRegistrationDate)}
+                </div>
+                <div class="dd-card wide">
+                    <div class="dd-card-title">License &amp; identification</div>
+                    ${ddRow('License number', driver.license)}
+                    ${ddRow('License expiry', driver.licenseExpiry)}
+                    ${ddRow('Government ID', driver.governmentId)}
+                </div>
+            </div>`;
+    }
+
+    function ddBookingsHtml(driver) {
+        const all = bookingsForDriver(driver);
+        if (!all.length) return ddEmpty('No bookings found for this driver.');
+        const count = (status) => all.filter((b) => ParaFirestore.normalizeStatus(b.status) === status).length;
+        const list = ddBookingFilter === 'all' ? all : all.filter((b) => ParaFirestore.normalizeStatus(b.status) === ddBookingFilter);
+        const chip = (key, label, n) => `<button type="button" class="dd-chip${ddBookingFilter === key ? ' active' : ''}" data-dd-filter="${key}"${n === 0 && key !== 'all' ? ' disabled' : ''}><strong>${n}</strong>${label}</button>`;
+        const totalPages = Math.max(1, Math.ceil(list.length / DD_BOOKINGS_PAGE_SIZE));
+        ddBookingPage = Math.min(Math.max(1, ddBookingPage), totalPages);
+        const start = (ddBookingPage - 1) * DD_BOOKINGS_PAGE_SIZE;
+        const rows = list.slice(start, start + DD_BOOKINGS_PAGE_SIZE).map((b) => `
+            <tr>
+                <td><div class="book-id">${escapeHtml(b.ref)}</div><div class="book-time">${escapeHtml(b.relativeTime)}</div></td>
+                <td style="font-size:13px;">${escapeHtml(b.dateLabel)}</td>
+                <td style="font-size:13px;">${escapeHtml(b.passengerName || '—')}</td>
+                <td style="max-width:230px; font-size:13px; line-height:1.4;">${escapeHtml(b.pickupLocation)}<div class="detail-sub">to ${escapeHtml(b.dropoffLocation)}</div></td>
+                <td>${renderBadge(b.status)}</td>
+                <td><div style="color:${fareColor(ParaFirestore.normalizeStatus(b.status))}; font-weight:600;">&#8369;${escapeHtml(Number(b.totalFare || 0).toFixed(2))}</div>${paymentLine(b)}</td>
+            </tr>`).join('');
+        return `
+            <div class="dd-summary">
+                ${chip('all', 'total', all.length)}
+                ${chip('completed', 'completed', count('completed'))}
+                ${chip('cancelled', 'cancelled', count('cancelled'))}
+                ${chip('declined', 'declined', count('declined'))}
+            </div>
+            <div class="table-container"><table class="data-table">
+                <thead><tr><th>Booking</th><th>Date</th><th>Passenger</th><th>Route</th><th>Status</th><th>Fare</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>
+            <div class="dd-pager">
+                <span>Showing ${start + 1}–${Math.min(list.length, start + DD_BOOKINGS_PAGE_SIZE)} of ${list.length}</span>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button class="action-btn" data-dd-page="-1" ${ddBookingPage <= 1 ? 'disabled' : ''}>Prev</button>
+                    <span>Page ${ddBookingPage} of ${totalPages}</span>
+                    <button class="action-btn" data-dd-page="1" ${ddBookingPage >= totalPages ? 'disabled' : ''}>Next</button>
+                </div>
+            </div>`;
+    }
+
+    function ddComplaintsHtml(driver) {
+        const list = complaintsForDriver(driver);
+        if (!list.length) return ddEmpty('No complaints filed against this driver.');
+        const rows = list.map((c) => `
+            <tr>
+                <td><div class="book-id">${escapeHtml(c.ref)}</div><div class="book-time">${escapeHtml(ParaFirestore.formatDateTime(c.createdAtRaw))}</div></td>
+                <td><div class="detail-main">${escapeHtml(c.issue)}</div><div class="detail-sub">${escapeHtml(c.description)}</div></td>
+                <td>${escapeHtml(c.reporter)}${c.tripRef ? `<div class="detail-sub">Trip: ${escapeHtml(c.tripRef)}</div>` : ''}</td>
+                <td>${renderBadge(c.status)}</td>
+                <td><button class="action-btn" data-dd-case="${escapeHtml(c.id)}">View Case</button></td>
+            </tr>`).join('');
+        return `
+            <div class="table-container"><table class="data-table">
+                <thead><tr><th>Case</th><th>Issue</th><th>Reported by</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>`;
+    }
+
+    function renderDriverDetails() {
+        if (!ddDriver) return;
+        const body = document.getElementById('dd-body');
+        if (!body) return;
+        document.querySelectorAll('#driverDetailsModal .dd-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === ddTab));
+        // Header: initials, name, account status + presence, vehicle.
+        const isSuspended = ddDriver.accountStatus === 'suspended';
+        const initials = String(ddDriver.name || '?').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+        document.getElementById('dd-avatar').textContent = initials || '?';
+        document.getElementById('dd-title').textContent = ddDriver.name || 'Driver Details';
+        const presence = driverPresenceLine(ddDriver).replace(/^<div[^>]*>|<\/div>$/g, '');
+        const vehicle = [ddDriver.vehicle && `Tricycle ${ddDriver.vehicle}`, ddDriver.plate && `Plate ${ddDriver.plate}`].filter(Boolean).join(' · ');
+        document.getElementById('dd-meta').innerHTML = renderBadge(isSuspended ? 'suspended' : 'active')
+            + (presence ? `<span>${presence}</span>` : '')
+            + (vehicle ? `<span>${escapeHtml(vehicle)}</span>` : '');
+        document.getElementById('dd-bookings-count').textContent = `(${bookingsForDriver(ddDriver).length})`;
+        document.getElementById('dd-complaints-count').textContent = `(${complaintsForDriver(ddDriver).length})`;
+        body.innerHTML = ddTab === 'bookings' ? ddBookingsHtml(ddDriver)
+            : ddTab === 'complaints' ? ddComplaintsHtml(ddDriver)
+            : ddInfoHtml(ddDriver);
+    }
+
+    // Live listeners (drivers, bookings, complaints) keep updating while the
+    // window is open — redraw it from the fresh data.
+    function refreshDriverDetails() {
+        const modal = document.getElementById('driverDetailsModal');
+        if (!ddDriver || !modal || !modal.classList.contains('active')) return;
+        const fresh = (window.driverManagementDrivers || []).find((d) => d.id === ddDriver.id);
+        if (!fresh) return;
+        ddDriver = fresh;
+        renderDriverDetails();
+    }
+
+    window.openDriverDetailsModal = function(driverId) {
+        const driver = (window.driverManagementDrivers || []).find((d) => d.id === driverId);
+        if (!driver) return;
+        ddDriver = driver;
+        ddTab = 'info';
+        ddBookingPage = 1;
+        ddBookingFilter = 'all';
+        renderDriverDetails();
+        document.getElementById('driverDetailsModal').classList.add('active');
+    };
+
+    (function bindDriverDetailsModal() {
+        const modal = document.getElementById('driverDetailsModal');
+        if (!modal) return;
+        modal.addEventListener('click', (e) => {
+            const tab = e.target.closest('.dd-tab');
+            if (tab) {
+                ddTab = tab.dataset.tab;
+                renderDriverDetails();
+                return;
+            }
+            const filterBtn = e.target.closest('[data-dd-filter]');
+            if (filterBtn && !filterBtn.disabled) {
+                ddBookingFilter = filterBtn.dataset.ddFilter;
+                ddBookingPage = 1;
+                renderDriverDetails();
+                return;
+            }
+            const pageBtn = e.target.closest('[data-dd-page]');
+            if (pageBtn) {
+                ddBookingPage += Number(pageBtn.dataset.ddPage);
+                renderDriverDetails();
+                return;
+            }
+            const caseBtn = e.target.closest('[data-dd-case]');
+            if (caseBtn) {
+                modal.classList.remove('active');
+                window.openComplaintModal(caseBtn.dataset.ddCase);
+            }
+        });
+    })();
+
+    // ── Passenger details window (click a row in Passenger Management) ──
+    // Same look as the driver window; reuses its row/stat/chip helpers.
+    let pdPassenger = null;
+    let pdTab = 'info';
+    let pdBookingPage = 1;
+    let pdBookingFilter = 'all';
+
+    function bookingsForPassenger(passenger) {
+        return (window.allBookings || []).filter((b) => b.passengerId === passenger.id).sort((a, b) => {
+            const ta = a.createdAtRaw ? new Date(a.createdAtRaw).getTime() || 0 : 0;
+            const tb = b.createdAtRaw ? new Date(b.createdAtRaw).getTime() || 0 : 0;
+            return tb - ta;
+        });
+    }
+
+    // Complaints this passenger filed (a complaint is always passenger -> driver).
+    function complaintsForPassenger(passenger) {
+        return allComplaints.filter((c) => c.passengerId === passenger.id).sort((a, b) => {
+            const ta = a.createdAtRaw ? new Date(a.createdAtRaw).getTime() || 0 : 0;
+            const tb = b.createdAtRaw ? new Date(b.createdAtRaw).getTime() || 0 : 0;
+            return tb - ta;
+        });
+    }
+
+    function pdInfoHtml(passenger) {
+        const stats = computePassengerRideStats(passenger.id);
+        const bookings = bookingsForPassenger(passenger);
+        const completed = bookings.filter((b) => ParaFirestore.normalizeStatus(b.status) === 'completed');
+        const spent = completed.reduce((sum, b) => sum + (Number(b.totalFare) || 0), 0);
+        const isSuspended = passenger.status === 'suspended';
+        let suspension = '';
+        if (isSuspended) {
+            const until = passenger.suspendedUntilRaw ? `until ${ParaFirestore.formatDateTime(passenger.suspendedUntilRaw)}` : 'indefinitely';
+            suspension = `<div class="dd-notice"><strong>Suspended ${escapeHtml(until)}.</strong>${passenger.suspensionReason ? ` ${escapeHtml(passenger.suspensionReason)}` : ''}</div>`;
+        }
+        return `
+            ${suspension}
+            <div class="dd-stats">
+                ${ddStat(stats.totalRides, 'Total rides')}
+                ${ddStat(stats.cancelled, 'Cancelled')}
+                ${ddStat(stats.cancelRate, 'Cancellation rate')}
+            </div>
+            <div class="dd-cards">
+                <div class="dd-card">
+                    <div class="dd-card-title">Contact &amp; account</div>
+                    ${ddRow('Phone', passenger.phone)}
+                    ${ddRow('Email', passenger.email)}
+                    ${ddRow('Account status', renderBadge(passenger.status === 'flagged' ? 'flagged' : (isSuspended ? 'suspended' : 'active')), { html: true })}
+                    ${ddRow('Member since', passenger.memberSince)}
+                </div>
+                <div class="dd-card">
+                    <div class="dd-card-title">Ride activity</div>
+                    ${ddRow('Completed rides', completed.length)}
+                    ${ddRow('Total spent', `₱${spent.toFixed(2)}`)}
+                    ${ddRow('Last completed ride', completed.length ? completed[0].dateLabel : '')}
+                    ${ddRow('Complaints filed', complaintsForPassenger(passenger).length)}
+                </div>
+            </div>`;
+    }
+
+    function pdBookingsHtml(passenger) {
+        const all = bookingsForPassenger(passenger);
+        if (!all.length) return ddEmpty('No bookings found for this passenger.');
+        const count = (status) => all.filter((b) => ParaFirestore.normalizeStatus(b.status) === status).length;
+        const list = pdBookingFilter === 'all' ? all : all.filter((b) => ParaFirestore.normalizeStatus(b.status) === pdBookingFilter);
+        const chip = (key, label, n) => `<button type="button" class="dd-chip${pdBookingFilter === key ? ' active' : ''}" data-dd-filter="${key}"${n === 0 && key !== 'all' ? ' disabled' : ''}><strong>${n}</strong>${label}</button>`;
+        const totalPages = Math.max(1, Math.ceil(list.length / DD_BOOKINGS_PAGE_SIZE));
+        pdBookingPage = Math.min(Math.max(1, pdBookingPage), totalPages);
+        const start = (pdBookingPage - 1) * DD_BOOKINGS_PAGE_SIZE;
+        const rows = list.slice(start, start + DD_BOOKINGS_PAGE_SIZE).map((b) => `
+            <tr>
+                <td><div class="book-id">${escapeHtml(b.ref)}</div><div class="book-time">${escapeHtml(b.relativeTime)}</div></td>
+                <td style="font-size:13px;">${escapeHtml(b.dateLabel)}</td>
+                <td><div class="detail-main" style="font-size:13px;">${escapeHtml(b.driverName || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(b.plate)}</div></td>
+                <td style="max-width:230px; font-size:13px; line-height:1.4;">${escapeHtml(b.pickupLocation)}<div class="detail-sub">to ${escapeHtml(b.dropoffLocation)}</div></td>
+                <td>${renderBadge(b.status)}</td>
+                <td><div style="color:${fareColor(ParaFirestore.normalizeStatus(b.status))}; font-weight:600;">&#8369;${escapeHtml(Number(b.totalFare || 0).toFixed(2))}</div>${paymentLine(b)}</td>
+            </tr>`).join('');
+        return `
+            <div class="dd-summary">
+                ${chip('all', 'total', all.length)}
+                ${chip('completed', 'completed', count('completed'))}
+                ${chip('cancelled', 'cancelled', count('cancelled'))}
+                ${chip('declined', 'declined', count('declined'))}
+            </div>
+            <div class="table-container"><table class="data-table">
+                <thead><tr><th>Booking</th><th>Date</th><th>Driver</th><th>Route</th><th>Status</th><th>Fare</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>
+            <div class="dd-pager">
+                <span>Showing ${start + 1}–${Math.min(list.length, start + DD_BOOKINGS_PAGE_SIZE)} of ${list.length}</span>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button class="action-btn" data-dd-page="-1" ${pdBookingPage <= 1 ? 'disabled' : ''}>Prev</button>
+                    <span>Page ${pdBookingPage} of ${totalPages}</span>
+                    <button class="action-btn" data-dd-page="1" ${pdBookingPage >= totalPages ? 'disabled' : ''}>Next</button>
+                </div>
+            </div>`;
+    }
+
+    function pdComplaintsHtml(passenger) {
+        const list = complaintsForPassenger(passenger);
+        if (!list.length) return ddEmpty('This passenger hasn’t filed any complaints.');
+        const rows = list.map((c) => `
+            <tr>
+                <td><div class="book-id">${escapeHtml(c.ref)}</div><div class="book-time">${escapeHtml(ParaFirestore.formatDateTime(c.createdAtRaw))}</div></td>
+                <td><div class="detail-main">${escapeHtml(c.issue)}</div><div class="detail-sub">${escapeHtml(c.description)}</div></td>
+                <td>${escapeHtml(c.reported)}${c.tripRef ? `<div class="detail-sub">Trip: ${escapeHtml(c.tripRef)}</div>` : ''}</td>
+                <td>${renderBadge(c.status)}</td>
+                <td><button class="action-btn" data-dd-case="${escapeHtml(c.id)}">View Case</button></td>
+            </tr>`).join('');
+        return `
+            <div class="table-container"><table class="data-table">
+                <thead><tr><th>Case</th><th>Issue</th><th>Against driver</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>`;
+    }
+
+    function renderPassengerDetails() {
+        if (!pdPassenger) return;
+        const body = document.getElementById('pd-body');
+        if (!body) return;
+        document.querySelectorAll('#passengerDetailsModal .dd-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === pdTab));
+        const status = pdPassenger.status === 'flagged' ? 'flagged' : (pdPassenger.status === 'suspended' ? 'suspended' : 'active');
+        const initials = String(pdPassenger.name || '?').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+        document.getElementById('pd-avatar').textContent = initials || '?';
+        document.getElementById('pd-title').textContent = pdPassenger.name || 'Passenger Details';
+        document.getElementById('pd-meta').innerHTML = renderBadge(status);
+        document.getElementById('pd-bookings-count').textContent = `(${bookingsForPassenger(pdPassenger).length})`;
+        document.getElementById('pd-complaints-count').textContent = `(${complaintsForPassenger(pdPassenger).length})`;
+        body.innerHTML = pdTab === 'bookings' ? pdBookingsHtml(pdPassenger)
+            : pdTab === 'complaints' ? pdComplaintsHtml(pdPassenger)
+            : pdInfoHtml(pdPassenger);
+    }
+
+    function refreshPassengerDetails() {
+        const modal = document.getElementById('passengerDetailsModal');
+        if (!pdPassenger || !modal || !modal.classList.contains('active')) return;
+        const fresh = (window.allPassengers || []).find((p) => p.id === pdPassenger.id);
+        if (!fresh) return;
+        pdPassenger = fresh;
+        renderPassengerDetails();
+    }
+
+    window.openPassengerDetailsModal = function(passengerId) {
+        const passenger = (window.allPassengers || []).find((p) => p.id === passengerId);
+        if (!passenger) return;
+        pdPassenger = passenger;
+        pdTab = 'info';
+        pdBookingPage = 1;
+        pdBookingFilter = 'all';
+        renderPassengerDetails();
+        document.getElementById('passengerDetailsModal').classList.add('active');
+    };
+
+    (function bindPassengerDetailsModal() {
+        const modal = document.getElementById('passengerDetailsModal');
+        if (!modal) return;
+        modal.addEventListener('click', (e) => {
+            const tab = e.target.closest('.dd-tab');
+            if (tab) {
+                pdTab = tab.dataset.tab;
+                renderPassengerDetails();
+                return;
+            }
+            const filterBtn = e.target.closest('[data-dd-filter]');
+            if (filterBtn && !filterBtn.disabled) {
+                pdBookingFilter = filterBtn.dataset.ddFilter;
+                pdBookingPage = 1;
+                renderPassengerDetails();
+                return;
+            }
+            const pageBtn = e.target.closest('[data-dd-page]');
+            if (pageBtn) {
+                pdBookingPage += Number(pageBtn.dataset.ddPage);
+                renderPassengerDetails();
+                return;
+            }
+            const caseBtn = e.target.closest('[data-dd-case]');
+            if (caseBtn) {
+                modal.classList.remove('active');
+                window.openComplaintModal(caseBtn.dataset.ddCase);
+            }
+        });
+    })();
+
     window.openPassengerHistoryModal = function(passengerId, name) {
         openActionHistoryModal(name, () => ParaFirestore.fetchPassengerActions(passengerId), 'No actions recorded for this passenger yet.');
-    };
-
-    window.openDriverEditModal = async function(driverId) {
-        try {
-            const driver = await ParaFirestore.getDriverById(driverId);
-            if (!driver) return;
-            currentEditDriverId = driverId;
-            document.getElementById('d-edit-name').value = driver.name;
-            document.getElementById('d-edit-vehicle').value = driver.vehicle;
-            document.getElementById('d-edit-plate').value = driver.plate;
-            document.getElementById('driverEditModal').classList.add('active');
-        } catch (error) {
-            window.showToast('Could not load driver for editing.', 'error');
-        }
-    };
-
-    window.saveDriverEdit = async function() {
-        if (!currentEditDriverId) return;
-        try {
-            await ParaFirestore.updateDriver(currentEditDriverId, {
-                name: document.getElementById('d-edit-name').value.trim(),
-                vehicle: document.getElementById('d-edit-vehicle').value.trim(),
-                plate: document.getElementById('d-edit-plate').value.trim()
-            });
-            closeModal('driverEditModal');
-            window.showToast('Driver details updated.', 'success');
-        } catch (error) {
-            window.showToast('Failed to update driver.', 'error');
-        }
     };
 
     window.confirmDriverBan = function(driverId, name) {
         const customBodyHtml = `
             <div style="text-align:left; margin-bottom:12px; color:var(--text-muted);">This driver will be suspended and cannot accept rides until reactivated.</div>
             <div style="text-align:left; margin-top:14px;">
-                <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Deactivate for</label>
+                <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Suspend for</label>
                 <select id="driverSuspendDays" class="form-input" style="width:100%; min-height:42px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px; background:#fff;">
                     <option value="1">1 day</option>
                     <option value="3" selected>3 days</option>
@@ -1148,9 +1538,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         `;
 
         showConfirmModal(
-            `Deactivate ${name}?`,
+            `Suspend ${name}?`,
             'This driver will be suspended and cannot accept rides until reactivated.',
-            'Deactivate',
+            'Suspend',
             '#EE5D50',
             async () => {
                 try {
@@ -1162,9 +1552,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ParaFirestore.logDriverAction(driverId, name, 'Suspension', reason).catch((error) => console.error('Failed to log driver action:', error));
                     settleOnSuspension(driverId, reason);
                     const durationLabel = daysValue === 'permanent' ? 'indefinitely' : `for ${daysValue} day${daysValue === '1' ? '' : 's'}`;
-                    window.showToast(`${name} has been deactivated ${durationLabel}.`, 'error');
+                    window.showToast(`${name} has been suspended ${durationLabel}.`, 'error');
                 } catch (error) {
-                    window.showToast('Failed to deactivate driver.', 'error');
+                    window.showToast('Failed to suspend driver.', 'error');
                 }
             },
             customBodyHtml
@@ -1185,7 +1575,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const customBodyHtml = `
             <div style="text-align:left; margin-bottom:12px; color:var(--text-muted);">This passenger will be suspended and cannot book rides.</div>
             <div style="text-align:left; margin-top:14px;">
-                <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Deactivate for</label>
+                <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Suspend for</label>
                 <select id="passengerSuspendDays" class="form-input" style="width:100%; min-height:42px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px; background:#fff;">
                     <option value="1">1 day</option>
                     <option value="3" selected>3 days</option>
@@ -1202,9 +1592,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         `;
 
         showConfirmModal(
-            `Deactivate ${name}?`,
+            `Suspend ${name}?`,
             'This passenger will be suspended and cannot book rides.',
-            'Deactivate',
+            'Suspend',
             '#EE5D50',
             async () => {
                 try {
@@ -1215,9 +1605,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     await ParaFirestore.updatePassengerStatus(userId, 'suspended', daysValue, reason);
                     ParaFirestore.logPassengerAction(userId, name, 'Suspension', reason).catch((error) => console.error('Failed to log passenger action:', error));
                     const durationLabel = daysValue === 'permanent' ? 'indefinitely' : `for ${daysValue} day${daysValue === '1' ? '' : 's'}`;
-                    window.showToast(`${name} has been deactivated ${durationLabel}.`, 'error');
+                    window.showToast(`${name} has been suspended ${durationLabel}.`, 'error');
                 } catch (error) {
-                    window.showToast('Failed to deactivate passenger.', 'error');
+                    window.showToast('Failed to suspend passenger.', 'error');
                 }
             },
             customBodyHtml
@@ -1231,36 +1621,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.showToast(`${name} reactivated.`, 'success');
         } catch (error) {
             window.showToast('Failed to reactivate passenger.', 'error');
-        }
-    };
-
-    window.openPassengerEditModal = function(userId) {
-        const passenger = (window.allPassengers || []).find((p) => p.id === userId);
-        if (!passenger) {
-            window.showToast('Passenger record not found.', 'error');
-            return;
-        }
-        currentEditPassengerId = userId;
-        document.getElementById('p-edit-first-name').value = passenger.firstName || '';
-        document.getElementById('p-edit-last-name').value = passenger.lastName || '';
-        document.getElementById('p-edit-phone').value = passenger.phone || '';
-        document.getElementById('p-edit-email').value = passenger.email || '';
-        document.getElementById('passengerEditModal').classList.add('active');
-    };
-
-    window.savePassengerEdit = async function() {
-        if (!currentEditPassengerId) return;
-        try {
-            await ParaFirestore.updatePassenger(currentEditPassengerId, {
-                firstName: document.getElementById('p-edit-first-name').value.trim(),
-                lastName: document.getElementById('p-edit-last-name').value.trim(),
-                phone: document.getElementById('p-edit-phone').value.trim(),
-                email: document.getElementById('p-edit-email').value.trim()
-            });
-            closeModal('passengerEditModal');
-            window.showToast('Passenger details updated.', 'success');
-        } catch (error) {
-            window.showToast('Failed to update passenger.', 'error');
         }
     };
 
@@ -1418,16 +1778,39 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!currentComplaintId) return;
         const complaint = allComplaints.find((c) => c.id === currentComplaintId);
         const name = complaint ? (complaint.reported || 'this account') : 'this account';
+        // The message is what the driver is told, so it can't be left blank. It
+        // starts from whatever is already typed in the Resolution Note.
+        const notesEl = document.getElementById('complaint-admin-notes');
+        const customBodyHtml = `
+            <div style="text-align:left; margin-bottom:12px; color:var(--text-muted);">They will receive a notification with this message, and the warning will be recorded on their account.</div>
+            <div style="text-align:left;">
+                <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Message to the driver <span style="color:#EE5D50;">*</span></label>
+                <textarea id="complaintWarnMessage" class="form-input" rows="4" style="width:100%; resize:vertical;" placeholder="e.g. Please charge only the fare shown in the app and treat passengers respectfully. Another report may lead to a suspension."></textarea>
+                <div class="detail-sub" style="margin-top:6px;">Also saved as this case's resolution note.</div>
+            </div>
+        `;
         showConfirmModal(
             `Warn ${name}?`,
-            'They will receive a notification about this warning, and it will be recorded on their account.',
+            '',
             'Issue Warning',
             '#FF9E2A',
             () => {
-                const notesEl = document.getElementById('complaint-admin-notes');
-                runComplaintAction('RESOLVED', notesEl ? notesEl.value.trim() : '', 'Warning');
-            }
+                const messageEl = document.getElementById('complaintWarnMessage');
+                const message = messageEl ? messageEl.value.trim() : '';
+                if (!message) return;
+                runComplaintAction('RESOLVED', message, 'Warning');
+            },
+            customBodyHtml
         );
+        const messageEl = document.getElementById('complaintWarnMessage');
+        const confirmBtn = document.getElementById('confirmActionBtn');
+        if (messageEl && confirmBtn) {
+            messageEl.value = notesEl ? notesEl.value.trim() : '';
+            const sync = () => { confirmBtn.disabled = !messageEl.value.trim(); };
+            messageEl.addEventListener('input', sync);
+            sync();
+            messageEl.focus();
+        }
     };
 
     window.suspendComplaint = function() {
@@ -1645,6 +2028,231 @@ document.addEventListener('DOMContentLoaded', async () => {
                 </div>`).join('<hr style="border:none; border-top:1px solid var(--border-color); margin:10px 0;">')
             : '<div style="font-weight:600; color:var(--text-muted);">No recommendation from the TODA president</div>';
     }
+    // ── Case report (PDF) ────────────────────────────────────────
+    // A printable record of one complaint case — who, what, which trip, what the
+    // president recommended and what the admin did — for documentation and for
+    // handing to the police on serious cases (assault, harassment). Everything
+    // in it comes from data already in Firestore; nothing is added or inferred.
+    window.exportComplaintPdf = async function() {
+        const complaint = currentComplaintData;
+        if (!complaint) return;
+        if (!window.jspdf || !window.jspdf.jsPDF) {
+            window.showToast('PDF library failed to load.', 'error');
+            return;
+        }
+        const btn = document.getElementById('complaintExportBtn');
+        if (btn) btn.disabled = true;
+
+        try {
+            let linked = [];
+            try {
+                linked = await ParaFirestore.fetchDriverActionsForComplaint(complaint.id);
+            } catch (error) {
+                console.error('Failed to load case actions for the PDF:', error);
+            }
+
+            const driver = (window.allDriversForLookup || []).find((d) => d.id === complaint.driverId)
+                || (window.driverManagementDrivers || []).find((d) => d.id === complaint.driverId) || null;
+            const passenger = (window.allPassengers || []).find((p) => p.id === complaint.passengerId) || null;
+            const booking = complaint.bookingId
+                ? (window.allBookings || []).find((b) => b.id === complaint.bookingId || b.ref === complaint.bookingId) || null
+                : null;
+            const otherCases = allComplaints.filter((c) => c.driverId === complaint.driverId && c.id !== complaint.id);
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+            const M = 15;
+            const W = 210 - M * 2;
+            const BOTTOM = 280;
+            let y = M;
+
+            // jsPDF's built-in fonts only cover Latin-1 (no peso sign, no emoji).
+            const clean = (value) => String(value ?? '').replace(/[^ -~ -ÿ–—‘’“”…•\n]/g, '?');
+            const ensure = (height) => {
+                if (y + height > BOTTOM) {
+                    doc.addPage();
+                    y = M;
+                }
+            };
+            // `keep` = space the section's first rows need, so a heading never
+            // sits alone at the bottom of a page and short sections stay together.
+            const heading = (text, keep = 16) => {
+                ensure(keep);
+                y += 3;
+                doc.setFillColor(240, 244, 249);
+                doc.rect(M, y, W, 7, 'F');
+                doc.setFont(undefined, 'bold');
+                doc.setFontSize(10);
+                doc.setTextColor(27, 37, 75);
+                doc.text(clean(text).toUpperCase(), M + 3, y + 4.8);
+                y += 11;
+            };
+            const field = (label, value) => {
+                const lines = doc.splitTextToSize(clean(value === undefined || value === null || value === '' ? '—' : value), W - 50);
+                ensure(lines.length * 4.8 + 1.5);
+                doc.setFontSize(9);
+                doc.setFont(undefined, 'bold');
+                doc.setTextColor(110, 120, 150);
+                doc.text(clean(label), M + 3, y);
+                doc.setFont(undefined, 'normal');
+                doc.setTextColor(27, 37, 75);
+                lines.forEach((line, i) => doc.text(line, M + 50, y + i * 4.8));
+                y += lines.length * 4.8 + 1.5;
+            };
+            const paragraph = (text, { size = 10, indent = 3 } = {}) => {
+                doc.setFont(undefined, 'normal');
+                doc.setFontSize(size);
+                doc.setTextColor(27, 37, 75);
+                doc.splitTextToSize(clean(text || '—'), W - indent * 2).forEach((line) => {
+                    ensure(5);
+                    doc.text(line, M + indent, y);
+                    y += 5;
+                });
+                y += 1;
+            };
+            const peso = (value) => `PHP ${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const when = (value) => (value ? ParaFirestore.formatDateTime(value) : '—');
+            const statusText = String(complaint.status || '').replace(/_/g, ' ');
+            const caseStatus = statusText ? statusText.charAt(0).toUpperCase() + statusText.slice(1) : '—';
+
+            // Title block
+            doc.setFont(undefined, 'bold');
+            doc.setFontSize(17);
+            doc.setTextColor(27, 37, 75);
+            doc.text('PARA - Complaint Case Report', M, y + 6);
+            doc.setFont(undefined, 'normal');
+            doc.setFontSize(9);
+            doc.setTextColor(110, 120, 150);
+            doc.text(clean(`Generated ${ParaFirestore.formatDateTime(new Date())} by ${window.ParaAdminName || 'PARA Admin'}`), M, y + 12);
+            y += 17;
+            doc.setFillColor(255, 244, 229);
+            doc.rect(M, y, W, 10, 'F');
+            doc.setFontSize(8.5);
+            doc.setTextColor(150, 90, 0);
+            doc.text(doc.splitTextToSize('CONFIDENTIAL - contains personal information. For documentation and for reporting to the proper authorities only.', W - 6), M + 3, y + 4.2);
+            y += 12;
+
+            heading('Case summary');
+            field('Case reference', complaint.ref);
+            if (complaint.ref !== complaint.id) field('Record ID', complaint.id);
+            field('Complaint type', complaint.issue);
+            field('Status', caseStatus);
+            field('Date filed', when(complaint.createdAtRaw));
+            if (complaint.updatedAtRaw) field('Last updated', when(complaint.updatedAtRaw));
+            if (complaint.resolvedAtRaw) field('Closed on', when(complaint.resolvedAtRaw));
+
+            heading('Description of the incident (as reported by the passenger)');
+            paragraph(complaint.description);
+
+            heading('Complainant (passenger)');
+            field('Name', complaint.reporter);
+            field('Mobile number', passenger && passenger.phone);
+            field('Email', passenger && passenger.email);
+            field('Account ID', complaint.passengerId);
+
+            heading('Driver reported');
+            field('Name', complaint.reported);
+            field('Mobile number', driver && driver.phone);
+            field('Email', driver && driver.email);
+            field('Account ID', complaint.driverId);
+            field('Driver\'s license no.', driver && driver.license);
+            field('License expiry', driver && driver.licenseExpiry);
+            field('Government ID no.', driver && driver.governmentId);
+            field('Tricycle number', driver && driver.vehicle);
+            field('Plate number', driver && driver.plate);
+            field('Account status', driver ? (driver.accountStatus === 'suspended'
+                ? `Suspended${driver.suspendedUntilRaw ? ` until ${ParaFirestore.formatDateTime(driver.suspendedUntilRaw)}` : ' indefinitely'}${driver.suspensionReason ? ` - ${driver.suspensionReason}` : ''}`
+                : 'Active') : '');
+
+            heading('Trip details', 75);
+            if (booking) {
+                field('Booking reference', booking.ref);
+                field('Booked on', when(booking.createdAtRaw));
+                field('Trip status', String(booking.status || '').toUpperCase());
+                field('Pickup', booking.pickupLocation);
+                field('Destination', booking.dropoffLocation);
+                if (booking.arrivedAtRaw) field('Driver arrived at', when(booking.arrivedAtRaw));
+                if (booking.completedAtRaw) field('Dropped off at', when(booking.completedAtRaw));
+                field('Fare', peso(booking.totalFare));
+                field('Payment', [booking.paymentMethod, booking.paymentStatus && String(booking.paymentStatus).toUpperCase()].filter(Boolean).join(' - '));
+            } else if (complaint.bookingId) {
+                field('Booking reference', complaint.bookingId);
+                paragraph('The details of this booking are not available in the admin panel.', { size: 9 });
+            } else {
+                paragraph('No trip is linked to this complaint.', { size: 9 });
+            }
+
+            heading('Other complaints against this driver');
+            if (otherCases.length) {
+                otherCases.slice(0, 15).forEach((c) => paragraph(`${c.ref} - ${c.issue} - ${String(c.status || '').replace(/_/g, ' ')} - ${when(c.createdAtRaw)}`, { size: 9 }));
+                if (otherCases.length > 15) paragraph(`...and ${otherCases.length - 15} more.`, { size: 9 });
+            } else {
+                paragraph('None on record.', { size: 9 });
+            }
+
+            heading('TODA president recommendation and actions taken');
+            const seen = new Set();
+            const entries = [...suspensionRecommendationsFor(complaint), ...linked]
+                .filter((a) => !seen.has(a.id) && seen.add(a.id))
+                .sort((a, b) => a.issuedAt - b.issuedAt);
+            if (entries.length) {
+                entries.forEach((action) => {
+                    const admin = isAdminAction(action);
+                    const who = admin ? 'PARA admin' : 'TODA president';
+                    let label;
+                    if (admin) {
+                        label = action.actionType === 'Suspension' ? 'Suspended the driver'
+                            : action.actionType === 'Warning' ? 'Issued a warning to the driver'
+                            : action.actionType === 'Invalid' ? 'Marked the report as invalid' : action.actionType;
+                    } else if (action.actionType === 'Suspension') {
+                        const outcome = action.status === 'APPROVED' ? ' (the driver was suspended)'
+                            : action.status === 'REJECTED' ? ' (the case was closed without a suspension)' : ' (awaiting admin)';
+                        label = `Recommended suspending the driver${outcome}`;
+                    } else {
+                        label = action.actionType === 'Warning' ? 'Issued a warning to the driver'
+                            : action.actionType === 'Invalid' ? 'Marked the driver report as invalid' : action.actionType;
+                    }
+                    paragraph(`${formatActionTime(action.issuedAt)} - ${who}${action.issuedByName ? ` (${action.issuedByName})` : ''}: ${label}${action.reason ? `\nReason: "${action.reason}"` : ''}`, { size: 9 });
+                });
+            } else {
+                paragraph('Nothing recorded for this case.', { size: 9 });
+            }
+
+            heading('Admin resolution note');
+            paragraph(complaint.adminNotes || 'No note entered.', { size: 10 });
+
+            // Sign-off block for the printed copy.
+            ensure(30);
+            y += 8;
+            doc.setDrawColor(160, 170, 190);
+            doc.line(M, y + 12, M + 70, y + 12);
+            doc.line(M + 100, y + 12, M + 100 + 60, y + 12);
+            doc.setFontSize(8.5);
+            doc.setTextColor(110, 120, 150);
+            doc.text('Prepared by (name and signature)', M, y + 17);
+            doc.text('Date', M + 100, y + 17);
+
+            // Page footer
+            const pages = doc.getNumberOfPages();
+            for (let i = 1; i <= pages; i++) {
+                doc.setPage(i);
+                doc.setFontSize(8);
+                doc.setTextColor(150, 158, 180);
+                doc.text(clean(`PARA Admin - Case ${complaint.ref} - Confidential`), M, 290);
+                doc.text(`Page ${i} of ${pages}`, 210 - M, 290, { align: 'right' });
+            }
+
+            const safeRef = String(complaint.ref || complaint.id).replace(/[^A-Za-z0-9_-]+/g, '_');
+            doc.save(`complaint-case-${safeRef}.pdf`);
+            window.showToast('Case report exported.', 'success');
+        } catch (error) {
+            console.error('Failed to export the case report:', error);
+            window.showToast('Could not export the case report.', 'error');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    };
+
     const AUDIENCE_LABELS = { allDrivers: 'All Drivers', allPassengers: 'All Passengers', everyone: 'Everyone', individual: 'Individual' };
     const NOTIFICATIONS_PAGE_SIZE = 10;
     let notificationHistoryData = [];
@@ -1817,6 +2425,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateComplaintStats();
         renderComplaintTable(allComplaints);
         refreshRecommendationUi();
+        refreshDriverDetails();
+        refreshPassengerDetails();
     });
     ParaFirestore.listenSuspensionRequests((actions) => {
         suspensionActions = actions;
@@ -1880,9 +2490,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     function goToSearchResult(item) {
         if (item.type === 'Driver') {
             document.querySelector('[data-view="driver-management"]')?.click();
-            window.openDriverEditModal(item.id);
+            window.openDriverDetailsModal(item.id);
         } else if (item.type === 'Passenger') {
             document.querySelector('[data-view="passenger-management"]')?.click();
+            window.openPassengerDetailsModal(item.id);
         } else if (item.type === 'Booking') {
             document.querySelector('[data-view="bookings"]')?.click();
             const datePicker = document.getElementById('bookingDatePicker');

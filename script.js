@@ -1034,7 +1034,7 @@ window.submitRequestInfo = async function() {
     try {
         await ParaFirestore.requestDriverInfo(driverId, { documents: selected, note: note ? note.value.trim() : '' });
         closeModal('requestInfoModal');
-        showToast(`Request saved for ${selected.length} document(s).`, 'success');
+        showToast(`Resubmission request saved for ${selected.length} document(s).`, 'success');
     } catch (error) {
         console.error('Failed to save info request:', error);
         showToast('Could not save the request. Please try again.', 'error');
@@ -1073,6 +1073,7 @@ function showConfirmModal(title, body, confirmLabel, confirmColor, onConfirm, cu
     }
     const btn = document.getElementById('confirmActionBtn');
     btn.textContent = confirmLabel;
+    btn.disabled = false;
     btn.style.background = confirmColor;
     btn.style.color = 'white';
     btn.onclick = () => { closeModal('genericConfirmModal'); onConfirm(); };
