@@ -169,8 +169,7 @@ const ParaFirestore = (() => {
         );
         const rawRating = Number(getField(data, 'averageRating', 'rating', 'driverRating', 'overallRating') || 0);
         // No ride count / acceptance rate here: the app doesn't store either on
-        // the driver doc. Driver Management counts completed rides live from
-        // bookings (computeDriverCompletedRides in firestore-ui.js).
+        // the driver doc. They are worked out live from bookings (computeDriverStats).
 
         const firstName = getField(data, 'firstName', 'first_name');
         const lastName = getField(data, 'lastName', 'last_name');

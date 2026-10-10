@@ -160,12 +160,8 @@
                             <table class="data-table compact-table">
                                 <thead><tr><th>Location</th><th>Level</th><th>Rides</th></tr></thead>
                                 <tbody id="highDemandBody">
-                                    <tr><td><div class="detail-main">Carillo</div></td><td><span class="status-badge declined">VERY HIGH</span></td><td>342</td></tr>
-                                    <tr><td><div class="detail-main">Abulalas</div></td><td><span class="status-badge processing">HIGH</span></td><td>289</td></tr>
-                                    <tr><td><div class="detail-main">Iba</div></td><td><span class="status-badge approved">MODERATE</span></td><td>156</td></tr>
-                                    <tr><td><div class="detail-main">Palapat</div></td><td><span class="status-badge approved">MODERATE</span></td><td>112</td></tr>
-                                    <tr><td><div class="detail-main">San Roque</div></td><td><span class="status-badge approved">LOW</span></td><td>64</td></tr>
-                                </tbody>
+                            <tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr>
+                        </tbody>
                             </table>
                         </div>
                     </div>
@@ -179,24 +175,7 @@
                     <table class="data-table">
                         <thead><tr><th>Activity</th><th>Status</th><th>User / Reference</th><th>Time</th></tr></thead>
                         <tbody id="recentActivityBody">
-                            <tr>
-                                <td><div class="book-id">New Booking</div><div class="book-time">Tricycle Ride</div></td>
-                                <td><span class="status-badge processing">ONGOING</span></td>
-                                <td><div class="detail-main">Maria Santos</div><div class="detail-sub">Driver: Juan dela Cruz</div></td>
-                                <td style="color:var(--text-muted); font-size:13px;">2 mins ago</td>
-                            </tr>
-                            <tr>
-                                <td><div class="book-id">Driver Registration</div><div class="book-time">Pending Approval</div></td>
-                                <td><span class="status-badge processing">PENDING</span></td>
-                                <td><div class="detail-main">Pedro Penduko</div><div class="detail-sub">Honda TMX 155</div></td>
-                                <td style="color:var(--text-muted); font-size:13px;">15 mins ago</td>
-                            </tr>
-                            <tr>
-                                <td><div class="book-id">New Complaint</div><div class="book-time">Overcharging Report</div></td>
-                                <td><span class="status-badge declined">REVIEW</span></td>
-                                <td><div class="detail-main">Jane Doe</div><div class="detail-sub">Ref: CPL-2938</div></td>
-                                <td style="color:var(--text-muted); font-size:13px;">1 hour ago</td>
-                            </tr>
+                            <tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -371,60 +350,7 @@
                     <table class="data-table">
                         <thead><tr><th>Driver Name</th><th>Vehicle Details</th><th>Performance</th><th>Status</th><th style="text-align:center;">Actions</th></tr></thead>
                         <tbody>
-                            <tr>
-                                <td><div class="detail-main">Jose Rizal</div><div class="detail-sub">Member since Jan 2023</div></td>
-                                <td><div class="detail-main">TVS King 200</div><div class="detail-sub">Plate: DEF-5678</div></td>
-                                <td><div class="rating-stars">★★★★★ <span>4.9</span></div><div class="detail-sub">1,204 rides · 98% acceptance</div></td>
-                                <td><span class="status-badge approved">ACTIVE</span></td>
-                                <td>
-                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Jose Rizal')">Suspend</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><div class="detail-main">Andres Bonifacio</div><div class="detail-sub">Member since Mar 2023</div></td>
-                                <td><div class="detail-main">Piaggio Ape</div><div class="detail-sub">Plate: LMN-3456</div></td>
-                                <td><div class="rating-stars">★★★★☆ <span>4.2</span></div><div class="detail-sub">432 rides · 85% acceptance</div></td>
-                                <td><span class="status-badge declined">SUSPENDED</span></td>
-                                <td>
-                                    <button class="action-btn" style="background:#05CD99;margin-left:6px;" onclick="showToast('Andres Bonifacio reactivated.','success')">Reactivate</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><div class="detail-main">Apolinario Mabini</div><div class="detail-sub">Member since Jul 2023</div></td>
-                                <td><div class="detail-main">Bajaj RE</div><div class="detail-sub">Plate: OPQ-9012</div></td>
-                                <td><div class="rating-stars">★★★★★ <span>4.8</span></div><div class="detail-sub">850 rides · 92% acceptance</div></td>
-                                <td><span class="status-badge approved">ACTIVE</span></td>
-                                <td>
-                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Apolinario Mabini')">Suspend</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><div class="detail-main">Emilio Jacinto</div><div class="detail-sub">Member since Oct 2023</div></td>
-                                <td><div class="detail-main">Kawasaki Barako 175</div><div class="detail-sub">Plate: RST-3456</div></td>
-                                <td><div class="rating-stars">★★★★☆ <span>4.5</span></div><div class="detail-sub">512 rides · 88% acceptance</div></td>
-                                <td><span class="status-badge approved">ACTIVE</span></td>
-                                <td>
-                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Emilio Jacinto')">Suspend</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><div class="detail-main">Melchora Aquino</div><div class="detail-sub">Member since May 2022</div></td>
-                                <td><div class="detail-main">Yamaha Tricity</div><div class="detail-sub">Plate: UVW-7890</div></td>
-                                <td><div class="rating-stars">★★★☆☆ <span>3.9</span></div><div class="detail-sub">2,104 rides · 76% acceptance</div></td>
-                                <td><span class="status-badge declined">SUSPENDED</span></td>
-                                <td>
-                                    <button class="action-btn" style="background:#05CD99;margin-left:6px;" onclick="showToast('Melchora Aquino reactivated.','success')">Reactivate</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><div class="detail-main">Juan Luna</div><div class="detail-sub">Member since Feb 2024</div></td>
-                                <td><div class="detail-main">Honda TMX 125</div><div class="detail-sub">Plate: XYZ-1234</div></td>
-                                <td><div class="rating-stars">★★★★★ <span>4.9</span></div><div class="detail-sub">120 rides · 99% acceptance</div></td>
-                                <td><span class="status-badge approved">ACTIVE</span></td>
-                                <td>
-                                    <button class="action-btn" style="background:#EE5D50;margin-left:6px;" onclick="confirmDriverBan('Juan Luna')">Suspend</button>
-                                </td>
-                            </tr>
+                            <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -507,55 +433,7 @@
                     <table class="data-table">
                         <thead><tr><th>Passenger Name</th><th>Contact Info</th><th>Total Rides</th><th>Cancelled</th><th>Cancellation Rate</th><th>Account Status</th><th style="text-align:center;">Actions</th></tr></thead>
                         <tbody>
-                            <tr>
-                                <td><div class="detail-main">Maria Clara</div><div class="detail-sub">Member since Feb 2024</div></td>
-                                <td><div class="detail-main">+63 912 345 6789</div><div class="detail-sub">maria.clara@email.com</div></td>
-                                <td>142</td><td>5</td><td>3.5%</td>
-                                <td><span class="status-badge approved">ACTIVE</span></td>
-                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Maria Clara')">Suspend</button></td>
-                            </tr>
-                            <tr>
-                                <td><div class="detail-main">Emilio Aguinaldo</div><div class="detail-sub">Member since Dec 2023</div></td>
-                                <td><div class="detail-main">+63 998 765 4321</div><div class="detail-sub">emilio.agui@email.com</div></td>
-                                <td>56</td><td>8</td><td style="color:#FF9E2A; font-weight:600;">14.3%</td>
-                                <td><span class="status-badge processing" style="background:#FFF1D6;color:#FF9E2A;">FLAGGED</span></td>
-                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Emilio Aguinaldo')">Suspend</button></td>
-                            </tr>
-                            <tr>
-                                <td><div class="detail-main">Antonio Luna</div><div class="detail-sub">Member since Jan 2024</div></td>
-                                <td><div class="detail-main">+63 955 111 2222</div><div class="detail-sub">aluna@email.com</div></td>
-                                <td>89</td><td>20</td><td style="color:#EE5D50; font-weight:600;">25.6%</td>
-                                <td><span class="status-badge declined">SUSPENDED</span></td>
-                                <td><button class="action-btn" style="background:#05CD99;" onclick="showToast('Antonio Luna reactivated.','success')">Reactivate</button></td>
-                            </tr>
-                            <tr>
-                                <td><div class="detail-main">Gregorio del Pilar</div><div class="detail-sub">Member since Mar 2024</div></td>
-                                <td><div class="detail-main">+63 917 222 3333</div><div class="detail-sub">greg.delpilar@email.com</div></td>
-                                <td>25</td><td>1</td><td>4.0%</td>
-                                <td><span class="status-badge approved">ACTIVE</span></td>
-                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Gregorio del Pilar')">Suspend</button></td>
-                            </tr>
-                            <tr>
-                                <td><div class="detail-main">Gabriela Silang</div><div class="detail-sub">Member since Nov 2023</div></td>
-                                <td><div class="detail-main">+63 920 555 6666</div><div class="detail-sub">g.silang@email.com</div></td>
-                                <td>210</td><td>10</td><td style="color:#FF9E2A; font-weight:600;">5.1%</td>
-                                <td><span class="status-badge processing" style="background:#FFF1D6;color:#FF9E2A;">FLAGGED</span></td>
-                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Gabriela Silang')">Suspend</button></td>
-                            </tr>
-                            <tr>
-                                <td><div class="detail-main">Apolinario Mabini</div><div class="detail-sub">Member since Aug 2023</div></td>
-                                <td><div class="detail-main">+63 919 888 7777</div><div class="detail-sub">apolinario.m@email.com</div></td>
-                                <td>150</td><td>2</td><td>1.3%</td>
-                                <td><span class="status-badge approved">ACTIVE</span></td>
-                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Apolinario Mabini')">Suspend</button></td>
-                            </tr>
-                            <tr>
-                                <td><div class="detail-main">Marcelo H. del Pilar</div><div class="detail-sub">Member since May 2024</div></td>
-                                <td><div class="detail-main">+63 915 444 5555</div><div class="detail-sub">marcelo.hp@email.com</div></td>
-                                <td>64</td><td>0</td><td style="color:#05CD99; font-weight:600;">0.0%</td>
-                                <td><span class="status-badge approved">ACTIVE</span></td>
-                                <td><button class="action-btn" style="background:#EE5D50;" onclick="confirmPassengerBan('Marcelo H. del Pilar')">Suspend</button></td>
-                            </tr>
+                            <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -597,41 +475,7 @@
                     <table class="data-table">
                         <thead><tr><th>Ref / Reporter</th><th>Party Involved</th><th>Issue</th><th>Status</th><th>Actions</th></tr></thead>
                         <tbody>
-                            <tr>
-                                <td><div class="book-id">CPL-8821</div><div class="book-time">Passenger: Maria Clara</div></td>
-                                <td><div class="detail-main">Jose Rizal</div><div class="detail-sub">Trip: BKG-2910</div></td>
-                                <td><div class="detail-main">Overcharging</div><div class="detail-sub">Driver asked for ₱50 extra.</div></td>
-                                <td><span class="status-badge processing">UNDER REVIEW</span></td>
-                                <td><button class="action-btn" onclick="openComplaintModal('CPL-8821','Maria Clara','Jose Rizal','Overcharging','Driver asked for ₱50 extra during the trip even though the app said ₱120.','UNDER REVIEW','Warning')">View Case</button></td>
-                            </tr>
-                            <tr>
-                                <td><div class="book-id">CPL-8794</div><div class="book-time">Passenger: Emilio A.</div></td>
-                                <td><div class="detail-main">Andres Bonifacio</div><div class="detail-sub">Trip: BKG-1122</div></td>
-                                <td><div class="detail-main">Rude Behavior</div><div class="detail-sub">Refused to drop at exact pin.</div></td>
-                                <td><span class="status-badge approved">RESOLVED</span></td>
-                                <td><button class="action-btn" onclick="openComplaintModal('CPL-8794','Emilio A.','Andres Bonifacio','Rude Behavior','Driver kept yelling when I asked to be dropped off at the exact pin.','RESOLVED','Suspension')">View Case</button></td>
-                            </tr>
-                            <tr>
-                                <td><div class="book-id">RPT-5512</div><div class="book-time">Driver: Juan Luna</div></td>
-                                <td><div class="detail-main">Antonio Luna</div><div class="detail-sub">Trip: BKG-3345</div></td>
-                                <td><div class="detail-main">Damage to Vehicle</div><div class="detail-sub">Passenger slammed the door.</div></td>
-                                <td><span class="status-badge processing">UNDER REVIEW</span></td>
-                                <td><button class="action-btn" onclick="openComplaintModal('RPT-5512','Juan Luna','Antonio Luna','Damage to Vehicle','The passenger slammed my tricycle door upon exiting, causing a dent.','UNDER REVIEW','Waiting for Recommendation...')">View Case</button></td>
-                            </tr>
-                            <tr>
-                                <td><div class="book-id">CPL-8920</div><div class="book-time">Passenger: Gregorio dP.</div></td>
-                                <td><div class="detail-main">Emilio Jacinto</div><div class="detail-sub">Trip: BKG-4450</div></td>
-                                <td><div class="detail-main">Reckless Driving</div><div class="detail-sub">Driver was swerving dangerously.</div></td>
-                                <td><span class="status-badge processing">UNDER REVIEW</span></td>
-                                <td><button class="action-btn" onclick="openComplaintModal('CPL-8920','Gregorio dP.','Emilio Jacinto','Reckless Driving','Driver was swerving dangerously along the highway and over-speeding.','UNDER REVIEW','Suspension')">View Case</button></td>
-                            </tr>
-                            <tr>
-                                <td><div class="book-id">CPL-8955</div><div class="book-time">Passenger: Gabriela Silang</div></td>
-                                <td><div class="detail-main">Melchora Aquino</div><div class="detail-sub">Trip: BKG-5011</div></td>
-                                <td><div class="detail-main">Did Not Arrive</div><div class="detail-sub">Marked as picked up incorrectly.</div></td>
-                                <td><span class="status-badge approved">RESOLVED</span></td>
-                                <td><button class="action-btn" onclick="openComplaintModal('CPL-8955','Gabriela Silang','Melchora Aquino','Did Not Arrive','The driver marked my ride as picked up without ever arriving.','RESOLVED','Warning')">View Case</button></td>
-                            </tr>
+                            <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -722,9 +566,7 @@
                     <table class="data-table">
                         <thead><tr><th>Booking ID</th><th>Status</th><th>Date</th><th>Driver / Plate</th><th>Passenger</th><th>Pickup</th><th>Destination</th><th>Fare</th></tr></thead>
                         <tbody>
-                            <tr><td><div class="book-id">BKG-9901</div><div class="book-time">2 mins ago</div></td><td><span class="status-badge approved">COMPLETED</span></td><td style="font-size:13px;">Oct 12, 2024</td><td><div class="detail-main">Juan dela Cruz</div><div class="detail-sub">Plate: ABC-1234</div></td><td>Maria Clara</td><td>180 Jacinto St</td><td>18 Santo Rosario</td><td>&#8369;85.00</td></tr>
-                            <tr><td><div class="book-id">BKG-9902</div><div class="book-time">15 mins ago</div></td><td><span class="status-badge processing">ONGOING</span></td><td style="font-size:13px;">Oct 12, 2024</td><td><div class="detail-main">Pedro Penduko</div><div class="detail-sub">Plate: XYZ-9876</div></td><td>Emilio A.</td><td>Brgy. Iba</td><td>Paombong Terminal</td><td>&#8369;65.00</td></tr>
-                            <tr><td><div class="book-id">BKG-9840</div><div class="book-time">2 hours ago</div></td><td><span class="status-badge declined">CANCELLED</span></td><td style="font-size:13px;">Oct 11, 2024</td><td><div class="detail-main">Antonio Luna</div><div class="detail-sub">Plate: GHI-3322</div></td><td>Gregorio dP.</td><td>Market Site</td><td>Brgy. Carillo</td><td>&#8369;40.00</td></tr>
+                            <tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1087,7 +929,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=35"></script>
+<script src="firestore-service.js?v=36"></script>
 <script src="prediction.js?v=7"></script>
 <script src="sample-data.js?v=7"></script>
 <script src="forecast.js?v=5"></script>
