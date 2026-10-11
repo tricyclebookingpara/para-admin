@@ -1113,6 +1113,10 @@ textarea.form-input { resize: vertical; }
     transition: transform 0.2s, box-shadow 0.2s;
 }
 
+/* The dashboard cards are links to the page behind each number. */
+.stat-card-link { color: inherit; text-decoration: none; cursor: pointer; }
+.stat-card-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
 .stat-card:hover {
     transform: translateY(-3px);
     box-shadow: 0 8px 24px rgba(112, 144, 176, 0.12);
