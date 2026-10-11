@@ -671,49 +671,6 @@ const ParaFirestore = (() => {
         }, { merge: true });
     }
 
-    async function setPassengerStats(userId, stats = {}) {
-        const payload = {
-            totalRides: Number(stats.totalRides ?? 0),
-            cancelledRides: Number(stats.cancelledRides ?? 0),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-
-        if (stats.status) payload.status = stats.status;
-        if (stats.suspendedUntil !== undefined) payload.suspendedUntil = stats.suspendedUntil;
-
-        await db.collection(COLLECTIONS.users).doc(userId).set(payload, { merge: true });
-    }
-
-    // totalRides = every booking attempt (completed + cancelled), so
-    // cancelledRides/totalRides is a real, bounded 0-100% cancel rate —
-    // matching the admin webapp's live computePassengerRideStats() and the
-    // updatePassengerRideStats Cloud Function draft.
-    async function incrementPassengerRideStats(userId, { completed = false, cancelled = false } = {}) {
-        if (!completed && !cancelled) return;
-
-        const payload = { totalRides: firebase.firestore.FieldValue.increment(1) };
-        if (cancelled) {
-            payload.cancelledRides = firebase.firestore.FieldValue.increment(1);
-        }
-
-        payload.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
-        await db.collection(COLLECTIONS.users).doc(userId).update(payload);
-    }
-
-    async function applyBookingOutcomeToPassenger(bookingId, passengerId, status) {
-        if (!passengerId || !bookingId) return;
-        const normalizedStatus = normalizeStatus(status);
-        const isCompleted = normalizedStatus === 'completed';
-        const isCancelled = normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
-        if (!isCompleted && !isCancelled) return;
-
-        await incrementPassengerRideStats(passengerId, { completed: isCompleted, cancelled: isCancelled });
-        await db.collection(COLLECTIONS.bookings).doc(bookingId).set({
-            passengerStatsUpdated: true,
-            passengerStatsUpdatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-    }
-
     // The users collection can hold non-passenger accounts too (role: "PASSENGER"
     // is a real field on real documents) — only exclude a doc when it's
     // explicitly some other role; missing/unknown role stays included so older
@@ -1399,9 +1356,6 @@ const ParaFirestore = (() => {
         repairAdminSuspensionStatus,
         reactivateExpiredDrivers,
         ensurePassengerProfile,
-        setPassengerStats,
-        incrementPassengerRideStats,
-        applyBookingOutcomeToPassenger,
         fetchPassengers,
         listenPassengers,
         updatePassengerStatus,
