@@ -206,7 +206,26 @@ const ParaFirestore = (() => {
             // document photos themselves are in Storage, see fetchDriverDocuments.
             governmentId: getField(data, 'governmentId'),
             licenseExpiry: getField(data, 'licenseExpiryDate'),
-            vehicleRegistrationDate: getField(data, 'vehicleRegistrationDate')
+            vehicleRegistrationDate: getField(data, 'vehicleRegistrationDate'),
+            todaName: getField(data, 'todaName'),
+            // Typed by the driver in the app (free text — never put it into
+            // innerHTML unescaped) and their tricycle photo's URL. Both are empty
+            // on drivers who registered before this was added; the photo is not
+            // one of the three verification documents and has no review step.
+            motorcycleModel: getField(data, 'motorcycleModel'),
+            tricycleImageUrl: getField(data, 'tricycleImageUrl'),
+            // Profile photo (set by the app). A new or replaced photo is
+            // "pending" until the admin approves or rejects it; "" on drivers
+            // who registered before the feature. See approveProfilePhoto /
+            // rejectProfilePhoto. The ID photo URLs are also copied onto the
+            // user doc by the app; Storage (fetchDriverDocuments) is the fallback.
+            profileImage: getField(data, 'profileImage'),
+            profilePhotoStatus: String(data.profilePhotoStatus || '').toLowerCase(),
+            profilePhotoUpdatedAtRaw: toDate(data.profilePhotoUpdatedAt),
+            profilePhotoRejectReason: data.profilePhotoRejectReason || '',
+            governmentIdImageUrl: getField(data, 'governmentIdImageUrl'),
+            licenseImageUrl: getField(data, 'licenseImageUrl'),
+            vehicleRegistrationImageUrl: getField(data, 'vehicleRegistrationImageUrl')
         };
     }
 
@@ -258,8 +277,23 @@ const ParaFirestore = (() => {
             suspendedUntilRaw: toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until')),
             suspensionReason: data.suspensionReason || '',
             memberSince: formatDateTime(getField(data, 'createdAt', 'created_at', 'memberSince')),
-            memberSinceRaw: toDate(getField(data, 'createdAt', 'created_at', 'memberSince'))
+            memberSinceRaw: toDate(getField(data, 'createdAt', 'created_at', 'memberSince')),
+            // Raised by the app when a driver marks the passenger a no-show; the
+            // admin can take one back (reverseNoShow) and the booking is kept in
+            // reversedNoShows so the same one can't be reversed twice.
+            noShowCount: Number(data.noShowCount) || 0,
+            reversedNoShows: Array.isArray(data.reversedNoShows) ? data.reversedNoShows : []
         };
+    }
+
+    // {lat, lng} as saved by the app, or null when there was no GPS fix (null /
+    // missing / 0,0) — shown as "Not recorded".
+    function toLatLng(value) {
+        if (!value || typeof value !== 'object') return null;
+        const lat = Number(value.lat);
+        const lng = Number(value.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || (!lat && !lng)) return null;
+        return { lat, lng };
     }
 
     function mapBookingDoc(doc) {
@@ -295,10 +329,24 @@ const ParaFirestore = (() => {
             // tapped "Arrived" at the pickup, and when the trip was completed
             // (drop-off). There's no saved time for the rider actually boarding.
             arrivedAtRaw: toDate(data.arrivedAt),
+            startedAtRaw: toDate(data.startedAt),
             completedAtRaw: toDate(data.completedAt),
             // Set by the app when a shared-ride join request times out / is
             // turned away — those end as DECLINED but aren't a driver declining.
-            joinRequestExpired: data.joinRequestExpired === true
+            joinRequestExpired: data.joinRequestExpired === true,
+            driverTodaName: getField(data, 'driverTodaName'),
+            // Where the driver was when they tapped Arrived / Start ride / End
+            // ride, and the pins the passenger set. GPS can't be verified by
+            // Firestore, so these are the evidence the admin works from.
+            pickupLatLng: toLatLng(data.pickupLatLng),
+            destinationLatLng: toLatLng(data.destinationLatLng),
+            arrivedLatLng: toLatLng(data.arrivedLatLng),
+            startedLatLng: toLatLng(data.startedLatLng),
+            completedLatLng: toLatLng(data.completedLatLng),
+            // The driver ended the ride more than 300 m from the destination.
+            endedEarly: data.endedEarly === true,
+            earlyEndReviewedAtRaw: toDate(data.earlyEndReviewedAt),
+            earlyEndReviewNote: data.earlyEndReviewNote || ''
         };
     }
 
@@ -525,6 +573,39 @@ const ParaFirestore = (() => {
             );
     }
 
+    // The driver risk score (0-100) the app's Cloud Functions keep in
+    // driver_risk/{driverId}. Read only — the functions are the only writer,
+    // and the admin site must not recalculate it: two copies of the formula
+    // would drift apart. A driver with no doc hasn't been scored yet (treated
+    // as LOW). The score only advises; nothing is suspended automatically.
+    function mapDriverRiskDoc(doc) {
+        const data = doc.data() || {};
+        return {
+            driverId: doc.id,
+            todaName: data.todaName || '',
+            score: Number(data.score) || 0,
+            level: String(data.level || 'LOW').toUpperCase(),
+            suggestedAction: data.suggestedAction || 'No Action',
+            reasons: Array.isArray(data.reasons) ? data.reasons.map(String) : [],
+            bayesianRating: Number(data.bayesianRating) || 0,
+            ratingCount: Number(data.ratingCount) || 0,
+            openComplaints: Number(data.openComplaints) || 0,
+            priorWarnings: Number(data.priorWarnings) || 0,
+            priorSuspensions: Number(data.priorSuspensions) || 0,
+            updatedAtRaw: toDate(data.updatedAt)
+        };
+    }
+
+    function listenDriverRisk(callback) {
+        return db.collection('driver_risk').onSnapshot(
+            (snapshot) => callback(snapshot.docs.map(mapDriverRiskDoc)),
+            (error) => {
+                console.error('Failed to load driver risk scores:', error);
+                callback([]);
+            }
+        );
+    }
+
     async function fetchAdminIds() {
         const ids = new Set();
         if (auth.currentUser) ids.add(auth.currentUser.uid);
@@ -570,10 +651,52 @@ const ParaFirestore = (() => {
     }
 
     async function updateDriverVerification(driverId, status) {
-        await db.collection(COLLECTIONS.users).doc(driverId).update({
+        const payload = {
             verificationStatus: status,
             verifiedAt: firebase.firestore.FieldValue.serverTimestamp(),
             infoRequest: null
+        };
+        // Approving the driver also approves the profile photo they registered
+        // with — the admin checked it against the ID photo in the same review.
+        if (status === 'approved') {
+            payload.isVerified = true;
+            payload.profilePhotoStatus = 'approved';
+        }
+        await db.collection(COLLECTIONS.users).doc(driverId).update(payload);
+    }
+
+    // Profile photos: the app sets profilePhotoStatus to "pending" whenever a
+    // driver adds or replaces their photo (the new photo is already visible to
+    // passengers); the admin settles it here.
+    async function approveProfilePhoto(driverId) {
+        await db.collection(COLLECTIONS.users).doc(driverId).update({
+            profilePhotoStatus: 'approved'
+        });
+    }
+
+    // Rejecting clears the photo so passengers stop seeing it, and tells the
+    // driver why. The old file stays in Storage; the app replaces it on the
+    // driver's next upload.
+    async function rejectProfilePhoto(driverId, reason = '') {
+        await db.collection(COLLECTIONS.users).doc(driverId).update({
+            profilePhotoStatus: 'rejected',
+            profileImage: '',
+            profilePhotoRejectReason: reason
+        });
+
+        const ref = db.collection('notifications').doc();
+        await ref.set({
+            notificationId: ref.id,
+            userId: driverId,
+            title: 'Profile photo rejected',
+            message: reason
+                ? `Your profile photo was not accepted: ${reason}. Please add a new photo from your profile.`
+                : 'Your profile photo was not accepted. Please add a new photo from your profile.',
+            type: 'profile_photo',
+            refId: driverId,
+            bookingId: '',
+            isRead: false,
+            createdAt: Date.now()
         });
     }
 
@@ -1054,11 +1177,21 @@ const ParaFirestore = (() => {
 
     // The mobile app prices a ride as (util/FareCalculator.kt):
     //   fare = minimumFare + max(0, distanceKm - includedDistanceKm) * perKmRate
-    // and a shared ride splits it (each rider pays half of the solo fare). The
-    // app currently has these three numbers fixed in its code (₱20, 1 km, ₱20/km),
+    // per person: a shared ride pays that per rider, a solo ride pays for two persons. The
+    // app has not been checked against these numbers (₱20 minimum, 1 km, ₱5/km per person),
     // so they are the defaults here, and what the admin saves in settings/fare
     // is for the app to read.
-    const APP_FARE_DEFAULTS = { minimumFare: 20, includedDistanceKm: 1, perKmRate: 20 };
+    const APP_FARE_DEFAULTS = { minimumFare: 20, includedDistanceKm: 1, perKmRate: 5 };
+
+    // The service fee is charged ON TOP of the fare (20% in all) and split three
+    // ways. These are percentages of the fare; the app has to apply them when it
+    // prices a ride — the admin site only stores them and estimates from them.
+    const SERVICE_FEE_DEFAULTS = { serviceFeeParaPct: 12, serviceFeeDriverPct: 4, serviceFeeTodaPct: 4 };
+    const SERVICE_FEE_KEYS = [
+        ['serviceFeeParaPct', 'PARA service fee'],
+        ['serviceFeeDriverPct', 'Driver service fee'],
+        ['serviceFeeTodaPct', 'TODA service fee']
+    ];
 
     async function getFareSettings() {
         const doc = await db.collection(COLLECTIONS.fare).doc('fare').get();
@@ -1071,6 +1204,9 @@ const ParaFirestore = (() => {
             minimumFare: read(data.minimumFare, APP_FARE_DEFAULTS.minimumFare),
             includedDistanceKm: read(data.includedDistanceKm, APP_FARE_DEFAULTS.includedDistanceKm),
             perKmRate: read(data.perKmRate, APP_FARE_DEFAULTS.perKmRate),
+            serviceFeeParaPct: read(data.serviceFeeParaPct, SERVICE_FEE_DEFAULTS.serviceFeeParaPct),
+            serviceFeeDriverPct: read(data.serviceFeeDriverPct, SERVICE_FEE_DEFAULTS.serviceFeeDriverPct),
+            serviceFeeTodaPct: read(data.serviceFeeTodaPct, SERVICE_FEE_DEFAULTS.serviceFeeTodaPct),
             updatedAtRaw: toDate(getField(data, 'updatedAt', 'updated_at'))
         };
     }
@@ -1089,6 +1225,17 @@ const ParaFirestore = (() => {
             if (value < 0) {
                 throw new Error(`${label} cannot be negative.`);
             }
+        }
+        let feeTotal = 0;
+        for (const [key, label] of SERVICE_FEE_KEYS) {
+            const value = settings[key];
+            if (!Number.isFinite(value) || value < 0) {
+                throw new Error(`${label} must be a number of 0 or more.`);
+            }
+            feeTotal += value;
+        }
+        if (feeTotal > 100) {
+            throw new Error('The service fee shares can’t add up to more than 100%.');
         }
     }
 
@@ -1111,7 +1258,10 @@ const ParaFirestore = (() => {
         const next = {
             minimumFare: settings.minimumFare,
             includedDistanceKm: settings.includedDistanceKm,
-            perKmRate: settings.perKmRate
+            perKmRate: settings.perKmRate,
+            serviceFeeParaPct: settings.serviceFeeParaPct,
+            serviceFeeDriverPct: settings.serviceFeeDriverPct,
+            serviceFeeTodaPct: settings.serviceFeeTodaPct
         };
 
         // Replace the document (not merge) so the old base-fare / service-fee
@@ -1122,7 +1272,10 @@ const ParaFirestore = (() => {
         });
 
         logFareChange(
-            { minimumFare: previous.minimumFare, includedDistanceKm: previous.includedDistanceKm, perKmRate: previous.perKmRate },
+            {
+                minimumFare: previous.minimumFare, includedDistanceKm: previous.includedDistanceKm, perKmRate: previous.perKmRate,
+                serviceFeeParaPct: previous.serviceFeeParaPct, serviceFeeDriverPct: previous.serviceFeeDriverPct, serviceFeeTodaPct: previous.serviceFeeTodaPct
+            },
             next
         ).catch((error) => console.error('Failed to log fare change:', error));
     }
@@ -1301,6 +1454,13 @@ const ParaFirestore = (() => {
             return status === 'pending';
         }).length;
 
+        // Approved drivers whose new profile photo waits for review (Photo Changes).
+        const pendingPhotoChanges = driverDocs.filter((doc) => {
+            const data = doc.data() || {};
+            return normalizeStatus(getField(data, 'verificationStatus', 'verification_status', 'status')) === 'approved'
+                && String(data.profilePhotoStatus || '').toLowerCase() === 'pending';
+        }).length;
+
         const openComplaints = complaintsSnap.docs.filter((doc) => {
             const status = normalizeStatus(getField(doc.data(), 'status'));
             return status === 'pending' || status === 'reviewing';
@@ -1317,8 +1477,39 @@ const ParaFirestore = (() => {
                 return resolveAccountStatus(doc.data()) !== 'suspended';
             }).length,
             pendingDrivers,
+            pendingPhotoChanges,
             openComplaints
         };
+    }
+
+    // A trip the driver ended more than 300 m from the destination is flagged by
+    // the app (endedEarly). Most are harmless — the passenger asked to get off —
+    // so reviewing it just records that an admin looked, with an optional note.
+    async function markEarlyEndReviewed(bookingId, note = '') {
+        await db.collection(COLLECTIONS.bookings).doc(bookingId).update({
+            earlyEndReviewedAt: Date.now(),
+            earlyEndReviewNote: note
+        });
+    }
+
+    // Takes back one no-show: the passenger's count goes down by 1, never below 0,
+    // and the booking is remembered in reversedNoShows so the same no-show can't
+    // be reversed twice. Throws an Error with a plain-language message when it
+    // can't be done.
+    async function reverseNoShow(passengerId, bookingId) {
+        const ref = db.collection(COLLECTIONS.users).doc(passengerId);
+        await db.runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            if (!snap.exists) throw new Error('The passenger account was not found.');
+            const data = snap.data() || {};
+            const reversed = Array.isArray(data.reversedNoShows) ? data.reversedNoShows : [];
+            if (reversed.includes(bookingId)) throw new Error('This no-show was already reversed.');
+            if ((Number(data.noShowCount) || 0) <= 0) throw new Error('This passenger has no no-shows on record to reverse.');
+            tx.update(ref, {
+                noShowCount: firebase.firestore.FieldValue.increment(-1),
+                reversedNoShows: firebase.firestore.FieldValue.arrayUnion(bookingId)
+            });
+        });
     }
 
     async function getDriverById(driverId) {
@@ -1345,12 +1536,17 @@ const ParaFirestore = (() => {
         fetchApprovedDrivers,
         listenApprovedDrivers,
         updateDriverVerification,
+        approveProfilePhoto,
+        rejectProfilePhoto,
+        markEarlyEndReviewed,
+        reverseNoShow,
         updateDriverAccountStatus,
         requestDriverInfo,
         logDriverAction,
         fetchDriverActions,
         listenSuspensionRequests,
         listenVerificationDecisions,
+        listenDriverRisk,
         fetchAdminIds,
         settleDriverActions,
         repairAdminSuspensionStatus,

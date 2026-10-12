@@ -71,6 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
     registerDropdown('driverMgmtSortBtn', 'driverMgmtSortDropdown');
     registerDropdown('passengerMgmtStatusBtn', 'passengerMgmtStatusDropdown');
     registerDropdown('complaintStatusBtn', 'complaintStatusDropdown');
+    registerDropdown('complaintSortBtn', 'complaintSortDropdown');
     // ── SPA Router ────────────────────────────────────────────────
     const navLinks = document.querySelectorAll('.nav-link');
     const views = document.querySelectorAll('.view-section');
@@ -155,6 +156,21 @@ document.addEventListener('DOMContentLoaded', () => {
         return `₱${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
 
+    // The service fee is charged on top of the fare and split PARA / driver /
+    // TODA (percentages saved in settings/fare; 12 / 4 / 4 until they load).
+    // Bookings don't record the fee yet, so every figure built from this is an
+    // estimate: the percentage applied to a completed ride's fare.
+    function getServiceFee() {
+        const s = window.serviceFeeSettings || {};
+        const num = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
+        const para = num(s.paraPct, 12);
+        const driver = num(s.driverPct, 4);
+        const toda = num(s.todaPct, 4);
+        return { paraPct: para, driverPct: driver, todaPct: toda, totalPct: para + driver + toda };
+    }
+
+    const trimPct = (value) => String(Number(Number(value).toFixed(2)));
+
     // The one Dashboard filter (Today / Weekly / Monthly / Yearly) drives the
     // cards, the trend chart and High Demand Areas, so they all read their
     // date range from here. Week, month and year are the current calendar
@@ -231,9 +247,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const date = booking.createdAtRaw || new Date(booking.date || booking.createdAt || null);
             return date && !Number.isNaN(date.getTime()) && date >= start && date <= end;
         });
+        const revenue = filtered.reduce((sum, booking) => sum + (isRevenueEligible(booking) ? (Number(booking.totalFare) || 0) : 0), 0);
         return {
             count: filtered.length,
-            revenue: filtered.reduce((sum, booking) => sum + (isRevenueEligible(booking) ? (Number(booking.totalFare) || 0) : 0), 0)
+            revenue,
+            // PARA's share of the service fee on those fares (estimated).
+            paraEarnings: revenue * getServiceFee().paraPct / 100
         };
     }
 
@@ -267,9 +286,12 @@ document.addEventListener('DOMContentLoaded', () => {
             cards[0].querySelector('.stat-change').className = `stat-change ${bookingTrend}`;
         }
         if (cards[1]) {
-            const revenueTrend = currentMetrics.revenue > previousMetrics.revenue ? 'positive' : currentMetrics.revenue < previousMetrics.revenue ? 'negative' : 'neutral';
-            cards[1].querySelector('h2').textContent = formatCurrency(currentMetrics.revenue);
-            cards[1].querySelector('.stat-change').textContent = formatChange(currentMetrics.revenue, previousMetrics.revenue);
+            const revenueTrend = currentMetrics.paraEarnings > previousMetrics.paraEarnings ? 'positive' : currentMetrics.paraEarnings < previousMetrics.paraEarnings ? 'negative' : 'neutral';
+            cards[1].querySelector('h2').textContent = formatCurrency(currentMetrics.paraEarnings);
+            cards[1].querySelector('.stat-change').textContent = formatChange(currentMetrics.paraEarnings, previousMetrics.paraEarnings);
+            // What the number is made of, on hover.
+            const fee = getServiceFee();
+            cards[1].title = `PARA's ${trimPct(fee.paraPct)}% of ${formatCurrency(currentMetrics.revenue)} in completed ride fares (estimated). The service fee is ${trimPct(fee.totalPct)}% on top of the fare: PARA ${trimPct(fee.paraPct)}%, driver ${trimPct(fee.driverPct)}%, TODA ${trimPct(fee.todaPct)}%. Click to open Booking Records.`;
             cards[1].querySelector('.stat-change').className = `stat-change ${revenueTrend}`;
         }
         // "Active Drivers/Passengers" is a current total, not a period-scoped count —
@@ -726,8 +748,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Reports → Service Fee Breakdown for the selected month: completed ride
+    // fares, the service fee on top (20% by default) and its split. Estimated
+    // from the saved percentages, because bookings don't record the fee yet.
+    function updateFeeBreakdown(bookings) {
+        const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+        const fee = getServiceFee();
+        const monthLabel = reportsMonthBounds().label;
+        const fares = bookingsInReportsMonth(bookings).filter(isRevenueEligible).reduce((sum, b) => sum + (Number(b.totalFare) || 0), 0);
+        const part = (pct) => fares * pct / 100;
+        set('rep-fares', formatCurrency(fares));
+        set('rep-fee', formatCurrency(part(fee.totalPct)));
+        set('rep-para', formatCurrency(part(fee.paraPct)));
+        set('rep-driver', formatCurrency(part(fee.driverPct)));
+        set('rep-toda', formatCurrency(part(fee.todaPct)));
+        set('rep-fee-label', `Service fee (${trimPct(fee.totalPct)}%)`);
+        set('rep-para-label', `PARA (${trimPct(fee.paraPct)}%)`);
+        set('rep-driver-label', `Drivers (${trimPct(fee.driverPct)}%)`);
+        set('rep-toda-label', `TODAs (${trimPct(fee.todaPct)}%)`);
+        set('feeBreakdownNote', `${monthLabel} · estimated: the percentages from Fare Management applied to each completed ride's fare, on top of it. Bookings don't record the fee yet.`);
+    }
+    window.refreshReportsFees = () => updateFeeBreakdown(dashboardBookings);
+
     function updateReportsStats(bookings) {
         updatePaymentComparison(bookings);
+        updateFeeBreakdown(bookings);
 
         // Peak hour of the selected month lives in the Peak Hours Analysis
         // card's subtitle instead of its own stat card.
@@ -911,6 +956,14 @@ document.addEventListener('DOMContentLoaded', () => {
         doc.setFontSize(11);
         doc.text(`Period: ${monthLabel}`, 14, 26);
         doc.text(`Total rides: ${rows.length}    Total fare (completed only): ${formatCurrencyPdf(totalFare)}`, 14, 33);
+        // Service fee on top of the fare, split three ways (estimated from the
+        // saved percentages — bookings don't record the fee yet).
+        const fee = getServiceFee();
+        const feeOf = (pct) => formatCurrencyPdf(totalFare * pct / 100);
+        doc.setFontSize(9);
+        const feeLines = doc.splitTextToSize(`Service fee (${trimPct(fee.totalPct)}%, estimated): ${feeOf(fee.totalPct)} - PARA ${trimPct(fee.paraPct)}%: ${feeOf(fee.paraPct)}, drivers ${trimPct(fee.driverPct)}%: ${feeOf(fee.driverPct)}, TODAs ${trimPct(fee.todaPct)}%: ${feeOf(fee.todaPct)}`, 182);
+        doc.text(feeLines, 14, 39);
+        doc.setFontSize(11);
 
         const headers = ['Ref', 'Date', 'Status', 'Driver', 'Passenger', 'Fare'];
         const colX = [14, 46, 76, 100, 138, 172];
@@ -919,7 +972,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // its own cell instead of overlapping the next column.
         const colWidths = [30, 28, 22, 36, 32, 24];
         const lineHeight = 4.5;
-        let y = 45;
+        let y = 45 + (feeLines.length - 1) * 4;
         doc.setFontSize(9);
         doc.setFont(undefined, 'bold');
         headers.forEach((h, i) => doc.text(h, colX[i], y));
@@ -949,9 +1002,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // ── Fare Calculator Preview ───────────────────────────────────
-    // Same formula as the mobile app's FareCalculator:
-    //   fare = minimumFare + max(0, km - includedDistanceKm) * perKmRate
-    // and a shared ride splits it (each rider pays half of the solo fare).
+    // The fare is PER PERSON:
+    //   fare per person = minimumFare + max(0, km - includedDistanceKm) * perKmRate
+    // A shared ride: each rider pays that. A solo ride pays for two persons, so
+    // it costs twice as much. The service fee is a percentage of the ride's
+    // total, on top of it.
     function updateFarePreview() {
         const minFare = parseFloat(document.getElementById('fare-min')?.value) || 0;
         const included = parseFloat(document.getElementById('fare-included')?.value) || 0;
@@ -960,7 +1015,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const exampleKm = 3;
         const extraKm = Math.max(0, exampleKm - included);
         const extra = extraKm * perKm;
-        const solo = minFare + extra;
+        const person = minFare + extra;
+        const solo = person * 2; // a solo rider pays for two persons
 
         const el = (id) => document.getElementById(id);
         const peso = (value) => `₱${value.toFixed(2)}`;
@@ -968,13 +1024,38 @@ document.addEventListener('DOMContentLoaded', () => {
         if (el('prev-min')) el('prev-min').textContent = peso(minFare);
         if (el('prev-km-label')) el('prev-km-label').textContent = `Extra distance (${kmText(extraKm)} km beyond the first ${kmText(included)} km)`;
         if (el('prev-km')) el('prev-km').textContent = peso(extra);
-        if (el('prev-total')) el('prev-total').textContent = peso(solo);
-        if (el('prev-shared')) el('prev-shared').textContent = peso(solo / 2);
+        if (el('prev-total')) el('prev-total').textContent = peso(person);
+        if (el('prev-solo')) el('prev-solo').textContent = peso(solo);
+        if (el('prev-shared')) el('prev-shared').textContent = peso(person);
+
+        // Service fee: a percentage of the fare, added on top and split three ways.
+        const pct = (id) => Math.max(0, parseFloat(document.getElementById(id)?.value) || 0);
+        const paraPct = pct('fare-fee-para');
+        const driverPct = pct('fare-fee-driver');
+        const todaPct = pct('fare-fee-toda');
+        const totalPct = paraPct + driverPct + todaPct;
+        const share = (value) => solo * value / 100;
+        if (el('fare-fee-total')) {
+            el('fare-fee-total').textContent = `${trimPct(totalPct)}%`;
+            el('fare-fee-total').style.color = totalPct > 100 ? 'var(--status-decl-text)' : 'var(--text-main)';
+        }
+        if (el('prev-fee-pct')) el('prev-fee-pct').textContent = trimPct(totalPct);
+        if (el('prev-fee-para-pct')) el('prev-fee-para-pct').textContent = trimPct(paraPct);
+        if (el('prev-fee-driver-pct')) el('prev-fee-driver-pct').textContent = trimPct(driverPct);
+        if (el('prev-fee-toda-pct')) el('prev-fee-toda-pct').textContent = trimPct(todaPct);
+        if (el('prev-fee')) el('prev-fee').textContent = peso(share(totalPct));
+        if (el('prev-fee-para')) el('prev-fee-para').textContent = peso(share(paraPct));
+        if (el('prev-fee-driver')) el('prev-fee-driver').textContent = peso(share(driverPct));
+        if (el('prev-fee-toda')) el('prev-fee-toda').textContent = peso(share(todaPct));
+        if (el('prev-pay')) el('prev-pay').textContent = peso(solo + share(totalPct));
+        if (el('prev-shared-pct')) el('prev-shared-pct').textContent = trimPct(totalPct);
+        if (el('prev-shared-fee')) el('prev-shared-fee').textContent = peso(person * totalPct / 100);
+        if (el('prev-shared-pay')) el('prev-shared-pay').textContent = peso(person * (1 + totalPct / 100));
     }
 
     window.updateFarePreview = updateFarePreview;
 
-    ['fare-min', 'fare-included', 'fare-perkm'].forEach(id => {
+    ['fare-min', 'fare-included', 'fare-perkm', 'fare-fee-para', 'fare-fee-driver', 'fare-fee-toda'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('input', updateFarePreview);
     });

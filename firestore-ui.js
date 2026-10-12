@@ -82,7 +82,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         flagged: { className: 'processing', label: 'FLAGGED', style: 'background:#FFF1D6;color:#FF9E2A;' },
         processing: { className: 'processing', label: 'PROCESSING' },
         ongoing: { className: 'processing', label: 'ONGOING' },
-        declined: { className: 'declined', label: 'DECLINED' }
+        declined: { className: 'declined', label: 'DECLINED' },
+        accepted: { className: 'processing', label: 'ACCEPTED' },
+        arrived: { className: 'processing', label: 'ARRIVED' },
+        no_show: { className: 'declined', label: 'NO-SHOW' }
     };
 
     function escapeHtml(value) {
@@ -99,6 +102,71 @@ document.addEventListener('DOMContentLoaded', async () => {
         const badge = statusBadge[key] || { className: 'processing', label: String(status || 'UNKNOWN').toUpperCase() };
         const style = badge.style ? ` style="${badge.style}"` : '';
         return `<span class="status-badge ${badge.className}"${style}>${escapeHtml(customLabel || badge.label)}</span>`;
+    }
+
+    // A driver's profile photo as a circle, or their initials when there is none
+    // (or the picture can't load). `sizeClass`: '' (36px), 'pf-avatar-md', 'pf-avatar-lg'.
+    function driverInitials(driver) {
+        return String((driver && driver.name) || '?').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?';
+    }
+
+    function driverAvatarHtml(driver, sizeClass = '') {
+        const initials = driverInitials(driver);
+        const inner = driver && driver.profileImage
+            ? `<img src="${escapeHtml(driver.profileImage)}" alt="" loading="lazy" data-initials="${escapeHtml(initials)}" onerror="this.parentNode.textContent=this.dataset.initials">`
+            : escapeHtml(initials);
+        return `<div class="pf-avatar ${sizeClass}">${inner}</div>`;
+    }
+
+    // ── Driver risk score ────────────────────────────────────────
+    // Read from driver_risk (kept by the app's Cloud Functions) — never
+    // recalculated here. It only advises: nothing is suspended automatically,
+    // the admin decides. No doc = not scored yet = treated as LOW.
+    const driverRisk = new Map();
+
+    function riskOf(driverId) {
+        return driverRisk.get(driverId) || null;
+    }
+
+    function riskScoreOf(driverId) {
+        const risk = riskOf(driverId);
+        return risk ? risk.score : 0;
+    }
+
+    function riskChipHtml(risk) {
+        if (!risk) return '';
+        const level = ['HIGH', 'MEDIUM', 'LOW'].includes(risk.level) ? risk.level : 'LOW';
+        return `<span class="risk-chip ${level.toLowerCase()}" title="Driver risk score, 0 to 100">${Math.round(risk.score)} · ${level}</span>`;
+    }
+
+    // How the score is built, so an admin can explain it to a driver.
+    function riskExplainHtml() {
+        return `<details class="risk-explain"><summary>How is this calculated?</summary>
+            <ul>
+                <li><strong>Complaints (50%)</strong> — each counts 1 when filed, half as much every 30 days, and stops after 90 days. Complaints closed as rejected never count. A total of 3 or more gives the full 50 points.</li>
+                <li><strong>Rating (30%)</strong> — adjusted so a driver with few ratings isn’t judged on one bad trip. 4.0★ or better adds nothing; 2.5★ or lower adds the full 30.</li>
+                <li><strong>Past offences (20%)</strong> — warnings from the last 180 days plus suspensions you approved. 3 or more gives the full 20.</li>
+            </ul>
+            <div>60+ is HIGH, 30–59 MEDIUM, under 30 LOW. Suspension is only suggested for a driver who already has a warning or an approved suspension.</div>
+        </details>`;
+    }
+
+    // The score, what it suggests, why, and (in a case) how it compares with
+    // what the TODA president recommended.
+    function riskBodyHtml(risk, presidentSuspension = false) {
+        const reasons = risk.reasons.length
+            ? `<ul class="risk-reasons">${risk.reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>`
+            : '<div class="risk-note">No reasons listed.</div>';
+        let comparison = '';
+        if (presidentSuspension) {
+            comparison = risk.suggestedAction === 'Suspension'
+                ? '<div class="risk-note">The TODA president recommends a suspension, which matches the score.</div>'
+                : `<div class="risk-note"><strong>The TODA president recommends a suspension, but the score suggests ${escapeHtml(risk.suggestedAction)}.</strong> Look at why they differ before deciding.</div>`;
+        }
+        return `<div class="risk-head">${riskChipHtml(risk)}<span>Score suggests: <strong>${escapeHtml(risk.suggestedAction)}</strong></span></div>
+            ${comparison}${reasons}
+            <div class="risk-note">Advisory only — nothing is suspended automatically.${risk.updatedAtRaw ? ` Calculated ${escapeHtml(ParaFirestore.formatDateTime(risk.updatedAtRaw))}.` : ''}</div>
+            ${riskExplainHtml()}`;
     }
 
     function emptyRow(colspan, message) {
@@ -143,8 +211,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // The document photos the driver uploaded in the app, from Firebase Storage
     // (see fetchDriverDocuments). Nothing is shown in place of a missing file.
+    // The government ID is shown once, next to the profile photo (prefix cmp-gov).
     const VERIFICATION_DOC_SLOTS = [
-        { key: 'governmentId', prefix: 'gov' },
         { key: 'license', prefix: 'license' },
         { key: 'vehicleRegistration', prefix: 'reg' }
     ];
@@ -155,27 +223,46 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (empty) empty.textContent = message;
     }
 
-    async function loadVerificationDocuments(driverId) {
-        VERIFICATION_DOC_SLOTS.forEach(({ prefix }) => setDocMessage(prefix, 'Loading…'));
+    // The three document photos for a driver: from Storage, and from the URLs
+    // the app also copies onto the user doc (used when Storage has no match or
+    // can't be read). `error` is set when Storage failed.
+    async function fetchDriverDocumentUrls(driver) {
+        const fromDoc = {
+            governmentId: driver.governmentIdImageUrl || '',
+            license: driver.licenseImageUrl || '',
+            vehicleRegistration: driver.vehicleRegistrationImageUrl || ''
+        };
+        let stored = {};
+        let error = null;
         try {
-            const documents = await ParaFirestore.fetchDriverDocuments(driverId);
-            if (currentVerificationDriverId !== driverId) return; // another application was opened meanwhile
-            VERIFICATION_DOC_SLOTS.forEach(({ key, prefix }) => {
-                if (documents[key]) {
-                    setDocImage(`v-${prefix}-link`, `v-${prefix}-img`, documents[key], `v-${prefix}-empty`);
-                } else {
-                    setDocMessage(prefix, 'Not uploaded');
-                }
-            });
-        } catch (error) {
-            console.error('Failed to load driver documents:', error);
-            if (currentVerificationDriverId !== driverId) return;
-            const blocked = error && (error.code === 'storage/unauthorized' || error.code === 'storage/unauthenticated');
-            VERIFICATION_DOC_SLOTS.forEach(({ prefix }) => setDocMessage(
-                prefix,
-                blocked ? 'Can’t open — Storage rules don’t allow the admin site to read this file' : 'Could not load'
-            ));
+            stored = await ParaFirestore.fetchDriverDocuments(driver.id);
+        } catch (storageError) {
+            console.error('Failed to load driver documents:', storageError);
+            error = storageError;
         }
+        const documents = {};
+        Object.keys(fromDoc).forEach((key) => { documents[key] = stored[key] || fromDoc[key] || null; });
+        return { documents, error };
+    }
+
+    function documentErrorMessage(error) {
+        const blocked = error && (error.code === 'storage/unauthorized' || error.code === 'storage/unauthenticated');
+        return blocked ? 'Can’t open — Storage rules don’t allow the admin site to read this file' : 'Could not load';
+    }
+
+    async function loadVerificationDocuments(driver) {
+        const driverId = driver.id;
+        VERIFICATION_DOC_SLOTS.forEach(({ prefix }) => setDocMessage(prefix, 'Loading…'));
+        setDocMessage('cmp-gov', 'Loading…');
+        const { documents, error } = await fetchDriverDocumentUrls(driver);
+        if (currentVerificationDriverId !== driverId) return; // another application was opened meanwhile
+        const show = (prefix, url) => {
+            if (url) setDocImage(`v-${prefix}-link`, `v-${prefix}-img`, url, `v-${prefix}-empty`);
+            else setDocMessage(prefix, error ? documentErrorMessage(error) : 'Not uploaded');
+        };
+        VERIFICATION_DOC_SLOTS.forEach(({ key, prefix }) => show(prefix, documents[key]));
+        // The same ID photo again, next to the profile photo for the face check.
+        show('cmp-gov', documents.governmentId);
     }
 
     // ── Duplicate accounts ───────────────────────────────────────
@@ -222,9 +309,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     function renderVerificationHead() {
         const head = document.getElementById('verificationHead');
         if (!head) return;
-        head.innerHTML = currentVerificationFilter === 'pending'
-            ? '<tr><th>Driver Name</th><th>Vehicle Details</th><th>Submitted On</th><th>Status</th><th>Actions</th></tr>'
-            : `<tr><th>Driver Name</th><th>Vehicle Details</th><th>${currentVerificationFilter === 'approved' ? 'Approved On' : 'Rejected On'}</th><th>Decision</th><th>Actions</th></tr>`;
+        if (currentVerificationFilter === 'photos') {
+            head.innerHTML = '<tr><th>Driver Name</th><th>TODA / Vehicle</th><th>Photo Uploaded</th><th>Status</th><th>Actions</th></tr>';
+        } else if (currentVerificationFilter === 'pending') {
+            head.innerHTML = '<tr><th>Driver Name</th><th>Vehicle Details</th><th>Submitted On</th><th>Status</th><th>Actions</th></tr>';
+        } else {
+            head.innerHTML = `<tr><th>Driver Name</th><th>Vehicle Details</th><th>${currentVerificationFilter === 'approved' ? 'Approved On' : 'Rejected On'}</th><th>Decision</th><th>Actions</th></tr>`;
+        }
     }
 
     function renderVerificationTable(drivers) {
@@ -236,7 +327,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const emptyLabels = {
                 pending: 'No pending applications.',
                 approved: 'No approved drivers yet.',
-                rejected: 'No rejected applications.'
+                rejected: 'No rejected applications.',
+                photos: 'No profile photos are waiting for review.'
             };
             tbody.innerHTML = emptyRow(5, verificationSearchTerm ? 'No applications match your search.' : emptyLabels[currentVerificationFilter]);
             return;
@@ -247,8 +339,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             const label = isPending ? 'Review' : 'View Details';
             const btnStyle = isPending ? '' : ' style="background:var(--bg-light);color:var(--text-main);"';
             const btn = `<button class="action-btn"${btnStyle} data-action="review-driver" data-id="${escapeHtml(driver.id)}">${label}</button>`;
-            const nameCell = `<td><div class="detail-main">${escapeHtml(driver.name)}</div><div class="detail-sub">Lic: ${escapeHtml(driver.license)}</div></td>`;
+            const nameCell = `<td><div class="pf-name">${driverAvatarHtml(driver, currentVerificationFilter === 'photos' ? 'pf-avatar-md' : '')}<div><div class="detail-main">${escapeHtml(driver.name)}</div><div class="detail-sub">Lic: ${escapeHtml(driver.license)}</div></div></div></td>`;
             const vehicleCell = `<td><div class="detail-main">${escapeHtml(driver.vehicle)}</div><div class="detail-sub">Plate: ${escapeHtml(driver.plate)}</div></td>`;
+
+            if (currentVerificationFilter === 'photos') {
+                // An approved driver replaced their photo — it's visible to passengers
+                // already and waits here for the admin to approve or reject it.
+                return `<tr>
+                    ${nameCell}
+                    <td><div class="detail-main">${escapeHtml(driver.todaName || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(driver.plate || '—')}</div></td>
+                    <td style="font-size:13px; color:var(--text-muted);">${escapeHtml(driver.profilePhotoUpdatedAtRaw ? ParaFirestore.formatDateTime(driver.profilePhotoUpdatedAtRaw) : '—')}</td>
+                    <td>${renderBadge('pending', 'UNDER REVIEW')}</td>
+                    <td><button class="action-btn" data-action="review-photo" data-id="${escapeHtml(driver.id)}">Review Photo</button></td>
+                </tr>`;
+            }
 
             if (!isPending) {
                 // The decision log: when, who, and (for a rejection) why.
@@ -284,7 +388,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }).join('');
 
         bindRowActions(tbody, {
-            'review-driver': (ds) => window.openVerificationModal(ds.id)
+            'review-driver': (ds) => window.openVerificationModal(ds.id),
+            'review-photo': (ds) => window.openPhotoReviewModal(ds.id)
         });
     }
 
@@ -317,6 +422,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             return '<div class="detail-sub" style="margin-top:4px;"><span style="color:#FF9E2A;">●</span> On a ride</div>';
         }
         return '<div class="detail-sub" style="margin-top:4px;"><span style="color:#05CD99;">●</span> Online</div>';
+    }
+
+    // Only MEDIUM and HIGH are flagged in the list; LOW stays quiet (it's in the details window).
+    function driverRiskFlag(driver) {
+        const risk = riskOf(driver.id);
+        return risk && risk.level !== 'LOW' ? `<div style="margin-top:6px;">${riskChipHtml(risk)}</div>` : '';
     }
 
     function renderDriverManagementTable(drivers) {
@@ -361,6 +472,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (sortMode === 'rating-asc') return aRating - bRating;
             if (sortMode === 'rides-desc') return bRides - aRides;
             if (sortMode === 'rides-asc') return aRides - bRides;
+            if (sortMode === 'risk-desc') return riskScoreOf(b.id) - riskScoreOf(a.id) || bRating - aRating;
             return 0;
         });
 
@@ -377,10 +489,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 suspensionNote = `<div class="detail-sub" style="margin-top:4px;">${escapeHtml(untilText + reasonText)}</div>`;
             }
             return `<tr class="row-clickable" data-driver-id="${escapeHtml(driver.id)}" title="View driver details">
-                <td><div class="detail-main">${escapeHtml(driver.name)}</div><div class="detail-sub">Member since ${escapeHtml(driver.memberSince)}</div></td>
-                <td><div class="detail-main">${escapeHtml(driver.vehicle || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(driver.plate || '—')}</div></td>
+                <td><div class="pf-name">${driverAvatarHtml(driver)}<div><div class="detail-main">${escapeHtml(driver.name)}</div><div class="detail-sub">Member since ${escapeHtml(driver.memberSince)}</div></div></div></td>
+                <td><div class="detail-main">${escapeHtml(driver.vehicle || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(driver.plate || '—')}${driver.motorcycleModel ? ` · ${escapeHtml(driver.motorcycleModel)}` : ''}</div></td>
                 <td style="white-space:nowrap;"><div class="rating-stars">${escapeHtml(getDriverPerformanceStars(ratingValue))} <span>${escapeHtml(driver.rating === '—' ? '—' : Number(driver.rating).toFixed(1))}</span></div><div class="detail-sub">${escapeHtml(Number(driver.totalRides || 0))} completed ${Number(driver.totalRides || 0) === 1 ? 'ride' : 'rides'} · ${escapeHtml(driver.acceptanceRate || '—')} acceptance</div></td>
-                <td>${renderBadge(isSuspended ? 'suspended' : 'active')}${suspensionNote}${driverPresenceLine(driver)}</td>
+                <td>${renderBadge(isSuspended ? 'suspended' : 'active')}${driverRiskFlag(driver)}${suspensionNote}${driverPresenceLine(driver)}</td>
                 <td style="white-space:nowrap;">
                     <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
                         <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-driver" data-id="${escapeHtml(driver.id)}" data-name="${escapeHtml(driver.name)}">History</button>
@@ -417,6 +529,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.setDriverManagementSort = function(sortKey) {
         // map labels
         const mapKey = {
+            'Risk (High)': 'risk-desc',
             'Rating (High)': 'rating-desc',
             'Rating (Low)': 'rating-asc',
             'Rides (High)': 'rides-desc',
@@ -533,7 +646,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let bookingTablePage = 1;
 
     window.selectBookingStatus = function(statusKey) {
-        const normalizedKey = (statusKey || 'All').toLowerCase();
+        const normalizedKey = (statusKey || 'All').toLowerCase().replace(/-/g, '_');
         window.bookingStatusFilter = normalizedKey === 'all' ? 'all' : normalizedKey;
 
         const btn = document.getElementById('statusFilterBtn');
@@ -597,11 +710,115 @@ document.addEventListener('DOMContentLoaded', async () => {
         return colors[status] || 'var(--text-main)';
     }
 
+    // ── Trip location checks ─────────────────────────────────────
+    // The app saves where the driver was at Arrived / Start ride / End ride. A
+    // ride ended more than 300 m from the destination is flagged endedEarly.
+    // Most are harmless (the passenger asked to get off) — the queue exists to
+    // catch patterns and early drop-offs that come with a complaint.
+    const BOOKING_HEAD_ALL = '<tr><th>Booking ID</th><th>Status</th><th>Date</th><th>Driver / Plate</th><th>Passenger</th><th>Pickup</th><th>Destination</th><th>Fare</th></tr>';
+    const BOOKING_HEAD_EARLY = '<tr><th>Booking</th><th>Passenger</th><th>Driver / TODA</th><th>Destination</th><th>Ended</th><th>Fare</th><th>Review</th><th>Actions</th></tr>';
+    let bookingTab = 'all'; // 'all' | 'ended-early'
+    let earlyEndFilter = 'unreviewed'; // 'unreviewed' | 'reviewed'
+
+    // Straight-line distance in metres between two {lat, lng} points, or null
+    // when either has no location.
+    function distanceM(a, b) {
+        if (!a || !b) return null;
+        const R = 6371000;
+        const rad = (d) => (d * Math.PI) / 180;
+        const dLat = rad(b.lat - a.lat);
+        const dLng = rad(b.lng - a.lng);
+        const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+        return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+    }
+
+    function fmtDistance(meters) {
+        if (meters === null || meters === undefined) return 'Not recorded';
+        return meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`;
+    }
+
+    function timeOf(date) {
+        const t = date ? new Date(date).getTime() : 0;
+        return Number.isFinite(t) ? t : 0;
+    }
+
+    // Complaints filed about this ride (a complaint stores the booking's id or ref).
+    function complaintsForBooking(booking) {
+        return allComplaints.filter((c) => c.bookingId && (c.bookingId === booking.id || c.bookingId === booking.ref));
+    }
+
+    // The queue flags rides that have a complaint, so redraw it when complaints change.
+    function renderBookingTableIfEarlyQueue() {
+        if (bookingTab === 'ended-early') renderBookingTable(window.allBookings || []);
+    }
+
+    function earlyEndTrips() {
+        return (window.allBookings || []).filter((b) => b.endedEarly);
+    }
+
+    function updateEarlyEndCounts() {
+        const trips = earlyEndTrips();
+        const unreviewed = trips.filter((b) => !b.earlyEndReviewedAtRaw).length;
+        const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+        set('bk-count-early', unreviewed);
+        set('bk-count-unreviewed', unreviewed);
+        set('bk-count-reviewed', trips.length - unreviewed);
+        const badge = document.getElementById('bookingsNavBadge');
+        if (badge) {
+            badge.textContent = unreviewed || '';
+            badge.classList.toggle('hidden', !unreviewed);
+        }
+    }
+
+    function renderEarlyEndQueue(tbody) {
+        const paginationEl = document.getElementById('bookingPagination');
+        if (paginationEl) paginationEl.innerHTML = '';
+        const wantReviewed = earlyEndFilter === 'reviewed';
+        const trips = earlyEndTrips()
+            .filter((b) => Boolean(b.earlyEndReviewedAtRaw) === wantReviewed)
+            .sort((a, b) => timeOf(b.completedAtRaw || b.createdAtRaw) - timeOf(a.completedAtRaw || a.createdAtRaw));
+
+        if (!trips.length) {
+            tbody.innerHTML = emptyRow(8, wantReviewed ? 'No reviewed trips yet.' : 'No trips are waiting for review.');
+            return;
+        }
+        tbody.innerHTML = trips.map((booking) => {
+            const away = fmtDistance(distanceM(booking.completedLatLng, booking.destinationLatLng));
+            const complaints = complaintsForBooking(booking);
+            const reviewed = booking.earlyEndReviewedAtRaw;
+            return `<tr class="row-clickable${complaints.length ? ' row-alert' : ''}" data-booking-id="${escapeHtml(booking.id)}">
+                <td><div class="book-id">${escapeHtml(booking.ref)}</div><div class="book-time">${escapeHtml(booking.relativeTime)}</div>${complaints.length ? '<div class="detail-sub" style="color:#EE5D50; font-weight:600; margin-top:4px;">Complaint filed</div>' : ''}</td>
+                <td>${escapeHtml(booking.passengerName || '—')}</td>
+                <td><div class="detail-main">${escapeHtml(booking.driverName || '—')}</div><div class="detail-sub">${escapeHtml(booking.driverTodaName || '—')}</div></td>
+                <td style="max-width:200px; font-size:13px; line-height:1.4;">${escapeHtml(booking.dropoffLocation)}</td>
+                <td><div style="font-weight:700;">${escapeHtml(away)}</div><div class="detail-sub">from the destination${booking.completedAtRaw ? ` · ${escapeHtml(ParaFirestore.formatDateTime(booking.completedAtRaw))}` : ''}</div></td>
+                <td><div style="font-weight:600;">&#8369;${escapeHtml(Number(booking.totalFare || 0).toFixed(2))}</div>${paymentLine(booking)}</td>
+                <td>${reviewed ? renderBadge('resolved', 'REVIEWED') : renderBadge('pending', 'UNREVIEWED')}${reviewed && booking.earlyEndReviewNote ? `<div class="detail-sub" style="margin-top:4px; max-width:180px; line-height:1.4;">${escapeHtml(booking.earlyEndReviewNote)}</div>` : ''}</td>
+                <td><button class="action-btn" data-action="open-trip" data-id="${escapeHtml(booking.id)}">${reviewed ? 'View' : 'Review'}</button></td>
+            </tr>`;
+        }).join('');
+    }
+
     function renderBookingTable(bookings) {
         const tbody = document.querySelector('#view-bookings .data-table tbody');
         if (!tbody) return;
 
         window.allBookings = Array.isArray(bookings) ? bookings : [];
+        updateEarlyEndCounts();
+        refreshTripModal();
+
+        const head = document.getElementById('bookingHead');
+        const filters = document.getElementById('earlyEndFilters');
+        const controls = document.querySelector('#view-bookings .header-controls');
+        const isQueue = bookingTab === 'ended-early';
+        if (head) head.innerHTML = isQueue ? BOOKING_HEAD_EARLY : BOOKING_HEAD_ALL;
+        if (filters) filters.style.display = isQueue ? '' : 'none';
+        if (controls) controls.style.display = isQueue ? 'none' : '';
+        if (isQueue) {
+            renderEarlyEndQueue(tbody);
+            return;
+        }
+
         let list = [...window.allBookings];
 
         const selectedStatus = (window.bookingStatusFilter || 'all').toLowerCase();
@@ -638,9 +855,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const pageItems = list.slice(pageStart, pageStart + BOOKINGS_PAGE_SIZE);
 
         tbody.innerHTML = pageItems.map((booking) => `
-            <tr>
+            <tr class="row-clickable" data-booking-id="${escapeHtml(booking.id)}" title="View trip details">
                 <td><div class="book-id">${escapeHtml(booking.ref)}</div><div class="book-time">${escapeHtml(booking.relativeTime)}</div></td>
-                <td>${renderBadge(booking.status)}</td>
+                <td>${renderBadge(booking.status)}${earlyEndBadge(booking)}</td>
                 <td style="font-size:13px;">${escapeHtml(booking.dateLabel)}</td>
                 <td><div class="detail-main">${escapeHtml(booking.driverName || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(booking.plate)}</div></td>
                 <td>${escapeHtml(booking.passengerName || '—')}</td>
@@ -664,6 +881,41 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    // "Ended early" under a booking's status (grey once an admin has reviewed it).
+    function earlyEndBadge(booking) {
+        if (!booking.endedEarly) return '';
+        const reviewed = Boolean(booking.earlyEndReviewedAtRaw);
+        return `<div class="detail-sub" style="margin-top:4px; font-weight:600; color:${reviewed ? 'var(--text-muted)' : '#FF9E2A'};">Ended early${reviewed ? ' · reviewed' : ''}</div>`;
+    }
+
+    // Booking Records: All bookings / Ended early tabs, and a click on a row (or
+    // its Review button) opens the trip.
+    (function bindBookingRecords() {
+        const tabs = document.getElementById('bookingTabs');
+        const filters = document.getElementById('earlyEndFilters');
+        const tbody = document.querySelector('#view-bookings .data-table tbody');
+        const refresh = () => renderBookingTable(window.allBookings || []);
+        tabs?.addEventListener('click', (e) => {
+            const tab = e.target.closest('.vf-tab');
+            if (!tab) return;
+            bookingTab = tab.dataset.tab;
+            tabs.querySelectorAll('.vf-tab').forEach((t) => t.classList.toggle('active', t === tab));
+            bookingTablePage = 1;
+            refresh();
+        });
+        filters?.addEventListener('click', (e) => {
+            const tab = e.target.closest('.vf-tab');
+            if (!tab) return;
+            earlyEndFilter = tab.dataset.filter;
+            filters.querySelectorAll('.vf-tab').forEach((t) => t.classList.toggle('active', t === tab));
+            refresh();
+        });
+        tbody?.addEventListener('click', (e) => {
+            const row = e.target.closest('tr[data-booking-id]');
+            if (row && tbody.contains(row)) window.openTripModal(row.dataset.bookingId);
+        });
+    })();
+
     const bookingDatePicker = document.getElementById('bookingDatePicker');
     if (bookingDatePicker) {
         bookingDatePicker.addEventListener('change', () => {
@@ -673,6 +925,278 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
     }
+
+    // ── Trip details window ──────────────────────────────────────
+    // One booking with where the driver was at each step, a map of the pins,
+    // any complaints about it, and the two admin actions that come from the
+    // trip checks: reviewing an early drop-off and reversing a no-show.
+    const ARRIVE_LIMIT_M = 150; // the app only allows "Arrived" within this distance of the pickup
+    const TRIP_PINS = [
+        { key: 'pickupLatLng', label: 'Pickup pin', color: '#05CD99' },
+        { key: 'arrivedLatLng', label: 'Driver arrived here', color: '#1A73E8' },
+        { key: 'startedLatLng', label: 'Ride started here', color: '#7551FF' },
+        { key: 'destinationLatLng', label: 'Destination pin', color: '#EE5D50' },
+        { key: 'completedLatLng', label: 'Ended here', color: '#FF9E2A' }
+    ];
+    let tripBookingId = null;
+    let tripMap = null;
+    let tripMapKey = '';
+    let tripReviewKey = '';
+
+    function tripBooking() {
+        return (window.allBookings || []).find((b) => b.id === tripBookingId) || null;
+    }
+
+    function tripPassenger(booking) {
+        return (window.allPassengers || []).find((p) => p.id === booking.passengerId) || null;
+    }
+
+    function tripClockTime(date) {
+        return date && !Number.isNaN(new Date(date).getTime())
+            ? new Date(date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+            : '';
+    }
+
+    // "8:12 AM · 40 m from the pickup" / "… · location not recorded".
+    function tripStepValue(time, point, reference, referenceLabel) {
+        const when = tripClockTime(time);
+        if (!when && !point) return '';
+        const where = point
+            ? (reference ? `${fmtDistance(distanceM(point, reference))} from the ${referenceLabel}` : 'location recorded')
+            : 'location not recorded';
+        return [when, where].filter(Boolean).join(' · ');
+    }
+
+    function renderTripBanners(booking) {
+        const out = [];
+        const status = ParaFirestore.normalizeStatus(booking.status);
+        if (booking.endedEarly) {
+            const away = fmtDistance(distanceM(booking.completedLatLng, booking.destinationLatLng));
+            if (booking.earlyEndReviewedAtRaw) {
+                out.push(`<div class="vf-dup muted"><strong>Ended early — reviewed ${escapeHtml(ParaFirestore.formatDateTime(booking.earlyEndReviewedAtRaw))}.</strong> The ride ended ${escapeHtml(away)} from the destination.${booking.earlyEndReviewNote ? ` Note: “${escapeHtml(booking.earlyEndReviewNote)}”` : ''}</div>`);
+            } else {
+                out.push(`<div class="vf-dup warn"><strong>Ended early.</strong> The driver ended this ride ${escapeHtml(away)} from the destination. Most are harmless (the passenger asked to get off) — look for patterns or a complaint about this ride.</div>`);
+            }
+        }
+        if (status === 'no_show') {
+            const away = distanceM(booking.arrivedLatLng, booking.pickupLatLng);
+            const at = tripClockTime(booking.arrivedAtRaw);
+            let text;
+            let tone = 'warn';
+            if (away === null) {
+                text = 'The driver’s arrival location is not recorded (bookings made before this update don’t have one).';
+            } else if (away > ARRIVE_LIMIT_M) {
+                tone = 'block';
+                text = `The driver tapped Arrived ${fmtDistance(away)} from the pickup${at ? ` at ${at}` : ''}. The app only allows Arrived within ${ARRIVE_LIMIT_M} m, so check this one.`;
+            } else {
+                text = `The driver tapped Arrived ${fmtDistance(away)} from the pickup${at ? ` at ${at}` : ''}, within the ${ARRIVE_LIMIT_M} m the app requires.`;
+            }
+            out.push(`<div class="vf-dup ${tone}"><strong>No-show.</strong> ${escapeHtml(text)}</div>`);
+        }
+        return out.join('');
+    }
+
+    function renderTripCards(booking) {
+        const passenger = tripPassenger(booking);
+        const arrived = tripStepValue(booking.arrivedAtRaw, booking.arrivedLatLng, booking.pickupLatLng, 'pickup');
+        const started = tripStepValue(booking.startedAtRaw, booking.startedLatLng, booking.pickupLatLng, 'pickup');
+        const dropped = tripStepValue(booking.completedAtRaw, booking.completedLatLng, booking.destinationLatLng, 'destination');
+        return `<div class="dd-cards">
+            <div class="dd-card">
+                <div class="dd-card-title">People</div>
+                ${ddRow('Passenger', booking.passengerName)}
+                ${ddRow('Driver', booking.driverName)}
+                ${ddRow('TODA', booking.driverTodaName)}
+                ${ddRow('Plate number', booking.plate === '—' ? '' : booking.plate)}
+            </div>
+            <div class="dd-card">
+                <div class="dd-card-title">Fare</div>
+                ${ddRow('Fare', `₱${Number(booking.totalFare || 0).toFixed(2)}`)}
+                ${ddRow('Payment', [booking.paymentMethod, booking.paymentStatus && String(booking.paymentStatus).toUpperCase()].filter(Boolean).join(' · '))}
+                ${ddRow('Booked on', booking.createdAtRaw ? ParaFirestore.formatDateTime(booking.createdAtRaw) : '')}
+                ${passenger && ParaFirestore.normalizeStatus(booking.status) === 'no_show' ? ddRow('Passenger’s no-shows', passenger.noShowCount) : ''}
+            </div>
+            <div class="dd-card wide">
+                <div class="dd-card-title">Route</div>
+                ${ddRow('Pickup', booking.pickupLocation === '—' ? '' : booking.pickupLocation)}
+                ${ddRow('Destination', booking.dropoffLocation === '—' ? '' : booking.dropoffLocation)}
+            </div>
+            <div class="dd-card wide">
+                <div class="dd-card-title">Location checks</div>
+                ${ddRow('Driver arrived', arrived || 'Not recorded')}
+                ${ddRow('Ride started', started || 'Not recorded')}
+                ${ddRow('Dropped off', dropped || 'Not recorded')}
+            </div>
+        </div>`;
+    }
+
+    function renderTripComplaints(booking) {
+        const complaints = complaintsForBooking(booking);
+        if (!complaints.length) return '';
+        return `<div class="vf-block-title" style="margin:20px 0 10px;">Complaints about this ride</div>
+            <div class="table-container"><table class="data-table">
+                <thead><tr><th>Case</th><th>Issue</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>${complaints.map((c) => `<tr>
+                    <td><div class="book-id">${escapeHtml(c.ref)}</div><div class="book-time">${escapeHtml(ParaFirestore.formatDateTime(c.createdAtRaw))}</div></td>
+                    <td><div class="detail-main">${escapeHtml(c.issue)}</div><div class="detail-sub">${escapeHtml(c.description)}</div></td>
+                    <td>${renderBadge(c.status)}</td>
+                    <td><button class="action-btn" data-trip-case="${escapeHtml(c.id)}">View Case</button></td>
+                </tr>`).join('')}</tbody>
+            </table></div>`;
+    }
+
+    // The note box is only rebuilt when the review state changes, so what the
+    // admin is typing survives the live refresh.
+    function renderTripReview(booking) {
+        const box = document.getElementById('trip-review');
+        const key = `${booking.id}|${booking.endedEarly}|${Boolean(booking.earlyEndReviewedAtRaw)}`;
+        if (!box || key === tripReviewKey) return;
+        tripReviewKey = key;
+        box.innerHTML = booking.endedEarly && !booking.earlyEndReviewedAtRaw
+            ? `<div class="form-group" style="margin-top:20px;"><label>Review note (optional)</label><textarea id="trip-review-note" class="form-input" rows="2" placeholder="e.g. Passenger confirmed they asked to get off at the market."></textarea></div>`
+            : '';
+    }
+
+    function renderTripMap(booking) {
+        const wrap = document.getElementById('trip-map-wrap');
+        const empty = document.getElementById('trip-map-empty');
+        const pins = TRIP_PINS.filter((pin) => booking[pin.key]);
+        const key = `${booking.id}|${pins.map((pin) => `${pin.key}:${booking[pin.key].lat},${booking[pin.key].lng}`).join(';')}`;
+        if (key === tripMapKey) return;
+        tripMapKey = key;
+        if (tripMap) { tripMap.remove(); tripMap = null; }
+
+        if (!pins.length) {
+            wrap.style.display = 'none';
+            empty.style.display = '';
+            return;
+        }
+        wrap.style.display = '';
+        empty.style.display = 'none';
+
+        const legend = document.getElementById('trip-legend');
+        legend.innerHTML = pins.map((pin) => `<span class="trip-legend-item"><i style="background:${pin.color};"></i>${escapeHtml(pin.label)}</span>`).join('');
+
+        if (!window.L) {
+            document.getElementById('trip-map').innerHTML = '<div class="vf-tile-empty">The map could not be loaded.</div>';
+            return;
+        }
+        tripMap = L.map('trip-map', { scrollWheelZoom: false });
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(tripMap);
+        const points = [];
+        if (booking.pickupLatLng && booking.destinationLatLng) {
+            L.polyline([[booking.pickupLatLng.lat, booking.pickupLatLng.lng], [booking.destinationLatLng.lat, booking.destinationLatLng.lng]], { color: '#A3AED0', weight: 2, dashArray: '6 6' }).addTo(tripMap);
+        }
+        pins.forEach((pin) => {
+            const point = [booking[pin.key].lat, booking[pin.key].lng];
+            points.push(point);
+            L.circleMarker(point, { radius: 9, color: '#fff', weight: 2, fillColor: pin.color, fillOpacity: 1 }).addTo(tripMap).bindTooltip(pin.label);
+        });
+        tripMap.fitBounds(points, { padding: [36, 36], maxZoom: 17 });
+        // The window is still fading in, so the map has to re-measure itself.
+        setTimeout(() => { if (tripMap) { tripMap.invalidateSize(); tripMap.fitBounds(points, { padding: [36, 36], maxZoom: 17 }); } }, 260);
+    }
+
+    function renderTripModal() {
+        const booking = tripBooking();
+        if (!booking) return;
+        const status = ParaFirestore.normalizeStatus(booking.status);
+        document.getElementById('trip-title').textContent = `Trip ${booking.ref}`;
+        document.getElementById('trip-meta').innerHTML = renderBadge(booking.status)
+            + (booking.endedEarly ? renderBadge(booking.earlyEndReviewedAtRaw ? 'resolved' : 'pending', booking.earlyEndReviewedAtRaw ? 'ENDED EARLY · REVIEWED' : 'ENDED EARLY') : '')
+            + (booking.createdAtRaw ? `<span>${escapeHtml(ParaFirestore.formatDateTime(booking.createdAtRaw))}</span>` : '');
+        document.getElementById('trip-banners').innerHTML = renderTripBanners(booking);
+        document.getElementById('trip-cards').innerHTML = renderTripCards(booking);
+        document.getElementById('trip-complaints').innerHTML = renderTripComplaints(booking);
+        renderTripReview(booking);
+
+        const reviewBtn = document.getElementById('tripReviewBtn');
+        if (reviewBtn) reviewBtn.style.display = booking.endedEarly && !booking.earlyEndReviewedAtRaw ? '' : 'none';
+
+        const reverseBtn = document.getElementById('tripReverseBtn');
+        if (reverseBtn) {
+            const passenger = tripPassenger(booking);
+            reverseBtn.style.display = status === 'no_show' ? '' : 'none';
+            let blocked = '';
+            if (!passenger) blocked = 'The passenger account was not found.';
+            else if (passenger.reversedNoShows.includes(booking.id)) blocked = 'This no-show was already reversed.';
+            else if (passenger.noShowCount <= 0) blocked = 'This passenger has no no-shows on record.';
+            reverseBtn.disabled = Boolean(blocked);
+            reverseBtn.title = blocked;
+            reverseBtn.textContent = passenger && passenger.reversedNoShows.includes(booking.id) ? 'No-show reversed' : 'Reverse No-show';
+        }
+        // Nothing to do on this trip -> no empty footer bar.
+        const footer = document.getElementById('trip-footer');
+        if (footer) footer.style.display = (reviewBtn && reviewBtn.style.display !== 'none') || (reverseBtn && reverseBtn.style.display !== 'none') ? '' : 'none';
+    }
+
+    // Called whenever bookings, passengers or complaints refresh.
+    function refreshTripModal() {
+        const modal = document.getElementById('tripModal');
+        if (!tripBookingId || !modal || !modal.classList.contains('active')) return;
+        const booking = tripBooking();
+        if (!booking) return;
+        renderTripModal();
+        renderTripMap(booking);
+    }
+
+    window.openTripModal = function(bookingId) {
+        tripBookingId = bookingId;
+        if (!tripBooking()) return;
+        tripMapKey = '';
+        tripReviewKey = '';
+        renderTripModal();
+        document.getElementById('tripModal').classList.add('active');
+        renderTripMap(tripBooking());
+    };
+
+    window.markTripReviewed = async function() {
+        const booking = tripBooking();
+        if (!booking) return;
+        const note = (document.getElementById('trip-review-note')?.value || '').trim();
+        try {
+            await ParaFirestore.markEarlyEndReviewed(booking.id, note);
+            closeModal('tripModal');
+            window.showToast('Trip marked as reviewed.', 'success');
+        } catch (error) {
+            window.showToast('Could not mark the trip as reviewed.', 'error');
+            console.error(error);
+        }
+    };
+
+    window.reverseNoShowFromTrip = function() {
+        const booking = tripBooking();
+        const passenger = booking ? tripPassenger(booking) : null;
+        if (!booking || !passenger) return;
+        showConfirmModal(
+            `Reverse this no-show?`,
+            `${passenger.name || 'The passenger'}’s no-show count goes down by 1 (now ${passenger.noShowCount}). This can only be done once for this trip.`,
+            'Reverse No-show',
+            '#1A73E8',
+            async () => {
+                try {
+                    await ParaFirestore.reverseNoShow(passenger.id, booking.id);
+                    ParaFirestore.logPassengerAction(passenger.id, passenger.name, 'No-show Reversal', `Trip ${booking.ref}`).catch((error) => console.error('Failed to log passenger action:', error));
+                    window.showToast('No-show reversed.', 'success');
+                } catch (error) {
+                    window.showToast(error && error.message ? error.message : 'Could not reverse the no-show.', 'error');
+                    console.error(error);
+                }
+            }
+        );
+    };
+
+    document.getElementById('c-trip-line')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-case-trip]');
+        if (btn) window.openTripModal(btn.dataset.caseTrip);
+    });
+
+    document.getElementById('tripModal')?.addEventListener('click', (e) => {
+        const caseBtn = e.target.closest('[data-trip-case]');
+        if (!caseBtn) return;
+        closeModal('tripModal');
+        window.openComplaintModal(caseBtn.dataset.tripCase);
+    });
 
     window.renderRecentActivity = function(bookings) {
         const tbody = document.getElementById('recentActivityBody');
@@ -767,6 +1291,30 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('complaints-total-month').textContent = thisMonth;
     }
 
+    window.complaintMgmtSort = 'newest';
+    window.setComplaintSort = function(label) {
+        window.complaintMgmtSort = /risk/i.test(label || '') ? 'risk' : 'newest';
+        const btn = document.getElementById('complaintSortBtn');
+        if (btn) btn.querySelector('.filter-val').textContent = label;
+        const dropdown = document.getElementById('complaintSortDropdown');
+        if (dropdown) dropdown.classList.remove('show');
+        renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
+    };
+
+    // The "Driver Risk Score" block in the case window: the stored score for the
+    // reported driver, what it suggests, why, and how it compares with the
+    // TODA president's recommendation.
+    function renderCaseRisk(complaint) {
+        const box = document.getElementById('c-risk-box');
+        if (!box || !complaint) return;
+        const risk = riskOf(complaint.driverId);
+        if (!risk) {
+            box.innerHTML = '<div class="risk-note" style="margin-top:0;">Not scored yet — treated as LOW.</div>';
+            return;
+        }
+        box.innerHTML = riskBodyHtml(risk, suspensionRecommendationsFor(complaint).length > 0);
+    }
+
     window.setComplaintFilter = function(statusKey) {
         const normalizedKey = (statusKey || 'all').toLowerCase();
         window.complaintMgmtStatusFilter = normalizedKey;
@@ -788,6 +1336,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         const sortedComplaints = [...(complaints || [])].sort((a, b) => {
             const timeA = a.createdAtRaw && a.createdAtRaw.getTime ? a.createdAtRaw.getTime() : (a.createdAt instanceof Date ? a.createdAt.getTime() : 0);
             const timeB = b.createdAtRaw && b.createdAtRaw.getTime ? b.createdAtRaw.getTime() : (b.createdAt instanceof Date ? b.createdAt.getTime() : 0);
+            // "Driver risk (High)": the most serious drivers first, newest within a score.
+            if (window.complaintMgmtSort === 'risk') {
+                return riskScoreOf(b.driverId) - riskScoreOf(a.driverId) || timeB - timeA;
+            }
             return timeB - timeA;
         });
 
@@ -799,7 +1351,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         tbody.innerHTML = sortedComplaints.map((complaint) => `
             <tr>
                 <td><div class="book-id">${escapeHtml(complaint.ref)}</div><div class="book-time">Reporter: ${escapeHtml(complaint.reporter)}</div></td>
-                <td><div class="detail-main">${escapeHtml(complaint.reported)}</div><div class="detail-sub">Trip: ${escapeHtml(complaint.tripRef)}</div></td>
+                <td><div class="detail-main">${escapeHtml(complaint.reported)} ${riskChipHtml(riskOf(complaint.driverId))}</div><div class="detail-sub">Trip: ${escapeHtml(complaint.tripRef)}</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.issue)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
                 <td>${renderBadge(complaint.status)}${hasOpenRecommendation(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#EE5D50; font-weight:600;">Suspension recommended</div>' : ''}</td>
                 <td><button class="action-btn" data-action="view-complaint" data-id="${escapeHtml(complaint.id)}">View Case</button></td>
@@ -823,8 +1375,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             const driverBadge = document.querySelector('[data-view="driver-verification"] .nav-badge');
             const complaintBadge = document.querySelector('[data-view="complaints"] .nav-badge');
             if (driverBadge) {
-                driverBadge.textContent = counts.pendingDrivers || '';
-                driverBadge.classList.toggle('hidden', !counts.pendingDrivers);
+                // New applications plus photo changes waiting for review.
+                const waitingForReview = (counts.pendingDrivers || 0) + (counts.pendingPhotoChanges || 0);
+                driverBadge.textContent = waitingForReview || '';
+                driverBadge.classList.toggle('hidden', !waitingForReview);
             }
             if (complaintBadge) {
                 complaintBadge.textContent = counts.openComplaints || '';
@@ -994,6 +1548,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             setValue('fare-min', fare.minimumFare);
             setValue('fare-included', fare.includedDistanceKm);
             setValue('fare-perkm', fare.perKmRate);
+            setValue('fare-fee-para', fare.serviceFeeParaPct);
+            setValue('fare-fee-driver', fare.serviceFeeDriverPct);
+            setValue('fare-fee-toda', fare.serviceFeeTodaPct);
+            // The dashboard and reports estimate earnings from the SAVED percentages.
+            window.serviceFeeSettings = { paraPct: fare.serviceFeeParaPct, driverPct: fare.serviceFeeDriverPct, todaPct: fare.serviceFeeTodaPct };
+            if (typeof window.updateDashboardDateCards === 'function') window.updateDashboardDateCards(window.currentDashboardDateFilter || 'Today');
+            if (typeof window.refreshReportsFees === 'function') window.refreshReportsFees();
             const lastUpdatedEl = document.getElementById('fareLastUpdated');
             if (lastUpdatedEl) {
                 lastUpdatedEl.textContent = fare.updatedAtRaw
@@ -1006,17 +1567,89 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    // ── Profile photo in the review window ───────────────────────
+    // The driver who registered is asked for a photo. The admin's face-vs-ID
+    // check is the only safeguard that it's real, so Approve stays off until
+    // there is a photo that hasn't been rejected and the checklist is ticked.
+    let currentVerificationDriver = null;
+    let verificationDuplicateBlocking = false;
+
+    const PHOTO_STATUS_LABELS = { pending: 'Under review', approved: 'Approved', rejected: 'Rejected' };
+
+    function approveBlockReason(driver) {
+        if (!driver.profileImage) {
+            return driver.profilePhotoStatus === 'rejected'
+                ? 'The profile photo was rejected — the driver needs to add a new one.'
+                : 'The driver hasn’t added a profile photo yet.';
+        }
+        if (driver.profilePhotoStatus === 'rejected') return 'The profile photo was rejected — the driver needs to add a new one.';
+        return '';
+    }
+
+    function refreshApproveState() {
+        const approveBtn = document.getElementById('verifyApproveBtn');
+        const hint = document.getElementById('v-approve-hint');
+        const check = document.getElementById('v-photo-check');
+        const driver = currentVerificationDriver;
+        if (!approveBtn || !driver) return;
+        let photoReason = approveBlockReason(driver);
+        if (!photoReason && check && !check.checked) photoReason = 'Tick the checklist to confirm the photo matches the ID.';
+        // The tricycle photo is only checked when the driver added one; a missing
+        // photo never blocks approval (older drivers don't have one).
+        const triCheck = document.getElementById('v-tricycle-check');
+        if (!photoReason && driver.tricycleImageUrl && triCheck && !triCheck.checked) photoReason = 'Tick the checklist to confirm the tricycle photo.';
+        approveBtn.disabled = verificationDuplicateBlocking || Boolean(photoReason);
+        approveBtn.title = verificationDuplicateBlocking ? 'This application matches an approved account' : photoReason;
+        if (hint) hint.textContent = currentVerificationFilter === 'pending' ? photoReason : '';
+    }
+
+    // Motorcycle model (free text, set with textContent) and the tricycle photo.
+    function renderVerificationTricycle(driver) {
+        const model = document.getElementById('v-moto-model');
+        if (model) model.textContent = driver.motorcycleModel || '—';
+        setDocImage('v-tri-link', 'v-tri-img', driver.tricycleImageUrl, 'v-tri-empty');
+        const wrap = document.getElementById('v-tricycle-check-wrap');
+        if (wrap) wrap.style.display = currentVerificationFilter === 'pending' && driver.tricycleImageUrl ? '' : 'none';
+    }
+
+    function renderVerificationPhoto(driver) {
+        const avatar = document.getElementById('v-avatar');
+        if (avatar) avatar.innerHTML = driver.profileImage
+            ? `<img src="${escapeHtml(driver.profileImage)}" alt="" data-initials="${escapeHtml(driverInitials(driver))}" onerror="this.parentNode.textContent=this.dataset.initials">`
+            : escapeHtml(driverInitials(driver));
+
+        const isPending = currentVerificationFilter === 'pending';
+        const statusEl = document.getElementById('v-photo-status');
+        if (statusEl) {
+            const parts = [];
+            if (driver.profilePhotoStatus && PHOTO_STATUS_LABELS[driver.profilePhotoStatus]) parts.push(PHOTO_STATUS_LABELS[driver.profilePhotoStatus]);
+            if (driver.profileImage && driver.profilePhotoUpdatedAtRaw) parts.push(`uploaded ${ParaFirestore.formatDateTime(driver.profilePhotoUpdatedAtRaw)}`);
+            if (driver.profilePhotoStatus === 'rejected' && driver.profilePhotoRejectReason) parts.push(driver.profilePhotoRejectReason);
+            statusEl.textContent = parts.join(' · ') || 'No photo yet';
+        }
+
+        setDocImage('v-photo-link', 'v-photo-img', driver.profileImage, 'v-photo-empty');
+        const empty = document.getElementById('v-photo-empty');
+        if (empty && !driver.profileImage) {
+            empty.textContent = driver.profilePhotoStatus === 'rejected' ? 'Photo rejected — waiting for a new one' : 'No profile photo';
+        }
+
+        // Review controls only on a pending application; the Approved/Rejected
+        // tabs are read-only.
+        const rejectBtn = document.getElementById('verifyRejectPhotoBtn');
+        if (rejectBtn) rejectBtn.style.display = isPending && driver.profileImage ? '' : 'none';
+        const checkWrap = document.getElementById('v-photo-check-wrap');
+        if (checkWrap) checkWrap.style.display = isPending ? '' : 'none';
+    }
+
     // The warning at the top of the review window, and the Approve button: off
     // while the application matches an approved account.
     function renderDuplicateNotice(driver) {
         const box = document.getElementById('v-duplicate-box');
-        const approveBtn = document.getElementById('verifyApproveBtn');
         const duplicates = findDuplicates(driver);
         const blocking = duplicates.some((d) => d.blocking);
-        if (approveBtn) {
-            approveBtn.disabled = blocking;
-            approveBtn.title = blocking ? 'This application matches an approved account' : '';
-        }
+        verificationDuplicateBlocking = blocking;
+        refreshApproveState();
         if (!box) return;
         if (!duplicates.length) {
             box.style.display = 'none';
@@ -1050,8 +1683,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('v-lic-expiry').textContent = mapped.licenseExpiry || '—';
             document.getElementById('v-gov-no').textContent = mapped.governmentId || '—';
             document.getElementById('v-reg-date').textContent = mapped.vehicleRegistrationDate || '—';
+            document.getElementById('v-meta').innerHTML = renderBadge(mapped.verificationStatus)
+                + (mapped.submittedAt && mapped.submittedAt !== '—' ? `<span>Submitted ${escapeHtml(mapped.submittedAt)}</span>` : '');
 
-            loadVerificationDocuments(driverId);
+            loadVerificationDocuments(mapped);
 
             // "View Details" (Approved/Rejected tabs) is read-only — only a pending
             // application should expose Approve/Reject/Request Info, so browsing an
@@ -1061,6 +1696,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const btn = document.getElementById(id);
                 if (btn) btn.style.display = isPending ? '' : 'none';
             });
+            currentVerificationDriver = mapped;
+            const photoCheck = document.getElementById('v-photo-check');
+            if (photoCheck) photoCheck.checked = false;
+            const triCheck = document.getElementById('v-tricycle-check');
+            if (triCheck) triCheck.checked = false;
+            renderVerificationPhoto(mapped);
+            renderVerificationTricycle(mapped);
             renderDuplicateNotice(mapped);
 
             const driverBadge = document.querySelector('[data-view="driver-verification"] .nav-badge');
@@ -1085,19 +1727,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         return date && date.getTime ? date.getTime() : 0;
     }
 
+    // "Photo Changes": an approved driver replaced their profile photo and it
+    // waits for the admin. (A brand-new driver's photo is checked in their
+    // application instead.)
+    const inVerificationTab = (driver, tab) => (tab === 'photos'
+        ? driver.verificationStatus === 'approved' && driver.profilePhotoStatus === 'pending'
+        : driver.verificationStatus === tab);
+
     function applyVerificationFilter() {
-        ['pending', 'approved', 'rejected'].forEach((status) => {
-            const el = document.getElementById(`vf-count-${status}`);
-            if (el) el.textContent = allDrivers.filter((d) => d.verificationStatus === status).length;
+        ['pending', 'approved', 'rejected', 'photos'].forEach((tab) => {
+            const el = document.getElementById(`vf-count-${tab}`);
+            if (el) el.textContent = allDrivers.filter((d) => inVerificationTab(d, tab)).length;
         });
         document.querySelectorAll('#verificationTabs .vf-tab').forEach((tab) => {
             tab.classList.toggle('active', tab.dataset.status === currentVerificationFilter);
         });
 
-        const filtered = allDrivers.filter((d) => d.verificationStatus === currentVerificationFilter
+        const filtered = allDrivers.filter((d) => inVerificationTab(d, currentVerificationFilter)
             && (!verificationSearchTerm || [d.name, d.license, d.plate, d.vehicle].some((v) => String(v || '').toLowerCase().includes(verificationSearchTerm))));
 
-        if (currentVerificationFilter === 'pending') {
+        if (currentVerificationFilter === 'photos') {
+            // Oldest upload first.
+            filtered.sort((a, b) => timeValue(a.profilePhotoUpdatedAtRaw) - timeValue(b.profilePhotoUpdatedAtRaw));
+        } else if (currentVerificationFilter === 'pending') {
             // Oldest application first — a FIFO queue so nobody waits indefinitely
             // while newer applications get reviewed ahead of them.
             filtered.sort((a, b) => timeValue(a.submittedAtRaw) - timeValue(b.submittedAtRaw));
@@ -1111,6 +1763,39 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         renderVerificationTable(filtered);
+        syncOpenPhotoWindows();
+    }
+
+    // Drivers update live: if the driver uploads a new photo, or the photo is
+    // settled somewhere else, while a window is open, bring it up to date.
+    function syncOpenPhotoWindows() {
+        const review = document.getElementById('verificationModal');
+        if (review && review.classList.contains('active') && currentVerificationDriverId) {
+            const fresh = allDrivers.find((d) => d.id === currentVerificationDriverId);
+            if (fresh && currentVerificationDriver) {
+                if (fresh.profileImage !== currentVerificationDriver.profileImage) {
+                    const check = document.getElementById('v-photo-check');
+                    if (check) check.checked = false; // a different photo needs a fresh look
+                }
+                if (fresh.tricycleImageUrl !== currentVerificationDriver.tricycleImageUrl) {
+                    const triCheck = document.getElementById('v-tricycle-check');
+                    if (triCheck) triCheck.checked = false; // a different photo needs a fresh look
+                }
+                currentVerificationDriver = { ...currentVerificationDriver, ...fresh };
+                renderVerificationPhoto(currentVerificationDriver);
+                renderVerificationTricycle(currentVerificationDriver);
+                refreshApproveState();
+            }
+        }
+        const queue = document.getElementById('photoReviewModal');
+        if (queue && queue.classList.contains('active') && currentPhotoReviewDriverId) {
+            const fresh = allDrivers.find((d) => d.id === currentPhotoReviewDriverId);
+            if (!fresh || !inVerificationTab(fresh, 'photos')) {
+                closeModal('photoReviewModal'); // settled elsewhere
+            } else if (fresh.profileImage !== currentPhotoReviewImage) {
+                fillPhotoReviewModal(fresh); // the driver uploaded another one
+            }
+        }
     }
 
     ParaFirestore.listenDrivers(null, (drivers) => {
@@ -1138,12 +1823,132 @@ document.addEventListener('DOMContentLoaded', async () => {
         applyVerificationFilter();
     });
 
+    document.getElementById('v-photo-check')?.addEventListener('change', refreshApproveState);
+    document.getElementById('v-tricycle-check')?.addEventListener('change', refreshApproveState);
+
+    // ── Photo review: reject (shared by the application and the queue) ──
+    const PHOTO_REJECT_REASONS = [
+        'Face not clearly visible',
+        'Doesn’t match ID',
+        'Sunglasses / cap / mask',
+        'Not a real photo of a person',
+        'Not a recent photo',
+        'Other'
+    ];
+
+    // Asks for a reason, rejects the photo (clears it, tells the driver) and
+    // logs it. `onDone` runs after it has gone through.
+    function promptRejectProfilePhoto(driverId, name, onDone) {
+        const options = PHOTO_REJECT_REASONS.map((reason) => `<option value="${escapeHtml(reason)}">${escapeHtml(reason)}</option>`).join('');
+        const customBodyHtml = `
+            <div style="text-align:left; margin-bottom:12px; color:var(--text-muted);">The photo is removed from the driver’s profile and they’re asked to add a new one.</div>
+            <div style="text-align:left;">
+                <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Reason (sent to the driver)</label>
+                <select id="photoRejectReason" class="form-input" style="width:100%; min-height:42px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px; background:#fff;">${options}</select>
+            </div>
+            <div style="text-align:left; margin-top:14px;">
+                <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Details (optional)</label>
+                <textarea id="photoRejectNote" class="form-input" rows="2" style="width:100%; resize:vertical;" placeholder="Anything that helps the driver take a better photo"></textarea>
+            </div>
+        `;
+        showConfirmModal(
+            `Reject ${name || 'this'} photo?`,
+            '',
+            'Reject Photo',
+            '#EE5D50',
+            async () => {
+                const choice = document.getElementById('photoRejectReason')?.value || '';
+                const note = (document.getElementById('photoRejectNote')?.value || '').trim();
+                const reason = choice === 'Other' ? note : [choice, note].filter(Boolean).join(' — ');
+                try {
+                    await ParaFirestore.rejectProfilePhoto(driverId, reason);
+                    ParaFirestore.logDriverAction(driverId, name, 'Photo Rejection', reason).catch((error) => console.error('Failed to log driver action:', error));
+                    window.showToast('Profile photo rejected. The driver has been notified.', 'warning');
+                    if (onDone) onDone();
+                } catch (error) {
+                    window.showToast('Failed to reject the photo.', 'error');
+                    console.error(error);
+                }
+            },
+            customBodyHtml
+        );
+    }
+
+    window.rejectProfilePhotoFromReview = function() {
+        const driver = currentVerificationDriver;
+        if (!driver) return;
+        promptRejectProfilePhoto(driver.id, driver.name, () => {
+            // The listener brings the cleared photo in; Approve stays off until a new one arrives.
+        });
+    };
+
+    // ── Photo Changes queue ──────────────────────────────────────
+    let currentPhotoReviewDriverId = null;
+    let currentPhotoReviewImage = '';
+
+    async function fillPhotoReviewModal(driver) {
+        currentPhotoReviewDriverId = driver.id;
+        currentPhotoReviewImage = driver.profileImage;
+        document.getElementById('pr-title').textContent = driver.name || 'Review profile photo';
+        document.getElementById('pr-sub').textContent = [
+            driver.todaName,
+            driver.plate && `Plate ${driver.plate}`,
+            driver.profilePhotoUpdatedAtRaw && `Uploaded ${ParaFirestore.formatDateTime(driver.profilePhotoUpdatedAtRaw)}`
+        ].filter(Boolean).join(' · ');
+        setDocImage('pr-photo-link', 'pr-photo-img', driver.profileImage, 'pr-photo-empty');
+        setDocMessage('pr-gov', 'Loading…');
+        const { documents, error } = await fetchDriverDocumentUrls(driver);
+        if (currentPhotoReviewDriverId !== driver.id) return; // another driver was opened meanwhile
+        if (documents.governmentId) setDocImage('pr-gov-link', 'pr-gov-img', documents.governmentId, 'pr-gov-empty');
+        else setDocMessage('pr-gov', error ? documentErrorMessage(error) : 'Not uploaded');
+    }
+
+    window.openPhotoReviewModal = function(driverId) {
+        const driver = allDrivers.find((d) => d.id === driverId);
+        if (!driver) return;
+        fillPhotoReviewModal(driver);
+        document.getElementById('photoReviewModal').classList.add('active');
+    };
+
+    window.approveProfilePhotoFromQueue = async function() {
+        const driver = allDrivers.find((d) => d.id === currentPhotoReviewDriverId);
+        if (!driver) return;
+        try {
+            await ParaFirestore.approveProfilePhoto(driver.id);
+            ParaFirestore.logDriverAction(driver.id, driver.name, 'Photo Approval', '').catch((error) => console.error('Failed to log driver action:', error));
+            closeModal('photoReviewModal');
+            window.showToast('Profile photo approved.', 'success');
+        } catch (error) {
+            window.showToast('Failed to approve the photo.', 'error');
+            console.error(error);
+        }
+    };
+
+    window.rejectProfilePhotoFromQueue = function() {
+        const driver = allDrivers.find((d) => d.id === currentPhotoReviewDriverId);
+        if (!driver) return;
+        promptRejectProfilePhoto(driver.id, driver.name, () => closeModal('photoReviewModal'));
+    };
+
     window.approveDriver = function() {
         if (!currentVerificationDriverId) return;
         // Checked again here, against the live list, not just by the disabled button.
         const current = allDrivers.find((d) => d.id === currentVerificationDriverId);
         if (findDuplicates(current).some((d) => d.blocking)) {
             window.showToast('Duplicate account — this driver matches an approved account.', 'error');
+            return;
+        }
+        const photoReason = current ? approveBlockReason(current) : '';
+        if (photoReason) {
+            window.showToast(photoReason, 'error');
+            return;
+        }
+        if (!document.getElementById('v-photo-check')?.checked) {
+            window.showToast('Confirm the profile photo matches the ID first.', 'warning');
+            return;
+        }
+        if (current && current.tricycleImageUrl && !document.getElementById('v-tricycle-check')?.checked) {
+            window.showToast('Confirm the tricycle photo first.', 'warning');
             return;
         }
         const name = document.getElementById('v-name')?.textContent || 'this driver';
@@ -1290,6 +2095,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         return `<div class="dd-empty">${escapeHtml(message)}</div>`;
     }
 
+    // Trips this driver ended more than 300 m from the destination in the last
+    // 30 days — repeated ones are worth a look (and a TODA recommendation).
+    function earlyDropoffSummary(driver) {
+        const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+        const trips = (window.allBookings || []).filter((b) => b.driverId === driver.id && b.endedEarly
+            && timeOf(b.completedAtRaw || b.createdAtRaw) >= since);
+        if (!trips.length) return '0';
+        const waiting = trips.filter((b) => !b.earlyEndReviewedAtRaw).length;
+        return waiting ? `${trips.length} (${waiting} to review)` : String(trips.length);
+    }
+
+    function driverRiskCardBody(driver) {
+        const risk = riskOf(driver.id);
+        return risk ? riskBodyHtml(risk) : '<div class="risk-note" style="margin-top:0;">Not scored yet — treated as LOW.</div>';
+    }
+
     function ddInfoHtml(driver) {
         const stats = ParaFirestore.computeDriverStats(driver, window.allBookings || []);
         const isSuspended = driver.accountStatus === 'suspended';
@@ -1307,18 +2128,27 @@ document.addEventListener('DOMContentLoaded', async () => {
                 ${ddStat(stats.acceptanceRate, 'Acceptance rate')}
             </div>
             <div class="dd-cards">
+                <div class="dd-card wide">
+                    <div class="dd-card-title">Risk score</div>
+                    <div class="risk-box">${driverRiskCardBody(driver)}</div>
+                </div>
                 <div class="dd-card">
                     <div class="dd-card-title">Contact &amp; account</div>
                     ${ddRow('Phone', driver.phone)}
                     ${ddRow('Email', driver.email)}
                     ${ddRow('Verification', renderBadge(driver.verificationStatus), { html: true })}
                     ${ddRow('Member since', driver.memberSince)}
+                    ${ddRow('Ended early (30 days)', earlyDropoffSummary(driver))}
                 </div>
                 <div class="dd-card">
                     <div class="dd-card-title">Vehicle</div>
                     ${ddRow('Tricycle number', driver.vehicle)}
+                    ${ddRow('Motorcycle model', driver.motorcycleModel)}
                     ${ddRow('Plate number', driver.plate)}
                     ${ddRow('Registration date', driver.vehicleRegistrationDate)}
+                    ${driver.tricycleImageUrl
+                        ? `<a class="dd-thumb" href="${escapeHtml(driver.tricycleImageUrl)}" target="_blank" rel="noopener" title="Open the tricycle photo"><img src="${escapeHtml(driver.tricycleImageUrl)}" alt="Tricycle photo" loading="lazy"></a>`
+                        : ddRow('Tricycle photo', 'Not added yet')}
                 </div>
                 <div class="dd-card wide">
                     <div class="dd-card-title">License &amp; identification</div>
@@ -1339,12 +2169,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         ddBookingPage = Math.min(Math.max(1, ddBookingPage), totalPages);
         const start = (ddBookingPage - 1) * DD_BOOKINGS_PAGE_SIZE;
         const rows = list.slice(start, start + DD_BOOKINGS_PAGE_SIZE).map((b) => `
-            <tr>
+            <tr class="row-clickable" data-booking-id="${escapeHtml(b.id)}" title="View trip details">
                 <td><div class="book-id">${escapeHtml(b.ref)}</div><div class="book-time">${escapeHtml(b.relativeTime)}</div></td>
                 <td style="font-size:13px;">${escapeHtml(b.dateLabel)}</td>
                 <td style="font-size:13px;">${escapeHtml(b.passengerName || '—')}</td>
                 <td style="max-width:230px; font-size:13px; line-height:1.4;">${escapeHtml(b.pickupLocation)}<div class="detail-sub">to ${escapeHtml(b.dropoffLocation)}</div></td>
-                <td>${renderBadge(b.status)}</td>
+                <td>${renderBadge(b.status)}${earlyEndBadge(b)}</td>
                 <td><div style="color:${fareColor(ParaFirestore.normalizeStatus(b.status))}; font-weight:600;">&#8369;${escapeHtml(Number(b.totalFare || 0).toFixed(2))}</div>${paymentLine(b)}</td>
             </tr>`).join('');
         return `
@@ -1393,12 +2223,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.querySelectorAll('#driverDetailsModal .dd-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === ddTab));
         // Header: initials, name, account status + presence, vehicle.
         const isSuspended = ddDriver.accountStatus === 'suspended';
-        const initials = String(ddDriver.name || '?').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
-        document.getElementById('dd-avatar').textContent = initials || '?';
+        const initials = driverInitials(ddDriver);
+        const avatarEl = document.getElementById('dd-avatar');
+        if (ddDriver.profileImage) {
+            avatarEl.innerHTML = `<img src="${escapeHtml(ddDriver.profileImage)}" alt="" data-initials="${escapeHtml(initials)}" onerror="this.parentNode.textContent=this.dataset.initials">`;
+        } else {
+            avatarEl.textContent = initials;
+        }
         document.getElementById('dd-title').textContent = ddDriver.name || 'Driver Details';
         const presence = driverPresenceLine(ddDriver).replace(/^<div[^>]*>|<\/div>$/g, '');
         const vehicle = [ddDriver.vehicle && `Tricycle ${ddDriver.vehicle}`, ddDriver.plate && `Plate ${ddDriver.plate}`].filter(Boolean).join(' · ');
         document.getElementById('dd-meta').innerHTML = renderBadge(isSuspended ? 'suspended' : 'active')
+            + (ddDriver.profilePhotoStatus === 'pending' ? renderBadge('pending', 'PHOTO UNDER REVIEW') : '')
             + (presence ? `<span>${presence}</span>` : '')
             + (vehicle ? `<span>${escapeHtml(vehicle)}</span>` : '');
         document.getElementById('dd-bookings-count').textContent = `(${bookingsForDriver(ddDriver).length})`;
@@ -1451,6 +2287,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (pageBtn) {
                 ddBookingPage += Number(pageBtn.dataset.ddPage);
                 renderDriverDetails();
+                return;
+            }
+            const tripRow = e.target.closest('tr[data-booking-id]');
+            if (tripRow && !e.target.closest('button')) {
+                window.openTripModal(tripRow.dataset.bookingId);
                 return;
             }
             const caseBtn = e.target.closest('[data-dd-case]');
@@ -1514,6 +2355,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <div class="dd-card">
                     <div class="dd-card-title">Ride activity</div>
                     ${ddRow('Completed rides', completed.length)}
+                    ${ddRow('No-shows on record', passenger.noShowCount)}
                     ${ddRow('Total spent', `₱${spent.toFixed(2)}`)}
                     ${ddRow('Last completed ride', completed.length ? completed[0].dateLabel : '')}
                     ${ddRow('Complaints filed', complaintsForPassenger(passenger).length)}
@@ -1531,12 +2373,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         pdBookingPage = Math.min(Math.max(1, pdBookingPage), totalPages);
         const start = (pdBookingPage - 1) * DD_BOOKINGS_PAGE_SIZE;
         const rows = list.slice(start, start + DD_BOOKINGS_PAGE_SIZE).map((b) => `
-            <tr>
+            <tr class="row-clickable" data-booking-id="${escapeHtml(b.id)}" title="View trip details">
                 <td><div class="book-id">${escapeHtml(b.ref)}</div><div class="book-time">${escapeHtml(b.relativeTime)}</div></td>
                 <td style="font-size:13px;">${escapeHtml(b.dateLabel)}</td>
                 <td><div class="detail-main" style="font-size:13px;">${escapeHtml(b.driverName || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(b.plate)}</div></td>
                 <td style="max-width:230px; font-size:13px; line-height:1.4;">${escapeHtml(b.pickupLocation)}<div class="detail-sub">to ${escapeHtml(b.dropoffLocation)}</div></td>
-                <td>${renderBadge(b.status)}</td>
+                <td>${renderBadge(b.status)}${earlyEndBadge(b)}</td>
                 <td><div style="color:${fareColor(ParaFirestore.normalizeStatus(b.status))}; font-weight:600;">&#8369;${escapeHtml(Number(b.totalFare || 0).toFixed(2))}</div>${paymentLine(b)}</td>
             </tr>`).join('');
         return `
@@ -1545,6 +2387,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 ${chip('completed', 'completed', count('completed'))}
                 ${chip('cancelled', 'cancelled', count('cancelled'))}
                 ${chip('declined', 'declined', count('declined'))}
+                ${chip('no_show', 'no-show', count('no_show'))}
             </div>
             <div class="table-container"><table class="data-table">
                 <thead><tr><th>Booking</th><th>Date</th><th>Driver</th><th>Route</th><th>Status</th><th>Fare</th></tr></thead>
@@ -1636,6 +2479,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (pageBtn) {
                 pdBookingPage += Number(pageBtn.dataset.ddPage);
                 renderPassengerDetails();
+                return;
+            }
+            const tripRow = e.target.closest('tr[data-booking-id]');
+            if (tripRow && !e.target.closest('button')) {
+                window.openTripModal(tripRow.dataset.bookingId);
                 return;
             }
             const caseBtn = e.target.closest('[data-dd-case]');
@@ -1773,6 +2621,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (reportedRoleEl) reportedRoleEl.textContent = data.reportedRole || 'Driver';
             const filedEl = document.getElementById('c-filed');
             if (filedEl) filedEl.textContent = data.createdAtRaw ? `Filed ${ParaFirestore.formatDateTime(data.createdAtRaw)}` : '—';
+            // The ride this complaint is about, with where the driver was at each step.
+            const tripLine = document.getElementById('c-trip-line');
+            if (tripLine) {
+                const trip = data.bookingId ? (window.allBookings || []).find((b) => b.id === data.bookingId || b.ref === data.bookingId) : null;
+                tripLine.style.display = trip ? '' : 'none';
+                tripLine.innerHTML = trip
+                    ? `<span>Trip ${escapeHtml(trip.ref)}${trip.endedEarly ? ' · <strong style="color:#FF9E2A;">ended early</strong>' : ''}${ParaFirestore.normalizeStatus(trip.status) === 'no_show' ? ' · <strong style="color:#EE5D50;">no-show</strong>' : ''}</span><button class="action-btn" data-case-trip="${escapeHtml(trip.id)}" style="background:var(--bg-light);color:var(--text-main);">View trip</button>`
+                    : '';
+            }
             document.getElementById('c-issue').value = data.issue || '';
             document.getElementById('c-desc').value = data.description || '';
 
@@ -1785,6 +2642,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const recBox = document.getElementById('c-toda-rec-box');
             if (recBox) recBox.innerHTML = '<div style="color:var(--text-muted);">Checking…</div>';
             renderPresidentRecommendation(data);
+            renderCaseRisk(data);
 
             const statusEl = document.getElementById('c-status');
             const normalizedStatus = data.status;
@@ -2005,18 +2863,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         const settings = {
             minimumFare: Number(document.getElementById('fare-min').value),
             includedDistanceKm: Number(document.getElementById('fare-included').value),
-            perKmRate: Number(document.getElementById('fare-perkm').value)
+            perKmRate: Number(document.getElementById('fare-perkm').value),
+            serviceFeeParaPct: Number(document.getElementById('fare-fee-para').value),
+            serviceFeeDriverPct: Number(document.getElementById('fare-fee-driver').value),
+            serviceFeeTodaPct: Number(document.getElementById('fare-fee-toda').value)
         };
 
         const invalidField = Object.entries(settings).find(([, value]) => !Number.isFinite(value) || value < 0);
         if (invalidField) {
-            window.showToast('Please enter valid, non-negative fare values before saving.', 'warning');
+            window.showToast('Please enter valid, non-negative values before saving.', 'warning');
+            return;
+        }
+        const feeTotal = settings.serviceFeeParaPct + settings.serviceFeeDriverPct + settings.serviceFeeTodaPct;
+        if (feeTotal > 100) {
+            window.showToast('The service fee shares can’t add up to more than 100%.', 'warning');
             return;
         }
 
         showConfirmModal(
             'Save fare settings?',
-            `Saves ₱${settings.minimumFare} minimum fare (first ${settings.includedDistanceKm} km included) and ₱${settings.perKmRate} per km after that. The mobile app has these numbers built in and does not read them yet, so ride prices in the app will not change until it does. Nobody is notified.`,
+            `Saves ₱${settings.minimumFare} minimum fare (first ${settings.includedDistanceKm} km included) and ₱${settings.perKmRate} per km after that, plus a ${Number(feeTotal.toFixed(2))}% service fee on top of the fare (PARA ${settings.serviceFeeParaPct}%, driver ${settings.serviceFeeDriverPct}%, TODA ${settings.serviceFeeTodaPct}%). The mobile app has these numbers built in and does not read them yet, so ride prices in the app will not change until it does. Nobody is notified.`,
             'Save Changes',
             '#1A73E8',
             async () => {
@@ -2119,6 +2985,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const modal = document.getElementById('complaintViewModal');
         if (currentComplaintData && modal && modal.classList.contains('active')) {
             renderPresidentRecommendation(currentComplaintData);
+            renderCaseRisk(currentComplaintData);
         }
     }
 
@@ -2294,7 +3161,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             field('License expiry', driver && driver.licenseExpiry);
             field('Government ID no.', driver && driver.governmentId);
             field('Tricycle number', driver && driver.vehicle);
+            field('Motorcycle model', driver && driver.motorcycleModel);
             field('Plate number', driver && driver.plate);
+            const risk = riskOf(complaint.driverId);
+            field('Risk score', risk ? `${Math.round(risk.score)} / 100 (${risk.level}) - suggests: ${risk.suggestedAction}` : 'Not scored yet');
+            if (risk && risk.reasons.length) field('Risk reasons', risk.reasons.join('; '));
             field('Account status', driver ? (driver.accountStatus === 'suspended'
                 ? `Suspended${driver.suspendedUntilRaw ? ` until ${ParaFirestore.formatDateTime(driver.suspendedUntilRaw)}` : ' indefinitely'}${driver.suspensionReason ? ` - ${driver.suspensionReason}` : ''}`
                 : 'Active') : '');
@@ -2308,6 +3179,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 field('Destination', booking.dropoffLocation);
                 if (booking.arrivedAtRaw) field('Driver arrived at', when(booking.arrivedAtRaw));
                 if (booking.completedAtRaw) field('Dropped off at', when(booking.completedAtRaw));
+                // Where the driver was at each step (GPS saved by the app), for the record.
+                const awayText = (point, pin, label) => (point ? (pin ? `${fmtDistance(distanceM(point, pin))} from the ${label}` : 'Recorded (no pin to compare)') : 'Not recorded');
+                field('Driver location at Arrived', awayText(booking.arrivedLatLng, booking.pickupLatLng, 'pickup'));
+                field('Driver location at drop-off', awayText(booking.completedLatLng, booking.destinationLatLng, 'destination'));
+                if (booking.endedEarly) {
+                    field('Ended early', `Yes${booking.earlyEndReviewedAtRaw ? ` - reviewed ${when(booking.earlyEndReviewedAtRaw)}` : ' - not yet reviewed'}${booking.earlyEndReviewNote ? ` - ${booking.earlyEndReviewNote}` : ''}`);
+                }
                 field('Fare', peso(booking.totalFare));
                 field('Payment', [booking.paymentMethod, booking.paymentStatus && String(booking.paymentStatus).toUpperCase()].filter(Boolean).join(' - '));
             } else if (complaint.bookingId) {
@@ -2535,6 +3413,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.allPassengers = passengers;
         renderPassengerTable(passengers);
         refreshComplaintDisplay();
+        refreshTripModal();
     });
     loadBookingsData();
     ParaFirestore.listenBookings((bookings) => {
@@ -2562,6 +3441,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshRecommendationUi();
         refreshDriverDetails();
         refreshPassengerDetails();
+        refreshTripModal();
+        renderBookingTableIfEarlyQueue();
+    });
+    // Risk scores update on their own (when a complaint comes in, a rating, a
+    // report, a decision — and nightly): redraw everything that shows one.
+    ParaFirestore.listenDriverRisk((scores) => {
+        driverRisk.clear();
+        scores.forEach((risk) => driverRisk.set(risk.driverId, risk));
+        if (window.driverManagementDrivers) renderDriverManagementTable(window.driverManagementDrivers);
+        renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
+        refreshDriverDetails();
+        const caseModal = document.getElementById('complaintViewModal');
+        if (currentComplaintData && caseModal && caseModal.classList.contains('active')) renderCaseRisk(currentComplaintData);
     });
     ParaFirestore.listenSuspensionRequests((actions) => {
         suspensionActions = actions;

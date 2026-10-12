@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=51">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+    <link rel="stylesheet" href="style.css?v=62">
 </head>
 <body>
 <div class="app-background">
@@ -55,6 +56,7 @@
                     <a href="#bookings" class="nav-link" data-view="bookings">
                         <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                         <span>Booking Records</span>
+                        <span class="nav-badge hidden" id="bookingsNavBadge" title="Trips ended early, waiting for review"></span>
                     </a>
                     <div class="nav-group" id="reportsNavGroup">
                         <a href="#" class="nav-link nav-parent" id="reportsNavToggle">
@@ -130,9 +132,9 @@
                         <div class="stat-icon icon-blue"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
                         <div class="stat-info"><h3>Total Bookings</h3><h2>—</h2><span class="stat-change neutral">Loading…</span></div>
                     </a>
-                    <a href="#bookings" data-view="bookings" class="stat-card stat-card-link" title="Open Booking Records">
+                    <a href="#bookings" data-view="bookings" class="stat-card stat-card-link" id="earningsCard" title="Estimated PARA share of the service fee - open Booking Records">
                         <div class="stat-icon icon-green"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-                        <div class="stat-info"><h3>Total Earnings</h3><h2>—</h2><span class="stat-change neutral">Loading…</span></div>
+                        <div class="stat-info"><h3>PARA Earnings</h3><h2>—</h2><span class="stat-change neutral">Loading…</span></div>
                     </a>
                     <a href="#driver-management" data-view="driver-management" class="stat-card stat-card-link" title="Open Driver Management">
                         <div class="stat-icon icon-orange"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
@@ -193,6 +195,7 @@
                     <button class="vf-tab active" data-status="pending">Pending <span class="vf-count" id="vf-count-pending">0</span></button>
                     <button class="vf-tab" data-status="approved">Approved <span class="vf-count" id="vf-count-approved">0</span></button>
                     <button class="vf-tab" data-status="rejected">Rejected <span class="vf-count" id="vf-count-rejected">0</span></button>
+                    <button class="vf-tab" data-status="photos">Photo Changes <span class="vf-count" id="vf-count-photos">0</span></button>
                 </div>
                 <div class="table-container">
                     <table class="data-table">
@@ -203,70 +206,148 @@
             </div>
             <!-- ══ DRIVER VERIFICATION MODAL ═══════════════════════════ -->
             <div class="modal-overlay" id="verificationModal">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h2>Review Driver Application</h2>
-                        <button class="close-btn" onclick="closeModal('verificationModal')">
+                <div class="modal-content vf-modal">
+                    <div class="dd-header">
+                        <div class="pf-avatar pf-avatar-lg" id="v-avatar"></div>
+                        <div class="dd-header-main">
+                            <h2 id="v-name">Driver application</h2>
+                            <div class="dd-header-meta" id="v-meta"></div>
+                        </div>
+                        <button class="close-btn" onclick="closeModal('verificationModal')" title="Close">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         </button>
                     </div>
-                    <div class="modal-body">
+                    <div class="modal-body vf-body">
                         <div id="v-duplicate-box" style="display:none;"></div>
-                        <div class="docs-grid">
-                            <div class="doc-section">
-                                <h3>Personal Information</h3>
-                                <p><strong>Name:</strong> <span id="v-name"></span></p>
-                                <p><strong>License No:</strong> <span id="v-lic"></span></p>
-                                <p><strong>License Expiry:</strong> <span id="v-lic-expiry"></span></p>
-                                <p><strong>Government ID No:</strong> <span id="v-gov-no"></span></p>
-                                <div style="display:flex; gap:10px; margin-top:12px;">
-                                    <div style="flex:1; min-width:0;">
-                                        <div class="doc-preview" style="margin-top:0; padding:0; overflow:hidden; background:#fff;">
-                                            <a href="#" id="v-gov-link" target="_blank" rel="noopener" style="display:none; width:100%; height:100%; align-items:center; justify-content:center;">
-                                                <img id="v-gov-img" style="max-width:100%; max-height:100%; object-fit:contain; cursor:zoom-in;" alt="Government ID">
-                                            </a>
-                                            <span id="v-gov-empty" style="color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">Loading…</span>
-                                        </div>
-                                        <div class="detail-sub" style="margin-top:6px; text-align:center;">Government ID</div>
-                                    </div>
-                                    <div style="flex:1; min-width:0;">
-                                        <div class="doc-preview" style="margin-top:0; padding:0; overflow:hidden; background:#fff;">
-                                            <a href="#" id="v-license-link" target="_blank" rel="noopener" style="display:none; width:100%; height:100%; align-items:center; justify-content:center;">
-                                                <img id="v-license-img" style="max-width:100%; max-height:100%; object-fit:contain; cursor:zoom-in;" alt="Driver's License">
-                                            </a>
-                                            <span id="v-license-empty" style="color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">Loading…</span>
-                                        </div>
-                                        <div class="detail-sub" style="margin-top:6px; text-align:center;">Driver's License</div>
-                                    </div>
+
+                        <div class="vf-block" id="v-photo-section">
+                            <div class="vf-block-head">
+                                <div>
+                                    <div class="vf-block-title">Identity check</div>
+                                    <div class="detail-sub" id="v-photo-status"></div>
+                                </div>
+                                <button class="btn btn-secondary vf-small-btn" id="verifyRejectPhotoBtn" onclick="rejectProfilePhotoFromReview()">Reject Photo</button>
                             </div>
-                            </div>
-                            <div class="doc-section">
-                                <h3>Vehicle Information</h3>
-                                <p><strong>Model:</strong> <span id="v-model"></span></p>
-                                <p><strong>Plate No:</strong> <span id="v-plate"></span></p>
-                                <p><strong>Registered:</strong> <span id="v-reg-date"></span></p>
-                                <div style="display:flex; gap:10px; margin-top:12px;">
-                                    <div style="flex:1; min-width:0;">
-                                        <div class="doc-preview" style="margin-top:0; padding:0; overflow:hidden; background:#fff;">
-                                            <a href="#" id="v-reg-link" target="_blank" rel="noopener" style="display:none; width:100%; height:100%; align-items:center; justify-content:center;">
-                                                <img id="v-reg-img" style="max-width:100%; max-height:100%; object-fit:contain; cursor:zoom-in;" alt="Vehicle Registration (OR/CR)">
-                                            </a>
-                                            <span id="v-reg-empty" style="color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">Loading…</span>
-                                        </div>
-                                        <div class="detail-sub" style="margin-top:6px; text-align:center;">Vehicle Registration (OR/CR)</div>
+                            <div class="vf-photo-compare">
+                                <div>
+                                    <div class="doc-preview vf-tile">
+                                        <a href="#" id="v-photo-link" target="_blank" rel="noopener" class="vf-tile-link">
+                                            <img id="v-photo-img" alt="Profile photo">
+                                        </a>
+                                        <span id="v-photo-empty" class="vf-tile-empty">No profile photo</span>
                                     </div>
+                                    <div class="vf-tile-caption">Profile photo</div>
+                                </div>
+                                <div>
+                                    <div class="doc-preview vf-tile">
+                                        <a href="#" id="v-cmp-gov-link" target="_blank" rel="noopener" class="vf-tile-link">
+                                            <img id="v-cmp-gov-img" alt="Government ID">
+                                        </a>
+                                        <span id="v-cmp-gov-empty" class="vf-tile-empty">Loading…</span>
+                                    </div>
+                                    <div class="vf-tile-caption">Government ID</div>
                                 </div>
                             </div>
+                            <label class="vf-check" id="v-photo-check-wrap"><input type="checkbox" id="v-photo-check"> Profile photo is a clear, recent photo matching the government ID.</label>
+                            <div class="vf-hint" id="v-approve-hint"></div>
                         </div>
+
+                        <div class="dd-cards">
+                            <div class="dd-card">
+                                <div class="dd-card-title">Driver</div>
+                                <div class="dd-row"><span class="dd-row-label">License number</span><span class="dd-row-value" id="v-lic"></span></div>
+                                <div class="dd-row"><span class="dd-row-label">License expiry</span><span class="dd-row-value" id="v-lic-expiry"></span></div>
+                                <div class="dd-row"><span class="dd-row-label">Government ID number</span><span class="dd-row-value" id="v-gov-no"></span></div>
+                            </div>
+                            <div class="dd-card">
+                                <div class="dd-card-title">Vehicle</div>
+                                <div class="dd-row"><span class="dd-row-label">Tricycle number</span><span class="dd-row-value" id="v-model"></span></div>
+                                <div class="dd-row"><span class="dd-row-label">Motorcycle model</span><span class="dd-row-value" id="v-moto-model"></span></div>
+                                <div class="dd-row"><span class="dd-row-label">Plate number</span><span class="dd-row-value" id="v-plate"></span></div>
+                                <div class="dd-row"><span class="dd-row-label">Registered</span><span class="dd-row-value" id="v-reg-date"></span></div>
+                            </div>
+                        </div>
+
+                        <div class="vf-block-title" style="margin:22px 0 10px;">Documents</div>
+                        <div class="vf-photo-compare vf-three">
+                            <div>
+                                <div class="doc-preview vf-tile">
+                                    <a href="#" id="v-license-link" target="_blank" rel="noopener" class="vf-tile-link">
+                                        <img id="v-license-img" alt="Driver's License">
+                                    </a>
+                                    <span id="v-license-empty" class="vf-tile-empty">Loading…</span>
+                                </div>
+                                <div class="vf-tile-caption">Driver's license</div>
+                            </div>
+                            <div>
+                                <div class="doc-preview vf-tile">
+                                    <a href="#" id="v-reg-link" target="_blank" rel="noopener" class="vf-tile-link">
+                                        <img id="v-reg-img" alt="Vehicle Registration (OR/CR)">
+                                    </a>
+                                    <span id="v-reg-empty" class="vf-tile-empty">Loading…</span>
+                                </div>
+                                <div class="vf-tile-caption">Vehicle registration (OR/CR)</div>
+                            </div>
+                            <div>
+                                <div class="doc-preview vf-tile">
+                                    <a href="#" id="v-tri-link" target="_blank" rel="noopener" class="vf-tile-link">
+                                        <img id="v-tri-img" alt="Tricycle photo">
+                                    </a>
+                                    <span id="v-tri-empty" class="vf-tile-empty">No tricycle photo yet</span>
+                                </div>
+                                <div class="vf-tile-caption">Tricycle photo</div>
+                            </div>
+                        </div>
+                        <label class="vf-check vf-check-plain" id="v-tricycle-check-wrap" style="display:none;"><input type="checkbox" id="v-tricycle-check"> Tricycle photo shows a tricycle, and the plate in the photo (if visible) matches the plate number / OR/CR.</label>
                     </div>
-                    <div class="modal-footer" id="verificationModalActions">
+                    <div class="modal-footer case-actions" id="verificationModalActions">
                         <button class="btn btn-danger" id="verifyRejectBtn" onclick="rejectDriver()">Reject</button>
-                        <button class="btn" id="verifyRequestInfoBtn" style="background:#B8860B; color:#fff;" onclick="openRequestInfoModal()">Resubmit Document</button>
-                        <button class="btn btn-success" id="verifyApproveBtn" onclick="approveDriver()">Approve Driver</button>
+                        <div class="case-actions-main">
+                            <button class="btn" id="verifyRequestInfoBtn" style="background:#B8860B; color:#fff;" onclick="openRequestInfoModal()">Resubmit Document</button>
+                            <button class="btn btn-success" id="verifyApproveBtn" onclick="approveDriver()">Approve Driver</button>
+                        </div>
                     </div>
                 </div>
             </div>
-
+            <!-- ══ PHOTO REVIEW MODAL ══════════════════════════════════ -->
+            <div class="modal-overlay" id="photoReviewModal">
+                <div class="modal-content" style="max-width:720px;">
+                    <div class="modal-header">
+                        <div>
+                            <h2 id="pr-title">Review profile photo</h2>
+                            <div class="detail-sub" id="pr-sub" style="margin-top:4px;"></div>
+                        </div>
+                        <button class="close-btn" onclick="closeModal('photoReviewModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="vf-photo-compare">
+                            <div>
+                                <div class="doc-preview" style="margin-top:0; padding:0; overflow:hidden; background:#fff;">
+                                    <a href="#" id="pr-photo-link" target="_blank" rel="noopener" style="display:none; width:100%; height:100%; align-items:center; justify-content:center;">
+                                        <img id="pr-photo-img" style="max-width:100%; max-height:100%; object-fit:contain; cursor:zoom-in;" alt="New profile photo">
+                                    </a>
+                                    <span id="pr-photo-empty" style="color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">No profile photo</span>
+                                </div>
+                                <div class="detail-sub" style="margin-top:6px; text-align:center;">New profile photo</div>
+                            </div>
+                            <div>
+                                <div class="doc-preview" style="margin-top:0; padding:0; overflow:hidden; background:#fff;">
+                                    <a href="#" id="pr-gov-link" target="_blank" rel="noopener" style="display:none; width:100%; height:100%; align-items:center; justify-content:center;">
+                                        <img id="pr-gov-img" style="max-width:100%; max-height:100%; object-fit:contain; cursor:zoom-in;" alt="Government ID">
+                                    </a>
+                                    <span id="pr-gov-empty" style="color:var(--text-muted); font-size:12px; text-align:center; padding:20px;">Loading…</span>
+                                </div>
+                                <div class="detail-sub" style="margin-top:6px; text-align:center;">Government ID</div>
+                            </div>
+                        </div>
+                        <div class="detail-sub" style="margin-top:16px; line-height:1.5;">Check that this is a clear, recent photo of the same person as on the ID. Passengers can already see the new photo until you reject it.</div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-danger" id="prRejectBtn" onclick="rejectProfilePhotoFromQueue()">Reject Photo</button>
+                        <button class="btn btn-success" id="prApproveBtn" onclick="approveProfilePhotoFromQueue()">Approve Photo</button>
+                    </div>
+                </div>
+            </div>
             <!-- ══ REQUEST INFO MODAL ══════════════════════════════════ -->
             <div class="modal-overlay" id="requestInfoModal">
                 <div class="modal-content" style="max-width:480px;">
@@ -341,6 +422,7 @@
                                     <div class="dropdown-item" onclick="setDriverManagementSort('Rating (Low)')"><span class="item-text">Rating (Low)</span></div>
                                     <div class="dropdown-item" onclick="setDriverManagementSort('Rides (High)')"><span class="item-text">Rides (High)</span></div>
                                     <div class="dropdown-item" onclick="setDriverManagementSort('Rides (Low)')"><span class="item-text">Rides (Low)</span></div>
+                                    <div class="dropdown-item" onclick="setDriverManagementSort('Risk (High)')"><span class="item-text">Risk (High)</span></div>
                             </div>
                             </div>
                         </div>
@@ -445,6 +527,15 @@
                     <h1>Complaints Management</h1>
                     <div class="header-controls">
                         <div class="dropdown-wrapper">
+                            <button class="filter-btn" id="complaintSortBtn">Sort <span class="filter-val">Newest</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
+                            <div class="dropdown-menu" id="complaintSortDropdown">
+                                <div class="dropdown-content">
+                                    <div class="dropdown-item" onclick="setComplaintSort('Newest')"><span class="item-text">Newest</span></div>
+                                    <div class="dropdown-item" onclick="setComplaintSort('Driver risk (High)')"><span class="item-text">Driver risk (High)</span></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="dropdown-wrapper">
                             <button class="filter-btn" id="complaintStatusBtn">Status <span class="filter-val">All</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
                             <div class="dropdown-menu" id="complaintStatusDropdown">
                                 <div class="dropdown-content">
@@ -494,9 +585,11 @@
                             <div class="case-party"><div class="case-label">Party Involved</div><div class="case-value" id="c-reported">–</div><div class="case-sub" id="c-reported-role">–</div></div>
                             <div class="case-party"><div class="case-label">Status</div><div class="case-value"><span id="c-status" class="status-badge processing">UNDER REVIEW</span></div><div class="case-sub" id="c-filed">–</div></div>
                         </div>
+                        <div id="c-trip-line" class="case-trip-line" style="display:none;"></div>
                         <div class="form-group"><label>Issue Type</label><input type="text" class="form-input" id="c-issue" readonly style="background:var(--bg-light); border-color:transparent;"></div>
                         <div class="form-group"><label>Full Description</label><textarea class="form-input" id="c-desc" rows="4" readonly style="background:var(--bg-light); border-color:transparent; resize:none;"></textarea></div>
                         <div class="form-group"><label>TODA President Recommendation</label><div id="c-toda-rec-box" style="background:var(--bg-light); border-radius:10px; padding:12px 14px; font-size:14px;"><div style="color:var(--text-muted);">—</div></div></div>
+                        <div class="form-group"><label>Driver Risk Score</label><div id="c-risk-box" class="risk-box"><div style="color:var(--text-muted);">—</div></div></div>
                         <hr style="border:none; border-top:1px solid var(--border-color); margin:20px 0;">
                         <h3 style="font-size:15px; font-weight:700; margin-bottom:14px;">Take Action</h3>
                         <div class="form-group"><label>Resolution Note</label><textarea id="complaint-admin-notes" class="form-input" rows="3" placeholder="Type your resolution or notes here…"></textarea><div class="detail-sub" style="margin-top:4px;">Sent to the passenger who reported it, and to the driver too when you issue a warning or suspension.</div></div>
@@ -513,28 +606,88 @@
                 </div>
             </div>
 
+            <!-- ══ TRIP DETAILS MODAL ══════════════════════════════════ -->
+            <div class="modal-overlay" id="tripModal">
+                <div class="modal-content vf-modal">
+                    <div class="dd-header">
+                        <div class="dd-header-main">
+                            <h2 id="trip-title">Trip details</h2>
+                            <div class="dd-header-meta" id="trip-meta"></div>
+                        </div>
+                        <button class="close-btn" onclick="closeModal('tripModal')" title="Close"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                    <div class="modal-body vf-body">
+                        <div id="trip-banners"></div>
+                        <div id="trip-cards"></div>
+                        <div class="vf-block-title" style="margin:20px 0 10px;">Locations</div>
+                        <div id="trip-map-wrap">
+                            <div id="trip-map"></div>
+                            <div class="trip-legend" id="trip-legend"></div>
+                        </div>
+                        <div id="trip-map-empty" class="vf-tile-empty" style="display:none;">No locations were recorded for this trip.</div>
+                        <div id="trip-complaints"></div>
+                        <div id="trip-review"></div>
+                    </div>
+                    <div class="modal-footer case-actions" id="trip-footer">
+                        <span></span>
+                        <div class="case-actions-main">
+                            <button class="btn btn-secondary" id="tripReverseBtn" onclick="reverseNoShowFromTrip()" style="display:none;">Reverse No-show</button>
+                            <button class="btn btn-success" id="tripReviewBtn" onclick="markTripReviewed()" style="display:none;">Mark Reviewed</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <!-- ══ FARE MANAGEMENT ════════════════════════════════════ -->
             <div class="view-section view-centered view-centered-md" id="view-pricing">
                 <div class="page-header"><h1>Fare Management</h1></div>
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; max-width:860px;">
                     <div class="form-container">
                         <h3 style="font-size:14px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:20px;">Fare Settings</h3>
-                        <div class="form-group"><label>Minimum Fare (₱)</label><input type="number" class="form-input" id="fare-min" value="20" min="0"><div class="detail-sub" style="margin-top:4px;">What every ride costs, up to the included distance.</div></div>
-                        <div class="form-group"><label>Included Distance (km)</label><input type="number" class="form-input" id="fare-included" value="1" min="0" step="0.1"><div class="detail-sub" style="margin-top:4px;">Distance covered by the minimum fare.</div></div>
-                        <div class="form-group"><label>Per Kilometer Rate (₱)</label><input type="number" class="form-input" id="fare-perkm" value="20" min="0"><div class="detail-sub" style="margin-top:4px;">Charged for each km beyond the included distance.</div></div>
+                        <div class="form-group"><label>Minimum Fare (₱)</label><input type="number" class="form-input" id="fare-min" value="20" min="0"><div class="detail-sub" style="margin-top:4px;">What one person pays, up to the included distance. A solo ride pays for two persons.</div></div>
+                        <div class="form-group"><label>Included Distance (km)</label><input type="number" class="form-input" id="fare-included" value="1" min="0" step="0.1"><div class="detail-sub" style="margin-top:4px;">Distance covered by the minimum fare (per person).</div></div>
+                        <div class="form-group"><label>Per Kilometer Rate (₱)</label><input type="number" class="form-input" id="fare-perkm" value="5" min="0"><div class="detail-sub" style="margin-top:4px;">Charged per person for each km beyond the included distance.</div></div>
+                        <div class="vf-block-title" style="margin:22px 0 12px;">Service fee - added on top of the fare</div>
+                        <div class="form-group"><label>PARA share (%)</label><input type="number" class="form-input" id="fare-fee-para" value="12" min="0" max="100" step="0.5"></div>
+                        <div class="form-group"><label>Driver share (%)</label><input type="number" class="form-input" id="fare-fee-driver" value="4" min="0" max="100" step="0.5"></div>
+                        <div class="form-group"><label>TODA share (%)</label><input type="number" class="form-input" id="fare-fee-toda" value="4" min="0" max="100" step="0.5"><div class="detail-sub" style="margin-top:4px;">Total service fee: <strong id="fare-fee-total" style="color:var(--text-main);">20%</strong> of the fare, on top of it.</div></div>
                         <button class="primary-btn mt-16" onclick="saveFareSettings()" style="width:100%;">Save Fare Settings</button>
                         <div id="fareLastUpdated" style="font-size:12px; color:var(--text-muted); margin-top:10px; text-align:center;"></div>
                     </div>
                     <div>
-                        <div class="fare-preview-box pred-result">
-                            <h3>Live Preview — 3 km trip</h3>
-                            <div class="fare-row"><span style="color:var(--text-muted);">Minimum fare</span><span id="prev-min">₱20.00</span></div>
-                            <div class="fare-row"><span style="color:var(--text-muted);" id="prev-km-label">Extra distance (2 km beyond the first 1 km)</span><span id="prev-km">₱40.00</span></div>
-                            <div class="fare-row"><span style="font-weight:700;">Solo fare</span><span id="prev-total" style="font-weight:700; color:var(--primary);">₱60.00</span></div>
-                            <div class="fare-row"><span style="color:var(--text-muted);">Shared ride (each rider pays half)</span><span id="prev-shared">₱30.00</span></div>
-                        </div>
-                        <div style="background:var(--white); border:1px solid var(--border-color); border-radius:12px; padding:20px; margin-top:16px;">
-                            <p style="font-size:13px; color:var(--text-muted); line-height:1.6;"><strong style="color:var(--text-main);">Note:</strong> These are the numbers the mobile app prices rides with — ₱20 minimum, first 1 km included, ₱20 for each km after, and shared rides split the fare. The app currently has them built in and does not read this page yet; what you save here is stored in Firestore (<code>settings/fare</code>) for the app to use once it does. Saving does not notify users.</p>
+                        <div class="fp">
+                            <div class="fp-head"><span class="fp-title">Live preview</span><span class="fp-trip">3 km trip</span></div>
+
+                            <div class="fp-person">
+                                <div class="fp-line"><span>Minimum fare</span><span id="prev-min">₱20.00</span></div>
+                                <div class="fp-line"><span id="prev-km-label">Extra distance (2 km beyond the first 1 km)</span><span id="prev-km">₱10.00</span></div>
+                                <div class="fp-line fp-person-total"><span>Fare per person</span><span id="prev-total">₱30.00</span></div>
+                            </div>
+
+                            <div class="fp-scenarios">
+                                <div class="fp-card">
+                                    <div class="fp-card-title">Solo ride</div>
+                                    <div class="fp-card-sub">Pays for two persons</div>
+                                    <div class="fp-line"><span>Fare</span><span id="prev-solo">₱60.00</span></div>
+                                    <div class="fp-line"><span>Service fee <span class="fp-pct">(<span id="prev-fee-pct">20</span>%)</span></span><span id="prev-fee">₱12.00</span></div>
+                                    <div class="fp-pay"><span>Total</span><span id="prev-pay">₱72.00</span></div>
+                                </div>
+                                <div class="fp-card">
+                                    <div class="fp-card-title">Shared ride</div>
+                                    <div class="fp-card-sub">Each rider pays</div>
+                                    <div class="fp-line"><span>Fare</span><span id="prev-shared">₱30.00</span></div>
+                                    <div class="fp-line"><span>Service fee <span class="fp-pct">(<span id="prev-shared-pct">20</span>%)</span></span><span id="prev-shared-fee">₱6.00</span></div>
+                                    <div class="fp-pay"><span>Total</span><span id="prev-shared-pay">₱36.00</span></div>
+                                </div>
+                            </div>
+
+                            <div class="fp-split">
+                                <div class="fp-split-title">Where the service fee goes <span class="fp-pct">(per ride)</span></div>
+                                <div class="fp-split-grid">
+                                    <div class="fp-split-item"><div class="fp-split-value" id="prev-fee-para">₱7.20</div><div class="fp-split-label">PARA <span id="prev-fee-para-pct">12</span>%</div></div>
+                                    <div class="fp-split-item"><div class="fp-split-value" id="prev-fee-driver">₱2.40</div><div class="fp-split-label">Driver <span id="prev-fee-driver-pct">4</span>%</div></div>
+                                    <div class="fp-split-item"><div class="fp-split-value" id="prev-fee-toda">₱2.40</div><div class="fp-split-label">TODA <span id="prev-fee-toda-pct">4</span>%</div></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -553,6 +706,7 @@
                                     <div class="dropdown-item" onclick="selectBookingStatus('Completed')"><span class="item-text">Completed</span></div>
                                     <div class="dropdown-item" onclick="selectBookingStatus('Cancelled')"><span class="item-text">Cancelled</span></div>
                                     <div class="dropdown-item" onclick="selectBookingStatus('Declined')"><span class="item-text">Declined</span></div>
+                                    <div class="dropdown-item" onclick="selectBookingStatus('No-show')"><span class="item-text">No-show</span></div>
                             </div>
                             </div>
                         </div>
@@ -562,9 +716,17 @@
                         </div>
                     </div>
                 </div>
+                <div class="vf-tabs" id="bookingTabs">
+                    <button class="vf-tab active" data-tab="all">All bookings</button>
+                    <button class="vf-tab" data-tab="ended-early">Ended early <span class="vf-count" id="bk-count-early">0</span></button>
+                </div>
+                <div class="vf-tabs" id="earlyEndFilters" style="display:none;">
+                    <button class="vf-tab active" data-filter="unreviewed">Unreviewed <span class="vf-count" id="bk-count-unreviewed">0</span></button>
+                    <button class="vf-tab" data-filter="reviewed">Reviewed <span class="vf-count" id="bk-count-reviewed">0</span></button>
+                </div>
                 <div class="table-container">
                     <table class="data-table">
-                        <thead><tr><th>Booking ID</th><th>Status</th><th>Date</th><th>Driver / Plate</th><th>Passenger</th><th>Pickup</th><th>Destination</th><th>Fare</th></tr></thead>
+                        <thead id="bookingHead"><tr><th>Booking ID</th><th>Status</th><th>Date</th><th>Driver / Plate</th><th>Passenger</th><th>Pickup</th><th>Destination</th><th>Fare</th></tr></thead>
                         <tbody>
                             <tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr>
                         </tbody>
@@ -593,6 +755,18 @@
                             </div>
                         </div>
                     </div>
+                    </div>
+                </div>
+
+                <div class="chart-card report-chart-wide">
+                    <h3>Service Fee Breakdown <span style="font-weight:500; color:var(--text-muted); font-size:12px;">- completed rides</span></h3>
+                    <p id="feeBreakdownNote" style="font-size:13px; color:var(--text-muted); margin:-6px 0 14px;">Loading...</p>
+                    <div class="fee-grid">
+                        <div class="fee-item"><div class="fee-value" id="rep-fares">-</div><div class="fee-label">Ride fares</div></div>
+                        <div class="fee-item"><div class="fee-value" id="rep-fee">-</div><div class="fee-label" id="rep-fee-label">Service fee</div></div>
+                        <div class="fee-item"><div class="fee-value" id="rep-para">-</div><div class="fee-label" id="rep-para-label">PARA</div></div>
+                        <div class="fee-item"><div class="fee-value" id="rep-driver">-</div><div class="fee-label" id="rep-driver-label">Drivers</div></div>
+                        <div class="fee-item"><div class="fee-value" id="rep-toda">-</div><div class="fee-label" id="rep-toda-label">TODAs</div></div>
                     </div>
                 </div>
 
@@ -923,18 +1097,19 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=37"></script>
+<script src="firestore-service.js?v=43"></script>
 <script src="prediction.js?v=7"></script>
 <script src="sample-data.js?v=7"></script>
 <script src="forecast.js?v=5"></script>
-<script src="script.js?v=78"></script>
-<script src="firestore-ui.js?v=56"></script>
+<script src="script.js?v=83"></script>
+<script src="firestore-ui.js?v=64"></script>
 <script src="forecast-ui.js?v=5"></script>
 </body>
 </html>
