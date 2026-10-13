@@ -6,7 +6,7 @@
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-    <link rel="stylesheet" href="style.css?v=62">
+    <link rel="stylesheet" href="style.css?v=65">
 </head>
 <body>
 <div class="app-background">
@@ -96,6 +96,16 @@
                 </div>
                 <div class="topbar-right">
                     <div class="topbar-actions">
+                        <div class="dropdown-wrapper">
+                            <button class="icon-btn" id="alertsBellBtn" title="Expiring documents" aria-label="Expiring documents">
+                                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                                <span class="alert-count hidden" id="alertsCount"></span>
+                            </button>
+                            <div class="dropdown-menu alerts-panel" id="alertsPanel">
+                                <div class="alerts-head">Documents needing attention</div>
+                                <div id="alertsList"></div>
+                            </div>
+                        </div>
                     </div>
                     <div class="admin-profile" onclick="document.querySelector('[data-view=settings]').click()">
                         <div class="admin-avatar" id="adminAvatar">A</div>
@@ -218,6 +228,7 @@
                         </button>
                     </div>
                     <div class="modal-body vf-body">
+                        <div id="v-expiry-box" style="display:none;"></div>
                         <div id="v-duplicate-box" style="display:none;"></div>
 
                         <div class="vf-block" id="v-photo-section">
@@ -226,7 +237,6 @@
                                     <div class="vf-block-title">Identity check</div>
                                     <div class="detail-sub" id="v-photo-status"></div>
                                 </div>
-                                <button class="btn btn-secondary vf-small-btn" id="verifyRejectPhotoBtn" onclick="rejectProfilePhotoFromReview()">Reject Photo</button>
                             </div>
                             <div class="vf-photo-compare">
                                 <div>
@@ -248,7 +258,6 @@
                                     <div class="vf-tile-caption">Government ID</div>
                                 </div>
                             </div>
-                            <label class="vf-check" id="v-photo-check-wrap"><input type="checkbox" id="v-photo-check"> Profile photo is a clear, recent photo matching the government ID.</label>
                             <div class="vf-hint" id="v-approve-hint"></div>
                         </div>
 
@@ -298,7 +307,6 @@
                                 <div class="vf-tile-caption">Tricycle photo</div>
                             </div>
                         </div>
-                        <label class="vf-check vf-check-plain" id="v-tricycle-check-wrap" style="display:none;"><input type="checkbox" id="v-tricycle-check"> Tricycle photo shows a tricycle, and the plate in the photo (if visible) matches the plate number / OR/CR.</label>
                     </div>
                     <div class="modal-footer case-actions" id="verificationModalActions">
                         <button class="btn btn-danger" id="verifyRejectBtn" onclick="rejectDriver()">Reject</button>
@@ -364,9 +372,7 @@
                                 <label class="req-checkbox-label"><input type="checkbox" value="Driver's License"> Driver's License</label>
                                 <label class="req-checkbox-label"><input type="checkbox" value="Vehicle Registration (OR/CR)"> Vehicle Registration (OR/CR)</label>
                                 <label class="req-checkbox-label"><input type="checkbox" value="Franchise / Permit"> Franchise / Permit</label>
-                                <label class="req-checkbox-label"><input type="checkbox" value="Proof of Residence"> Proof of Residence</label>
-                                <label class="req-checkbox-label"><input type="checkbox" value="NBI Clearance"> NBI Clearance</label>
-                                <label class="req-checkbox-label"><input type="checkbox" value="Barangay Clearance"> Barangay Clearance</label>
+                                <label class="req-checkbox-label"><input type="checkbox" value="Profile Photo"> Profile Photo</label>
                             </div>
                         </div>
                         <div class="form-group" style="margin-top:16px;">
@@ -519,6 +525,7 @@
                         </tbody>
                     </table>
                 </div>
+                <div id="passengerPagination" style="display:flex; align-items:center; justify-content:space-between; margin-top:14px; font-size:13px; color:var(--text-muted);"></div>
             </div>
 
             <!-- ══ COMPLAINTS ══════════════════════════════════════════ -->
@@ -1055,8 +1062,8 @@
                     <button class="primary-btn" onclick="openTodaPresidentAccountModal()">+ Create Account</button>
                 </div>
                 <div class="table-container">
-                    <table class="data-table">
-                        <thead><tr><th>Name / TODA</th><th>Barangay</th><th>Email</th><th>Phone</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+                    <table class="data-table compact-table">
+                        <thead><tr><th>Name / TODA</th><th>Barangay</th><th>Email</th><th>Phone</th><th>Status</th><th>Created</th><th style="text-align:center;">Actions</th></tr></thead>
                         <tbody id="todaPresidentAccountsBody">
                             <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:28px;">Loading accounts...</td></tr>
                         </tbody>
@@ -1104,12 +1111,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=43"></script>
-<script src="prediction.js?v=7"></script>
-<script src="sample-data.js?v=7"></script>
-<script src="forecast.js?v=5"></script>
-<script src="script.js?v=83"></script>
-<script src="firestore-ui.js?v=64"></script>
+<script src="firestore-service.js?v=44"></script>
+<script src="prediction.js?v=8"></script>
+<script src="sample-data.js?v=8"></script>
+<script src="forecast.js?v=6"></script>
+<script src="script.js?v=84"></script>
+<script src="firestore-ui.js?v=68"></script>
 <script src="forecast-ui.js?v=5"></script>
 </body>
 </html>

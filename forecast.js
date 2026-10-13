@@ -81,13 +81,17 @@
     function assignBarangays(raw) {
         const bookings = raw.bookings || [];
         const centroids = barangayCentroids(bookings);
-        const unplaced = { driverLogs: 0, bookings: 0 };
+        // outside*: placed in a barangay PARA doesn't cover, so left out (not
+        // counted in the nearest covered one).
+        const unplaced = { driverLogs: 0, bookings: 0, outsideLogs: 0, outsideBookings: 0 };
+        const covered = (name) => HAGONOY_BARANGAYS.includes(name);
         const pointOf = (lat, lng) => (Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null);
 
         const placeLog = (record) => {
             if (!record.area) { unplaced.driverLogs += 1; return null; }
             const barangay = nearestBarangay(geohashCenter(record.area), centroids, MAX_BARANGAY_KM);
             if (!barangay) { unplaced.driverLogs += 1; return null; }
+            if (!covered(barangay)) { unplaced.outsideLogs += 1; return null; }
             return { ...record, barangay };
         };
         const samples = (raw.samples || []).map(placeLog).filter(Boolean);
@@ -98,6 +102,7 @@
             const named = P.barangayFromAddress(b.address);
             const barangay = named || (point && nearestBarangay(point, centroids, MAX_BARANGAY_KM));
             if (!barangay) { unplaced.bookings += 1; return; }
+            if (!covered(barangay)) { unplaced.outsideBookings += 1; return; }
             placed.push({ ...b, barangay });
         });
         return { samples, events, bookings: placed, unplaced, truncated: raw.truncated };
@@ -304,7 +309,7 @@
         const dataSource = opts.dataSource || 'real';
 
         let data = raw;
-        let unplaced = { driverLogs: 0, bookings: 0 };
+        let unplaced = { driverLogs: 0, bookings: 0, outsideLogs: 0, outsideBookings: 0 };
         if (!opts.labelled) {
             onProgress('Placing driver logs and bookings in Hagonoy barangays…');
             data = assignBarangays(raw);
@@ -352,6 +357,7 @@
         if (dataSource === 'sample') warnings.push('These models were trained on generated sample data, not real bookings. Retrain with real app data once enough has been logged.');
         if (unplaced.driverLogs > 0) warnings.push(`${unplaced.driverLogs.toLocaleString()} driver logs could not be placed in a barangay (no booking address near them yet) and were left out.`);
         if (unplaced.bookings > 0) warnings.push(`${unplaced.bookings.toLocaleString()} bookings could not be placed in a barangay and were left out.`);
+        if (unplaced.outsideLogs > 0 || unplaced.outsideBookings > 0) warnings.push(`${unplaced.outsideLogs.toLocaleString()} driver logs and ${unplaced.outsideBookings.toLocaleString()} bookings were in barangays PARA doesn't cover and were left out.`);
         if (raw.truncated) warnings.push('The activity log was very large, so only the earliest part of the period was loaded. Choose a shorter period for the most recent data.');
         if (skipped.missingEnvironment > 0) warnings.push(`${skipped.missingEnvironment} hour-and-area records were skipped because tide, rainfall or river data was missing for them.${tideHint}`);
         if (activity.busyStats.noDropoffTime > 0) warnings.push(`${activity.busyStats.noDropoffTime} completed ride${activity.busyStats.noDropoffTime === 1 ? ' has' : 's have'} no drop-off time (recorded only by newer app versions), so ${activity.busyStats.noDropoffTime === 1 ? 'its' : 'their'} busy time could not be counted.`);
@@ -399,9 +405,12 @@
         return allTown ? model.thresholdsAll : model.thresholds;
     }
 
-    // A saved model is usable only if it was trained with the current inputs.
+    // A saved model is usable only if it was trained with the current inputs
+    // and only for the barangays PARA covers now (one trained when more
+    // barangays were listed has to be retrained).
     function isCurrent(model) {
-        return Boolean(model && model.schema === MODEL_SCHEMA && Array.isArray(model.features));
+        return Boolean(model && model.schema === MODEL_SCHEMA && Array.isArray(model.features)
+            && Array.isArray(model.areas) && model.areas.every((area) => HAGONOY_BARANGAYS.includes(area)));
     }
 
     // Inputs the model never saw (beyond the min/max of its training rows, with

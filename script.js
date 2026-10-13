@@ -72,6 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
     registerDropdown('passengerMgmtStatusBtn', 'passengerMgmtStatusDropdown');
     registerDropdown('complaintStatusBtn', 'complaintStatusDropdown');
     registerDropdown('complaintSortBtn', 'complaintSortDropdown');
+    registerDropdown('alertsBellBtn', 'alertsPanel');
     // ── SPA Router ────────────────────────────────────────────────
     const navLinks = document.querySelectorAll('.nav-link');
     const views = document.querySelectorAll('.view-section');

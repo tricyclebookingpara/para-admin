@@ -427,8 +427,20 @@
         };
     }
 
-    // ── Locations: the barangays of Hagonoy, Bulacan ───────────────────
+    // ── Locations ──────────────────────────────────────────────────────
+    // The barangays PARA covers: the only ones that are forecast. A booking or
+    // driver log in any other barangay is left out, and a saved model that
+    // includes another barangay is treated as out of date (see isCurrent in
+    // forecast.js) until it is retrained. Matching ignores "Sta." vs "Santa"
+    // (see normalizeName).
     const HAGONOY_BARANGAYS = [
+        'Palapat', 'San Agustin', 'San Isidro', 'San Juan', 'San Miguel', 'Santa Monica', 'Tampok'
+    ];
+
+    // Every barangay of Hagonoy, Bulacan — only used to recognise where a
+    // booking or driver log is, so one in an uncovered barangay can be left out
+    // instead of being counted in the nearest covered one.
+    const ALL_HAGONOY_BARANGAYS = [
         'Abulalas', 'Carillo', 'Iba', 'Iba-Ibayo', 'Mercado', 'Palapat', 'Pugad', 'Sagrada Familia',
         'San Agustin', 'San Isidro', 'San Jose', 'San Juan', 'San Miguel', 'San Nicolas', 'San Pablo',
         'San Pascual', 'San Pedro', 'San Roque', 'San Sebastian', 'Santa Cruz', 'Santa Elena',
@@ -446,7 +458,7 @@
     }
 
     // Longest names first so "Iba-Ibayo" is not read as "Iba".
-    const BARANGAY_MATCHERS = [...HAGONOY_BARANGAYS]
+    const BARANGAY_MATCHERS = [...ALL_HAGONOY_BARANGAYS]
         .sort((a, b) => b.length - a.length)
         .map((name) => ({ name, key: ` ${normalizeName(name)} ` }));
 
@@ -669,6 +681,7 @@
         geohashEncode,
         geohashCenter,
         HAGONOY_BARANGAYS,
+        ALL_HAGONOY_BARANGAYS,
         barangayFromAddress,
         barangayCentroids,
         nearestBarangay,

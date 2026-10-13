@@ -1117,7 +1117,9 @@ const ParaFirestore = (() => {
                 barangay: getField(data, 'barangay'),
                 email: getField(data, 'email'),
                 phone: getField(data, 'phoneNumber'),
-                status: disabled ? 'disabled' : 'active'
+                status: disabled ? 'disabled' : 'active',
+                // Saved as milliseconds when the account is created here.
+                createdAt: toDate(getField(data, 'createdAt', 'created_at'))
             };
         });
     }

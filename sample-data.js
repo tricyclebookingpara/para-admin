@@ -34,7 +34,7 @@
     const SAMPLE_DRIVERS = 18;
     const SAMPLE_PASSENGERS = 36;
     // Where the pilot runs. Edit to change which barangays have sample data.
-    const PILOT_BARANGAYS = ['San Isidro', 'San Agustin', 'San Miguel', 'Palapat', 'San Juan', 'Santa Monica'];
+    const PILOT_BARANGAYS = ['San Isidro', 'San Agustin', 'San Miguel', 'Palapat', 'San Juan', 'Santa Monica', 'Tampok'];
 
     // Share of a day's rides that fall in each hour (0-23).
     const HOUR_SHARE = [1, 1, 1, 1, 2, 5, 9, 10, 8, 6, 5, 5, 5, 5, 5, 6, 8, 9, 7, 5, 3, 2, 1, 1];

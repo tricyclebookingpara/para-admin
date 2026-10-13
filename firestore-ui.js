@@ -154,19 +154,91 @@ document.addEventListener('DOMContentLoaded', async () => {
     // The score, what it suggests, why, and (in a case) how it compares with
     // what the TODA president recommended.
     function riskBodyHtml(risk, presidentSuspension = false) {
+        const level = ['HIGH', 'MEDIUM', 'LOW'].includes(risk.level) ? risk.level : 'LOW';
+        const cls = level.toLowerCase();
+        const score = Math.round(risk.score);
+        const width = Math.min(100, Math.max(0, risk.score));
         const reasons = risk.reasons.length
             ? `<ul class="risk-reasons">${risk.reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>`
-            : '<div class="risk-note">No reasons listed.</div>';
+            : '<div class="risk-quiet">Nothing is raising this driver’s score.</div>';
         let comparison = '';
         if (presidentSuspension) {
             comparison = risk.suggestedAction === 'Suspension'
-                ? '<div class="risk-note">The TODA president recommends a suspension, which matches the score.</div>'
-                : `<div class="risk-note"><strong>The TODA president recommends a suspension, but the score suggests ${escapeHtml(risk.suggestedAction)}.</strong> Look at why they differ before deciding.</div>`;
+                ? '<div class="risk-compare ok">The TODA president recommends a suspension — the score agrees.</div>'
+                : `<div class="risk-compare differs"><strong>The TODA president recommends a suspension, but the score suggests ${escapeHtml(risk.suggestedAction)}.</strong> Look at why they differ before deciding.</div>`;
         }
-        return `<div class="risk-head">${riskChipHtml(risk)}<span>Score suggests: <strong>${escapeHtml(risk.suggestedAction)}</strong></span></div>
+        return `<div class="risk-top">
+                <div class="risk-num"><span class="risk-num-value ${cls}">${score}</span><span class="risk-num-max">/ 100</span></div>
+                <div class="risk-top-main">
+                    <div class="risk-level-row"><span class="risk-chip ${cls}">${level}</span><span class="risk-action">Suggested action: <strong>${escapeHtml(risk.suggestedAction)}</strong></span></div>
+                    <div class="risk-bar" title="Score ${score} of 100 (30 and 60 mark the levels)"><div class="risk-bar-fill ${cls}" style="width:${width}%"></div><i style="left:30%"></i><i style="left:60%"></i></div>
+                </div>
+            </div>
             ${comparison}${reasons}
-            <div class="risk-note">Advisory only — nothing is suspended automatically.${risk.updatedAtRaw ? ` Calculated ${escapeHtml(ParaFirestore.formatDateTime(risk.updatedAtRaw))}.` : ''}</div>
+            <div class="risk-foot">Advisory only — nothing is suspended automatically${risk.updatedAtRaw ? ` · Calculated ${escapeHtml(ParaFirestore.formatDateTime(risk.updatedAtRaw))}` : ''}</div>
             ${riskExplainHtml()}`;
+    }
+
+    // ── Document expiry ──────────────────────────────────────────
+    // The only expiry the app asks drivers for is the driver's license
+    // (licenseExpiryDate, typed as dd/mm/yy). The government ID and the OR/CR
+    // have no expiry on file, so they can't be tracked here.
+    const EXPIRY_SOON_DAYS = 30;
+
+    // dd/mm/yy, dd/mm/yyyy, dd-mm-yyyy, yyyy-mm-dd, mm/yyyy or "May 2028" ->
+    // a Date at local midnight (a month on its own means its last day), or null.
+    function parseExpiryDate(text) {
+        const s = String(text || '').trim();
+        if (!s) return null;
+        const valid = (y, m, d) => {
+            const date = new Date(y, m - 1, d);
+            return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d ? date : null;
+        };
+        let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+        if (m) return valid(Number(m[1]), Number(m[2]), Number(m[3]));
+        m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$/);
+        if (m) {
+            let day = Number(m[1]);
+            let month = Number(m[2]);
+            let year = Number(m[3]);
+            if (year < 100) year += 2000;
+            if (month > 12 && day <= 12) [day, month] = [month, day]; // typed month/day
+            return valid(year, month, day);
+        }
+        m = s.match(/^(\d{1,2})[-/.](\d{4})$/);
+        if (m) {
+            const month = Number(m[1]);
+            return month >= 1 && month <= 12 ? new Date(Number(m[2]), month, 0) : null;
+        }
+        const named = Date.parse(`1 ${s}`);
+        if (/[a-z]{3}/i.test(s) && !Number.isNaN(named)) {
+            const d = new Date(named);
+            return new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        }
+        return null;
+    }
+
+    // status: 'expired' | 'soon' | 'ok' | 'unreadable' | 'none'
+    function licenseExpiryInfo(driver) {
+        const raw = String((driver && driver.licenseExpiry) || '').trim();
+        if (!raw) return { status: 'none', raw };
+        const date = parseExpiryDate(raw);
+        if (!date) return { status: 'unreadable', raw };
+        const today = new Date();
+        const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const days = Math.round((date - midnight) / 86400000);
+        const dateLabel = date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+        const plural = (n) => `${n} day${n === 1 ? '' : 's'}`;
+        if (days < 0) return { status: 'expired', raw, date, days, dateLabel, text: `License expired ${plural(-days)} ago`, short: 'License expired' };
+        if (days === 0) return { status: 'soon', raw, date, days, dateLabel, text: 'License expires today', short: 'License expires today' };
+        if (days <= EXPIRY_SOON_DAYS) return { status: 'soon', raw, date, days, dateLabel, text: `License expires in ${plural(days)}`, short: `License expires in ${plural(days)}` };
+        return { status: 'ok', raw, date, days, dateLabel };
+    }
+
+    function expiryChipHtml(info) {
+        return info && (info.status === 'expired' || info.status === 'soon')
+            ? `<span class="expiry-chip ${info.status}" title="Expires ${escapeHtml(info.dateLabel)}">${escapeHtml(info.short)}</span>`
+            : '';
     }
 
     function emptyRow(colspan, message) {
@@ -424,10 +496,105 @@ document.addEventListener('DOMContentLoaded', async () => {
         return '<div class="detail-sub" style="margin-top:4px;"><span style="color:#05CD99;">●</span> Online</div>';
     }
 
+    // ── Document alerts (the bell in the top bar) ────────────────
+    // Approved drivers whose license has expired or expires within 30 days,
+    // expired first. There's no push channel to the admin, so this is what the
+    // bell counts, and a one-time toast per session says so on opening the site.
+    function documentAlerts() {
+        return (window.driverManagementDrivers || [])
+            .map((driver) => ({ driver, info: licenseExpiryInfo(driver) }))
+            .filter(({ info }) => info.status === 'expired' || info.status === 'soon')
+            .sort((a, b) => a.info.days - b.info.days);
+    }
+
+    let documentAlertsToasted = false;
+
+    function renderDocumentAlerts() {
+        const alerts = documentAlerts();
+        const count = document.getElementById('alertsCount');
+        if (count) {
+            count.textContent = alerts.length || '';
+            count.classList.toggle('hidden', !alerts.length);
+        }
+        const list = document.getElementById('alertsList');
+        if (list) {
+            if (!alerts.length) {
+                list.innerHTML = '<div class="alerts-empty">No driver’s licenses are expired or about to expire.</div>';
+            } else {
+                const row = ({ driver, info }) => `<div class="alert-row" data-alert-driver="${escapeHtml(driver.id)}">
+                    ${driverAvatarHtml(driver)}
+                    <div class="alert-row-main">
+                        <div class="alert-row-name">${escapeHtml(driver.name || 'Unnamed driver')}</div>
+                        <div class="alert-row-text">${escapeHtml(info.text)} · ${escapeHtml(info.dateLabel)}</div>
+                    </div>
+                    <button class="btn btn-secondary alert-remind" data-remind-driver="${escapeHtml(driver.id)}" title="Send the driver a reminder in the app">Remind</button>
+                </div>`;
+                const expired = alerts.filter((a) => a.info.status === 'expired');
+                const soon = alerts.filter((a) => a.info.status === 'soon');
+                list.innerHTML = (expired.length ? `<div class="alerts-group expired">Expired (${expired.length})</div>${expired.map(row).join('')}` : '')
+                    + (soon.length ? `<div class="alerts-group soon">Expiring within ${EXPIRY_SOON_DAYS} days (${soon.length})</div>${soon.map(row).join('')}` : '');
+            }
+        }
+        if (alerts.length && !documentAlertsToasted) {
+            documentAlertsToasted = true;
+            const expired = alerts.filter((a) => a.info.status === 'expired').length;
+            const soon = alerts.length - expired;
+            window.showToast(`Driver licenses: ${[expired && `${expired} expired`, soon && `${soon} expiring soon`].filter(Boolean).join(', ')}. See the bell.`, 'warning');
+        }
+    }
+
+    // A reminder goes to the driver's in-app notifications; the admin confirms first.
+    function remindDriverAboutLicense(driverId) {
+        const driver = (window.driverManagementDrivers || []).find((d) => d.id === driverId);
+        if (!driver) return;
+        const info = licenseExpiryInfo(driver);
+        const body = info.status === 'expired'
+            ? `Your driver’s license expired on ${info.dateLabel}. Please renew it and update your documents in the app so you can keep driving.`
+            : `Your driver’s license expires on ${info.dateLabel}. Please renew it and update your documents in the app before then.`;
+        showConfirmModal(
+            `Remind ${driver.name || 'this driver'}?`,
+            `They get this in-app notification: “${body}”`,
+            'Send Reminder',
+            '#1A73E8',
+            async () => {
+                try {
+                    await ParaFirestore.sendDirectNotification(driver.id, 'Driver’s license renewal', body);
+                    window.showToast('Reminder sent.', 'success');
+                } catch (error) {
+                    console.error('Failed to send the reminder:', error);
+                    window.showToast('Could not send the reminder.', 'error');
+                }
+            }
+        );
+    }
+
+    document.getElementById('alertsList')?.addEventListener('click', (e) => {
+        const remind = e.target.closest('[data-remind-driver]');
+        const panel = document.getElementById('alertsPanel');
+        if (remind) {
+            if (panel) panel.classList.remove('show');
+            remindDriverAboutLicense(remind.dataset.remindDriver);
+            return;
+        }
+        const row = e.target.closest('[data-alert-driver]');
+        if (row) {
+            if (panel) panel.classList.remove('show');
+            document.querySelector('.nav-link[data-view="driver-management"]')?.click();
+            window.openDriverDetailsModal(row.dataset.alertDriver);
+        }
+    });
+    // Days tick over at midnight even if the page stays open.
+    setInterval(renderDocumentAlerts, 60 * 60 * 1000);
+
     // Only MEDIUM and HIGH are flagged in the list; LOW stays quiet (it's in the details window).
     function driverRiskFlag(driver) {
         const risk = riskOf(driver.id);
         return risk && risk.level !== 'LOW' ? `<div style="margin-top:6px;">${riskChipHtml(risk)}</div>` : '';
+    }
+
+    function driverLicenseFlag(driver) {
+        const chip = expiryChipHtml(licenseExpiryInfo(driver));
+        return chip ? `<div style="margin-top:6px;">${chip}</div>` : '';
     }
 
     function renderDriverManagementTable(drivers) {
@@ -443,6 +610,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         window.driverManagementDrivers = drivers;
         refreshDriverDetails();
+        renderDocumentAlerts();
 
         const statusFilter = window.driverMgmtStatusFilter || 'all';
         const sortMode = window.driverMgmtSortMode || 'rating-desc';
@@ -492,7 +660,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td><div class="pf-name">${driverAvatarHtml(driver)}<div><div class="detail-main">${escapeHtml(driver.name)}</div><div class="detail-sub">Member since ${escapeHtml(driver.memberSince)}</div></div></div></td>
                 <td><div class="detail-main">${escapeHtml(driver.vehicle || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(driver.plate || '—')}${driver.motorcycleModel ? ` · ${escapeHtml(driver.motorcycleModel)}` : ''}</div></td>
                 <td style="white-space:nowrap;"><div class="rating-stars">${escapeHtml(getDriverPerformanceStars(ratingValue))} <span>${escapeHtml(driver.rating === '—' ? '—' : Number(driver.rating).toFixed(1))}</span></div><div class="detail-sub">${escapeHtml(Number(driver.totalRides || 0))} completed ${Number(driver.totalRides || 0) === 1 ? 'ride' : 'rides'} · ${escapeHtml(driver.acceptanceRate || '—')} acceptance</div></td>
-                <td>${renderBadge(isSuspended ? 'suspended' : 'active')}${driverRiskFlag(driver)}${suspensionNote}${driverPresenceLine(driver)}</td>
+                <td>${renderBadge(isSuspended ? 'suspended' : 'active')}${driverRiskFlag(driver)}${driverLicenseFlag(driver)}${suspensionNote}${driverPresenceLine(driver)}</td>
                 <td style="white-space:nowrap;">
                     <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
                         <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-driver" data-id="${escapeHtml(driver.id)}" data-name="${escapeHtml(driver.name)}">History</button>
@@ -545,13 +713,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.passengerMgmtStatusFilter = (statusKey || 'all').toLowerCase();
         const btn = document.getElementById('passengerMgmtStatusBtn');
         if (btn) btn.querySelector('.filter-val').textContent = statusKey;
-        if (window.allPassengers) {
-            let filtered = window.allPassengers;
-            if (window.passengerMgmtStatusFilter !== 'all') {
-                filtered = window.allPassengers.filter((p) => p.status.toLowerCase() === window.passengerMgmtStatusFilter);
-            }
-            renderPassengerTable(filtered);
-        }
+        passengerTablePage = 1;
+        if (window.allPassengers) renderPassengerTable(window.allPassengers);
+    };
+
+    // Like Booking Records: one page of rows at a time.
+    const PASSENGERS_PAGE_SIZE = 25;
+    let passengerTablePage = 1;
+
+    window.changePassengerPage = function(delta) {
+        passengerTablePage += delta;
+        renderPassengerTable(window.allPassengers || []);
     };
 
     // Passenger docs don't carry totalRides/cancelledRides (confirmed against
@@ -582,13 +754,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshPassengerDetails();
         const tbody = document.querySelector('#view-passenger-management .data-table tbody');
         if (!tbody) return;
+        const paginationEl = document.getElementById('passengerPagination');
 
-        if (!passengers.length) {
+        // The Account Status filter applies on every redraw (live updates too).
+        const statusFilter = window.passengerMgmtStatusFilter || 'all';
+        // Newest sign-up first (those with no sign-up date go last).
+        const joined = (p) => (p.memberSinceRaw ? new Date(p.memberSinceRaw).getTime() || 0 : 0);
+        const all = (statusFilter === 'all' ? passengers : passengers.filter((p) => String(p.status).toLowerCase() === statusFilter))
+            .slice()
+            .sort((a, b) => joined(b) - joined(a));
+
+        if (!all.length) {
             tbody.innerHTML = emptyRow(7, 'No passengers found in Firestore.');
+            if (paginationEl) paginationEl.innerHTML = '';
             return;
         }
 
-        tbody.innerHTML = passengers.map((passengerRecord) => {
+        const totalPages = Math.max(1, Math.ceil(all.length / PASSENGERS_PAGE_SIZE));
+        passengerTablePage = Math.min(Math.max(1, passengerTablePage), totalPages);
+        const pageStart = (passengerTablePage - 1) * PASSENGERS_PAGE_SIZE;
+        const pageItems = all.slice(pageStart, pageStart + PASSENGERS_PAGE_SIZE);
+
+        tbody.innerHTML = pageItems.map((passengerRecord) => {
             const rideStats = computePassengerRideStats(passengerRecord.id);
             const passenger = { ...passengerRecord, ...rideStats };
             const isSuspended = passenger.status === 'suspended';
@@ -624,6 +811,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                 </td>
             </tr>`;
         }).join('');
+
+        if (paginationEl) {
+            const rangeEnd = Math.min(all.length, pageStart + PASSENGERS_PAGE_SIZE);
+            paginationEl.innerHTML = `
+                <span>Showing ${pageStart + 1}–${rangeEnd} of ${all.length}</span>
+                <div style="display:flex; gap:8px;">
+                    <button class="action-btn" ${passengerTablePage <= 1 ? 'disabled' : ''} onclick="changePassengerPage(-1)">Prev</button>
+                    <span style="padding:6px 4px;">Page ${passengerTablePage} of ${totalPages}</span>
+                    <button class="action-btn" ${passengerTablePage >= totalPages ? 'disabled' : ''} onclick="changePassengerPage(1)">Next</button>
+                </div>
+            `;
+        }
 
         bindRowActions(tbody, {
             'history-passenger': (ds) => window.openPassengerHistoryModal(ds.id, ds.name),
@@ -1057,6 +1256,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             : '';
     }
 
+    // Map tiles: Esri's public street map, which needs no key. OpenStreetMap's
+    // own tile server refuses this site ("Access blocked", its tile usage
+    // policy), and CARTO's now needs an API key. If the tiles can't load, the
+    // pins still show on a plain background.
+    const TRIP_TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+    const TRIP_TILE_ATTRIBUTION = 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, OpenStreetMap contributors';
+
+    function addTripTiles(map) {
+        L.tileLayer(TRIP_TILE_URL, { maxZoom: 19, attribution: TRIP_TILE_ATTRIBUTION }).addTo(map);
+    }
+
     function renderTripMap(booking) {
         const wrap = document.getElementById('trip-map-wrap');
         const empty = document.getElementById('trip-map-empty');
@@ -1082,7 +1292,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
         tripMap = L.map('trip-map', { scrollWheelZoom: false });
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(tripMap);
+        addTripTiles(tripMap);
         const points = [];
         if (booking.pickupLatLng && booking.destinationLatLng) {
             L.polyline([[booking.pickupLatLng.lat, booking.pickupLatLng.lng], [booking.destinationLatLng.lat, booking.destinationLatLng.lng]], { color: '#A3AED0', weight: 2, dashArray: '6 6' }).addTo(tripMap);
@@ -1393,6 +1603,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    // "Oct 10, 2026" with the time on a line under it, so the column stays narrow
+    // and every row lines up the same way.
+    function createdCellHtml(value) {
+        const date = value ? new Date(value) : null;
+        if (!date || Number.isNaN(date.getTime())) return '<span class="detail-sub">—</span>';
+        return `<div class="detail-main" style="font-size:13px;">${escapeHtml(date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }))}</div>`
+            + `<div class="detail-sub">${escapeHtml(date.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' }))}</div>`;
+    }
+
     function renderTodaPresidentAccounts(accounts) {
         const tbody = document.getElementById('todaPresidentAccountsBody');
         if (!tbody) return;
@@ -1407,10 +1626,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td>${escapeHtml(account.email || '—')}</td>
                 <td>${escapeHtml(account.phone || '—')}</td>
                 <td>${renderBadge(account.status || 'active')}</td>
-                <td>${escapeHtml(ParaFirestore.formatDateTime(account.createdAt))}</td>
-                <td>
+                <td style="white-space:nowrap;">${createdCellHtml(account.createdAt)}</td>
+                <td style="white-space:nowrap;">
+                  <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
                     <button class="action-btn" data-action="edit-toda-president" data-id="${escapeHtml(account.id)}">Edit</button>
-                    <button class="action-btn" style="background:${account.status === 'disabled' ? '#05CD99' : '#EE5D50'}; margin-left:6px;" data-action="toggle-toda-president" data-id="${escapeHtml(account.id)}" data-name="${escapeHtml(account.fullName || account.name || 'this account')}" data-next-status="${account.status === 'disabled' ? 'active' : 'disabled'}">${account.status === 'disabled' ? 'Reactivate' : 'Disable'}</button>
+                    <button class="action-btn" style="background:${account.status === 'disabled' ? '#05CD99' : '#EE5D50'};" data-action="toggle-toda-president" data-id="${escapeHtml(account.id)}" data-name="${escapeHtml(account.fullName || account.name || 'this account')}" data-next-status="${account.status === 'disabled' ? 'active' : 'disabled'}">${account.status === 'disabled' ? 'Reactivate' : 'Disable'}</button>
+                  </div>
                 </td>
             </tr>
         `).join('');
@@ -1589,15 +1810,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     function refreshApproveState() {
         const approveBtn = document.getElementById('verifyApproveBtn');
         const hint = document.getElementById('v-approve-hint');
-        const check = document.getElementById('v-photo-check');
         const driver = currentVerificationDriver;
         if (!approveBtn || !driver) return;
-        let photoReason = approveBlockReason(driver);
-        if (!photoReason && check && !check.checked) photoReason = 'Tick the checklist to confirm the photo matches the ID.';
-        // The tricycle photo is only checked when the driver added one; a missing
-        // photo never blocks approval (older drivers don't have one).
-        const triCheck = document.getElementById('v-tricycle-check');
-        if (!photoReason && driver.tricycleImageUrl && triCheck && !triCheck.checked) photoReason = 'Tick the checklist to confirm the tricycle photo.';
+        // Approve needs a profile photo that hasn't been rejected. The tricycle
+        // photo is never required (older drivers don't have one).
+        const photoReason = approveBlockReason(driver);
         approveBtn.disabled = verificationDuplicateBlocking || Boolean(photoReason);
         approveBtn.title = verificationDuplicateBlocking ? 'This application matches an approved account' : photoReason;
         if (hint) hint.textContent = currentVerificationFilter === 'pending' ? photoReason : '';
@@ -1608,8 +1825,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const model = document.getElementById('v-moto-model');
         if (model) model.textContent = driver.motorcycleModel || '—';
         setDocImage('v-tri-link', 'v-tri-img', driver.tricycleImageUrl, 'v-tri-empty');
-        const wrap = document.getElementById('v-tricycle-check-wrap');
-        if (wrap) wrap.style.display = currentVerificationFilter === 'pending' && driver.tricycleImageUrl ? '' : 'none';
     }
 
     function renderVerificationPhoto(driver) {
@@ -1618,7 +1833,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             ? `<img src="${escapeHtml(driver.profileImage)}" alt="" data-initials="${escapeHtml(driverInitials(driver))}" onerror="this.parentNode.textContent=this.dataset.initials">`
             : escapeHtml(driverInitials(driver));
 
-        const isPending = currentVerificationFilter === 'pending';
         const statusEl = document.getElementById('v-photo-status');
         if (statusEl) {
             const parts = [];
@@ -1633,13 +1847,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (empty && !driver.profileImage) {
             empty.textContent = driver.profilePhotoStatus === 'rejected' ? 'Photo rejected — waiting for a new one' : 'No profile photo';
         }
+    }
 
-        // Review controls only on a pending application; the Approved/Rejected
-        // tabs are read-only.
-        const rejectBtn = document.getElementById('verifyRejectPhotoBtn');
-        if (rejectBtn) rejectBtn.style.display = isPending && driver.profileImage ? '' : 'none';
-        const checkWrap = document.getElementById('v-photo-check-wrap');
-        if (checkWrap) checkWrap.style.display = isPending ? '' : 'none';
+    // A license that has expired (or is about to) is flagged at the top of the
+    // review. It doesn't block approval — that stays the admin's call.
+    function renderExpiryNotice(driver) {
+        const box = document.getElementById('v-expiry-box');
+        if (!box) return;
+        const info = licenseExpiryInfo(driver);
+        if (info.status !== 'expired' && info.status !== 'soon') {
+            box.style.display = 'none';
+            box.innerHTML = '';
+            return;
+        }
+        box.className = `vf-dup ${info.status === 'expired' ? 'block' : 'warn'}`;
+        box.style.display = '';
+        box.innerHTML = info.status === 'expired'
+            ? `<strong>The driver’s license has expired.</strong> It was valid until ${escapeHtml(info.dateLabel)} (${escapeHtml(info.text.replace('License expired ', ''))}). Ask for a renewed license before approving.`
+            : `<strong>${escapeHtml(info.text)}.</strong> It is valid until ${escapeHtml(info.dateLabel)}.`;
     }
 
     // The warning at the top of the review window, and the Approve button: off
@@ -1697,12 +1922,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (btn) btn.style.display = isPending ? '' : 'none';
             });
             currentVerificationDriver = mapped;
-            const photoCheck = document.getElementById('v-photo-check');
-            if (photoCheck) photoCheck.checked = false;
-            const triCheck = document.getElementById('v-tricycle-check');
-            if (triCheck) triCheck.checked = false;
             renderVerificationPhoto(mapped);
             renderVerificationTricycle(mapped);
+            renderExpiryNotice(mapped);
             renderDuplicateNotice(mapped);
 
             const driverBadge = document.querySelector('[data-view="driver-verification"] .nav-badge');
@@ -1773,14 +1995,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (review && review.classList.contains('active') && currentVerificationDriverId) {
             const fresh = allDrivers.find((d) => d.id === currentVerificationDriverId);
             if (fresh && currentVerificationDriver) {
-                if (fresh.profileImage !== currentVerificationDriver.profileImage) {
-                    const check = document.getElementById('v-photo-check');
-                    if (check) check.checked = false; // a different photo needs a fresh look
-                }
-                if (fresh.tricycleImageUrl !== currentVerificationDriver.tricycleImageUrl) {
-                    const triCheck = document.getElementById('v-tricycle-check');
-                    if (triCheck) triCheck.checked = false; // a different photo needs a fresh look
-                }
                 currentVerificationDriver = { ...currentVerificationDriver, ...fresh };
                 renderVerificationPhoto(currentVerificationDriver);
                 renderVerificationTricycle(currentVerificationDriver);
@@ -1823,8 +2037,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         applyVerificationFilter();
     });
 
-    document.getElementById('v-photo-check')?.addEventListener('change', refreshApproveState);
-    document.getElementById('v-tricycle-check')?.addEventListener('change', refreshApproveState);
 
     // ── Photo review: reject (shared by the application and the queue) ──
     const PHOTO_REJECT_REASONS = [
@@ -1873,14 +2085,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             customBodyHtml
         );
     }
-
-    window.rejectProfilePhotoFromReview = function() {
-        const driver = currentVerificationDriver;
-        if (!driver) return;
-        promptRejectProfilePhoto(driver.id, driver.name, () => {
-            // The listener brings the cleared photo in; Approve stays off until a new one arrives.
-        });
-    };
 
     // ── Photo Changes queue ──────────────────────────────────────
     let currentPhotoReviewDriverId = null;
@@ -1941,14 +2145,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const photoReason = current ? approveBlockReason(current) : '';
         if (photoReason) {
             window.showToast(photoReason, 'error');
-            return;
-        }
-        if (!document.getElementById('v-photo-check')?.checked) {
-            window.showToast('Confirm the profile photo matches the ID first.', 'warning');
-            return;
-        }
-        if (current && current.tricycleImageUrl && !document.getElementById('v-tricycle-check')?.checked) {
-            window.showToast('Confirm the tricycle photo first.', 'warning');
             return;
         }
         const name = document.getElementById('v-name')?.textContent || 'this driver';
@@ -2106,6 +2302,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         return waiting ? `${trips.length} (${waiting} to review)` : String(trips.length);
     }
 
+    // "05/12/26" plus a red / amber chip when the license has expired or is about to.
+    function licenseExpiryRowHtml(driver) {
+        const info = licenseExpiryInfo(driver);
+        if (info.status === 'none') return '';
+        const chip = expiryChipHtml(info);
+        return `${escapeHtml(info.raw)}${info.status === 'unreadable' ? ' <span class="detail-sub">(date not understood)</span>' : ''}${chip ? ` ${chip}` : ''}`;
+    }
+
     function driverRiskCardBody(driver) {
         const risk = riskOf(driver.id);
         return risk ? riskBodyHtml(risk) : '<div class="risk-note" style="margin-top:0;">Not scored yet — treated as LOW.</div>';
@@ -2120,8 +2324,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             const until = driver.suspendedUntilRaw ? `until ${ParaFirestore.formatDateTime(driver.suspendedUntilRaw)}` : 'indefinitely';
             suspension = `<div class="dd-notice"><strong>Suspended ${escapeHtml(until)}.</strong>${driver.suspensionReason ? ` ${escapeHtml(driver.suspensionReason)}` : ''}</div>`;
         }
+        const expiry = licenseExpiryInfo(driver);
+        const expiryNotice = expiry.status === 'expired' || expiry.status === 'soon'
+            ? `<div class="dd-notice${expiry.status === 'soon' ? ' warn' : ''}"><strong>${escapeHtml(expiry.text)}.</strong> The license is valid until ${escapeHtml(expiry.dateLabel)}.</div>`
+            : '';
         return `
-            ${suspension}
+            ${suspension}${expiryNotice}
             <div class="dd-stats">
                 ${ddStat(rating, 'Rating')}
                 ${ddStat(stats.completed, 'Completed rides')}
@@ -2153,7 +2361,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <div class="dd-card wide">
                     <div class="dd-card-title">License &amp; identification</div>
                     ${ddRow('License number', driver.license)}
-                    ${ddRow('License expiry', driver.licenseExpiry)}
+                    ${ddRow('License expiry', licenseExpiryRowHtml(driver), { html: true })}
                     ${ddRow('Government ID', driver.governmentId)}
                 </div>
             </div>`;
