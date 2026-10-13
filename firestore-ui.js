@@ -2706,6 +2706,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         openActionHistoryModal(name, () => ParaFirestore.fetchPassengerActions(passengerId), 'No actions recorded for this passenger yet.');
     };
 
+    // "indefinitely" / "for 3 days" in the suspension toasts.
+    function suspensionDurationLabel(value) {
+        if (value === 'permanent') return 'indefinitely';
+        return `for ${value} day${value === '1' ? '' : 's'}`;
+    }
+
     window.confirmDriverBan = function(driverId, name) {
         const customBodyHtml = `
             <div style="text-align:left; margin-bottom:12px; color:var(--text-muted);">This driver will be suspended and cannot accept rides until reactivated.</div>
@@ -2740,7 +2746,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     await ParaFirestore.updateDriverAccountStatus(driverId, 'suspended', daysValue, reason);
                     ParaFirestore.logDriverAction(driverId, name, 'Suspension', reason).catch((error) => console.error('Failed to log driver action:', error));
                     settleOnSuspension(driverId, reason);
-                    const durationLabel = daysValue === 'permanent' ? 'indefinitely' : `for ${daysValue} day${daysValue === '1' ? '' : 's'}`;
+                    const durationLabel = suspensionDurationLabel(daysValue);
                     window.showToast(`${name} has been suspended ${durationLabel}.`, 'error');
                 } catch (error) {
                     window.showToast('Failed to suspend driver.', 'error');
@@ -2793,7 +2799,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const reason = reasonInput ? reasonInput.value.trim() : '';
                     await ParaFirestore.updatePassengerStatus(userId, 'suspended', daysValue, reason);
                     ParaFirestore.logPassengerAction(userId, name, 'Suspension', reason).catch((error) => console.error('Failed to log passenger action:', error));
-                    const durationLabel = daysValue === 'permanent' ? 'indefinitely' : `for ${daysValue} day${daysValue === '1' ? '' : 's'}`;
+                    const durationLabel = suspensionDurationLabel(daysValue);
                     window.showToast(`${name} has been suspended ${durationLabel}.`, 'error');
                 } catch (error) {
                     window.showToast('Failed to suspend passenger.', 'error');

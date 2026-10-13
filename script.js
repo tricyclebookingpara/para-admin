@@ -402,6 +402,22 @@ document.addEventListener('DOMContentLoaded', () => {
         return { labels, counts, revenue };
     }
 
+    // Reports → Monthly Ride Report: completed and cancelled bookings in each
+    // week of the month picked on the Reports page (days 1-7, 8-14, 15-21 and
+    // 22 to the end). Other statuses (declined, pending…) aren't shown.
+    function weeklyRideOutcomes(bookings) {
+        const completed = [0, 0, 0, 0];
+        const cancelled = [0, 0, 0, 0];
+        bookingsInReportsMonth(bookings).forEach((booking) => {
+            const date = new Date(booking.createdAtRaw);
+            const week = Math.min(3, Math.floor((date.getDate() - 1) / 7));
+            const status = String(booking.status || '').toLowerCase();
+            if (status === 'completed') completed[week] += 1;
+            else if (status === 'cancelled' || status === 'canceled') cancelled[week] += 1;
+        });
+        return { labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'], completed, cancelled };
+    }
+
     function aggregateYearlyData(bookings) {
         const year = new Date().getFullYear();
         const labels = Array.from({ length: 12 }, (_, i) => new Date(year, i, 1).toLocaleDateString('en-US', { month: 'short' }));
@@ -516,37 +532,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateStaticCharts() {
         if (monthlyRidesChart) {
-            const aggregated = aggregateMonthlyData(dashboardBookings, reportsMonthBounds().start);
-            monthlyRidesChart.data.labels = aggregated.labels;
-            monthlyRidesChart.data.datasets[0].data = aggregated.counts;
-            monthlyRidesChart.data.datasets[1].data = aggregated.revenue;
+            const outcomes = weeklyRideOutcomes(dashboardBookings);
+            monthlyRidesChart.data.labels = outcomes.labels;
+            monthlyRidesChart.data.datasets[0].data = outcomes.completed;
+            monthlyRidesChart.data.datasets[1].data = outcomes.cancelled;
             monthlyRidesChart.update();
         }
 
         if (peakHoursRidesChart) {
-            const labels = ['6AM', '8AM', '10AM', '12PM', '2PM', '4PM', '6PM', '8PM', '10PM'];
-            const counts = Array(9).fill(0);
-            const uniqueDays = new Set();
-
-            bookingsInReportsMonth(dashboardBookings).forEach((booking) => {
-                const date = new Date(booking.createdAtRaw);
-                uniqueDays.add(date.toDateString());
-                const bucket = Math.floor((date.getHours() - 6) / 2);
-                if (bucket >= 0 && bucket < 9) counts[bucket] += 1;
-            });
-
-            // The dataset is labeled "Avg. Rides/hr" — actually divide by the
-            // number of days represented, otherwise this is a running total
-            // that only ever climbs as more history accumulates, which isn't
-            // what "average" means and contradicts the Peak Hour stat card
-            // right above it (which does compute a real average).
-            const daysCount = Math.max(1, uniqueDays.size);
-            const averages = counts.map((c) => Math.round((c / daysCount) * 10) / 10);
-
-            peakHoursRidesChart.data.labels = labels;
+            // One bar per hour of the day, the same hourly figures as the summary
+            // line above the chart and the CSV export. The busiest hour is the
+            // darkest bar.
+            const { totals, days } = peakHourStats(dashboardBookings);
+            const averages = totals.map((count) => Math.round((count / days) * 10) / 10);
+            const peak = Math.max(...totals);
+            peakHoursRidesChart.data.labels = totals.map((_, hour) => shortHourLabel(hour));
             peakHoursRidesChart.data.datasets[0].data = averages;
+            peakHoursRidesChart.data.datasets[0].backgroundColor = totals.map((count) => (peak > 0 && count === peak ? '#05CD99' : 'rgba(5, 205, 153, 0.35)'));
+            peakHoursRidesChart.$totals = totals;
+            peakHoursRidesChart.$days = days;
             peakHoursRidesChart.update();
         }
+    }
+
+    // Bookings per hour of the day (0-23) for the month picked on the Reports
+    // page, and how many different days they fall on. Averages are "per day
+    // that had bookings", so a quiet half-empty month isn't dragged down.
+    function peakHourStats(bookings) {
+        const totals = Array(24).fill(0);
+        const dayKeys = new Set();
+        bookingsInReportsMonth(bookings).forEach((b) => {
+            const date = new Date(b.createdAtRaw);
+            totals[date.getHours()] += 1;
+            dayKeys.add(date.toDateString());
+        });
+        return { totals, days: Math.max(1, dayKeys.size) };
+    }
+
+    // "6AM", "12PM" — short enough to label all 24 bars.
+    function shortHourLabel(hour) {
+        return `${hour % 12 || 12}${hour < 12 ? 'AM' : 'PM'}`;
     }
 
     // Shared by any chart pairing a booking count with a peso revenue series on
@@ -612,26 +637,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 datasets: [{
                     label: 'Completed',
                     data: [0, 0, 0, 0],
-                    yAxisID: 'y',
-                    backgroundColor: '#1A73E8',
+                    backgroundColor: '#05CD99',
                     borderRadius: 5,
                 }, {
-                    label: 'Revenue',
+                    label: 'Cancelled',
                     data: [0, 0, 0, 0],
-                    yAxisID: 'y1',
-                    backgroundColor: '#05CD99',
+                    backgroundColor: '#EE5D50',
                     borderRadius: 5,
                 }]
             },
             options: {
                 ...chartDefaults,
-                plugins: {
-                    legend: chartDefaults.plugins.legend,
-                    tooltip: { callbacks: { label: revenueTooltipLabel } }
-                },
+                plugins: { legend: chartDefaults.plugins.legend },
                 scales: {
-                    y: { beginAtZero: true, position: 'left', grid: { color: gridColor }, ticks: { font: { size: 11 } } },
-                    y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, ticks: { font: { size: 11 }, callback: (value) => formatCurrency(value) } },
+                    y: { beginAtZero: true, grid: { color: gridColor }, ticks: { font: { size: 11 }, precision: 0 } },
                     x: { grid: { display: false }, ticks: { font: { size: 11 } } }
                 }
             }
@@ -641,26 +660,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const ctxPeak = document.getElementById('peakHoursRidesChart');
     if (ctxPeak) {
         peakHoursRidesChart = new Chart(ctxPeak, {
-            type: 'line',
+            type: 'bar',
             data: {
-                labels: ['6AM', '8AM', '10AM', '12PM', '2PM', '4PM', '6PM', '8PM', '10PM'],
+                labels: Array.from({ length: 24 }, (_, hour) => `${hour % 12 || 12}${hour < 12 ? 'AM' : 'PM'}`),
                 datasets: [{
-                    label: 'Avg. Rides/hr',
-                    data: [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    borderColor: '#05CD99',
-                    backgroundColor: 'rgba(5, 205, 153, 0.1)',
-                    borderWidth: 2.5,
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 3,
+                    label: 'Avg. bookings per hour',
+                    data: Array(24).fill(0),
+                    backgroundColor: 'rgba(5, 205, 153, 0.35)',
+                    borderRadius: 4,
+                    maxBarThickness: 26
                 }]
             },
             options: {
                 ...chartDefaults,
-                plugins: { legend: { display: false } },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: (items) => (items.length ? formatHourLabel(items[0].dataIndex) : ''),
+                            label: (ctx) => {
+                                const total = (ctx.chart.$totals || [])[ctx.dataIndex] || 0;
+                                const days = ctx.chart.$days || 1;
+                                return `${ctx.raw} bookings per day (${total} in total over ${days} day${days === 1 ? '' : 's'})`;
+                            }
+                        }
+                    }
+                },
                 scales: {
-                    y: { beginAtZero: true, grid: { color: gridColor }, ticks: { font: { size: 11 } } },
-                    x: { grid: { display: false }, ticks: { font: { size: 11 } } }
+                    y: { beginAtZero: true, grid: { color: gridColor }, ticks: { font: { size: 11 }, precision: 0 }, title: { display: true, text: 'Bookings per day', font: { size: 11 } } },
+                    x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: false } }
                 }
             }
         });
@@ -778,24 +806,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // Peak hour of the selected month lives in the Peak Hours Analysis
         // card's subtitle instead of its own stat card.
         const monthLabel = reportsMonthBounds().label;
-        const hourTotals = Array(24).fill(0);
-        const uniqueDays = new Set();
-        bookingsInReportsMonth(bookings).forEach((b) => {
-            const date = new Date(b.createdAtRaw);
-            hourTotals[date.getHours()] += 1;
-            uniqueDays.add(date.toDateString());
-        });
+        const { totals, days } = peakHourStats(bookings);
         const peakSummaryEl = document.getElementById('peakHourSummary');
         if (!peakSummaryEl) return;
-        const peakCount = Math.max(...hourTotals);
+        const peakCount = Math.max(...totals);
         if (!peakCount) {
             peakSummaryEl.textContent = `No bookings in ${monthLabel}.`;
             return;
         }
-        const maxHour = hourTotals.indexOf(peakCount);
-        const daysCount = Math.max(1, uniqueDays.size);
-        const avgPerHour = (peakCount / daysCount).toFixed(1);
-        peakSummaryEl.textContent = `Peak hour in ${monthLabel}: ${formatHourLabel(maxHour)} · ${avgPerHour} rides per day at that hour`;
+        const maxHour = totals.indexOf(peakCount);
+        const avgPerDay = (peakCount / days).toFixed(1);
+        peakSummaryEl.textContent = `Peak hour in ${monthLabel}: ${formatHourLabel(maxHour)} · ${avgPerDay} bookings per day at that hour (${peakCount} in total, across ${days} day${days === 1 ? '' : 's'} with bookings)`;
     }
 
     // Month dropdown on the Reports page: one option per month from the
@@ -916,13 +937,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.exportPeakHoursAnalysis = function() {
         // Follows the month picked on the Reports page, like the chart does.
-        const hourTotals = Array(24).fill(0);
-        bookingsInReportsMonth(dashboardBookings).forEach((b) => {
-            hourTotals[new Date(b.createdAtRaw).getHours()] += 1;
-        });
-        const rows = hourTotals.map((count, hour) => [formatHourLabel(hour), count]);
+        const { totals, days } = peakHourStats(dashboardBookings);
+        const rows = totals.map((count, hour) => [formatHourLabel(hour), count, (count / days).toFixed(1)]);
         downloadCsv(`peak-hours-analysis-${new Date().toISOString().slice(0, 10)}.csv`,
-            ['Hour', 'Rides'], rows);
+            ['Hour', 'Bookings', 'Avg per day'], rows);
         showToast('Peak hours analysis exported.', 'success');
     };
 

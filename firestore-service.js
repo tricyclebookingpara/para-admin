@@ -700,6 +700,14 @@ const ParaFirestore = (() => {
         });
     }
 
+    // When a suspension ends: 'permanent' never does (null), anything else is
+    // that many days (3 if it isn't a positive number).
+    function suspensionEndDate(suspensionDays) {
+        if (suspensionDays === 'permanent') return null;
+        const days = Number(suspensionDays) > 0 ? Number(suspensionDays) : 3;
+        return new Date(Date.now() + (days * 24 * 60 * 60 * 1000));
+    }
+
     async function updateDriverAccountStatus(driverId, status, suspensionDays = 3, reason = '') {
         const payload = {
             accountStatus: status,
@@ -709,13 +717,8 @@ const ParaFirestore = (() => {
 
         if (status === 'suspended') {
             payload.suspensionReason = reason || '';
-            if (suspensionDays === 'permanent') {
-                payload.suspendedUntil = null;
-            } else {
-                const days = Number(suspensionDays) > 0 ? Number(suspensionDays) : 3;
-                const expiresAt = new Date(Date.now() + (days * 24 * 60 * 60 * 1000));
-                payload.suspendedUntil = firebase.firestore.Timestamp.fromDate(expiresAt);
-            }
+            const endsAt = suspensionEndDate(suspensionDays);
+            payload.suspendedUntil = endsAt ? firebase.firestore.Timestamp.fromDate(endsAt) : null;
             payload.suspendedAt = firebase.firestore.FieldValue.serverTimestamp();
         } else {
             payload.suspendedUntil = null;
@@ -869,13 +872,8 @@ const ParaFirestore = (() => {
 
         if (status === 'suspended') {
             payload.suspensionReason = reason || '';
-            if (suspensionDays === 'permanent') {
-                payload.suspendedUntil = null;
-            } else {
-                const days = Number(suspensionDays) > 0 ? Number(suspensionDays) : 3;
-                const expiresAt = new Date(Date.now() + (days * 24 * 60 * 60 * 1000));
-                payload.suspendedUntil = firebase.firestore.Timestamp.fromDate(expiresAt);
-            }
+            const endsAt = suspensionEndDate(suspensionDays);
+            payload.suspendedUntil = endsAt ? firebase.firestore.Timestamp.fromDate(endsAt) : null;
             payload.suspendedAt = firebase.firestore.FieldValue.serverTimestamp();
         } else {
             payload.suspendedUntil = null;
