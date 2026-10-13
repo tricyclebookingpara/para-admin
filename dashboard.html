@@ -6,7 +6,7 @@
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-    <link rel="stylesheet" href="style.css?v=65">
+    <link rel="stylesheet" href="style.css?v=66">
 </head>
 <body>
 <div class="app-background">
@@ -278,7 +278,7 @@
                         </div>
 
                         <div class="vf-block-title" style="margin:22px 0 10px;">Documents</div>
-                        <div class="vf-photo-compare vf-three">
+                        <div class="vf-photo-compare">
                             <div>
                                 <div class="doc-preview vf-tile">
                                     <a href="#" id="v-license-link" target="_blank" rel="noopener" class="vf-tile-link">
@@ -305,6 +305,15 @@
                                     <span id="v-tri-empty" class="vf-tile-empty">No tricycle photo yet</span>
                                 </div>
                                 <div class="vf-tile-caption">Tricycle photo</div>
+                            </div>
+                            <div>
+                                <div class="doc-preview vf-tile">
+                                    <a href="#" id="v-permit-link" target="_blank" rel="noopener" class="vf-tile-link">
+                                        <img id="v-permit-img" alt="Tricycle permit">
+                                    </a>
+                                    <span id="v-permit-empty" class="vf-tile-empty">Loading…</span>
+                                </div>
+                                <div class="vf-tile-caption">Tricycle permit (franchise / MTOP)</div>
                             </div>
                         </div>
                     </div>
@@ -1112,12 +1121,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=46"></script>
+<script src="firestore-service.js?v=47"></script>
 <script src="prediction.js?v=8"></script>
 <script src="sample-data.js?v=8"></script>
 <script src="forecast.js?v=6"></script>
 <script src="script.js?v=86"></script>
-<script src="firestore-ui.js?v=72"></script>
+<script src="firestore-ui.js?v=74"></script>
 <script src="forecast-ui.js?v=5"></script>
 </body>
 </html>

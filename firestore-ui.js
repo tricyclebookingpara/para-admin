@@ -286,7 +286,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // The government ID is shown once, next to the profile photo (prefix cmp-gov).
     const VERIFICATION_DOC_SLOTS = [
         { key: 'license', prefix: 'license' },
-        { key: 'vehicleRegistration', prefix: 'reg' }
+        { key: 'vehicleRegistration', prefix: 'reg' },
+        { key: 'tricyclePermit', prefix: 'permit' }
     ];
 
     function setDocMessage(prefix, message) {
@@ -302,7 +303,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const fromDoc = {
             governmentId: driver.governmentIdImageUrl || '',
             license: driver.licenseImageUrl || '',
-            vehicleRegistration: driver.vehicleRegistrationImageUrl || ''
+            vehicleRegistration: driver.vehicleRegistrationImageUrl || '',
+            tricyclePermit: driver.tricyclePermitImageUrl || ''
         };
         let stored = {};
         let error = null;
@@ -314,6 +316,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         const documents = {};
         Object.keys(fromDoc).forEach((key) => { documents[key] = stored[key] || fromDoc[key] || null; });
+        // The permit file name ends in a timestamp, so the user-doc URL always
+        // points at the current file and wins over whatever Storage lists.
+        documents.tricyclePermit = fromDoc.tricyclePermit || stored.tricyclePermit || null;
         return { documents, error };
     }
 
@@ -322,17 +327,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         return blocked ? 'Can’t open — Storage rules don’t allow the admin site to read this file' : 'Could not load';
     }
 
+    let verificationPermitMissing = false;
+
     async function loadVerificationDocuments(driver) {
         const driverId = driver.id;
+        verificationPermitMissing = false;
         VERIFICATION_DOC_SLOTS.forEach(({ prefix }) => setDocMessage(prefix, 'Loading…'));
         setDocMessage('cmp-gov', 'Loading…');
         const { documents, error } = await fetchDriverDocumentUrls(driver);
         if (currentVerificationDriverId !== driverId) return; // another application was opened meanwhile
-        const show = (prefix, url) => {
+        const show = (prefix, url, storageBacked = true) => {
             if (url) setDocImage(`v-${prefix}-link`, `v-${prefix}-img`, url, `v-${prefix}-empty`);
-            else setDocMessage(prefix, error ? documentErrorMessage(error) : 'Not uploaded');
+            else setDocMessage(prefix, error && storageBacked ? documentErrorMessage(error) : 'Not uploaded');
         };
-        VERIFICATION_DOC_SLOTS.forEach(({ key, prefix }) => show(prefix, documents[key]));
+        VERIFICATION_DOC_SLOTS.forEach(({ key, prefix }) => show(prefix, documents[key], key !== 'tricyclePermit'));
+        // The permit's URL is on the user doc, which is always readable, so an
+        // empty field means it was never uploaded — even if Storage can't be read.
+        verificationPermitMissing = !documents.tricyclePermit;
+        refreshApproveState();
         // The same ID photo again, next to the profile photo for the face check.
         show('cmp-gov', documents.governmentId);
     }
@@ -1834,6 +1846,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 : 'The driver hasn’t added a profile photo yet.';
         }
         if (driver.profilePhotoStatus === 'rejected') return 'The profile photo was rejected — the driver needs to add a new one.';
+        if (verificationPermitMissing) return 'The driver hasn’t uploaded a tricycle permit yet — use Request Info to ask for it.';
         return '';
     }
 
@@ -1842,8 +1855,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const hint = document.getElementById('v-approve-hint');
         const driver = currentVerificationDriver;
         if (!approveBtn || !driver) return;
-        // Approve needs a profile photo that hasn't been rejected. The tricycle
-        // photo is never required (older drivers don't have one).
+        // Approve needs a profile photo that hasn't been rejected and the tricycle
+        // permit. The tricycle photo itself is never required (older drivers don't
+        // have one).
         const photoReason = approveBlockReason(driver);
         approveBtn.disabled = verificationDuplicateBlocking || Boolean(photoReason);
         approveBtn.title = verificationDuplicateBlocking ? 'This application matches an approved account' : photoReason;
@@ -2387,6 +2401,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ${driver.tricycleImageUrl
                         ? `<a class="dd-thumb" href="${escapeHtml(driver.tricycleImageUrl)}" target="_blank" rel="noopener" title="Open the tricycle photo"><img src="${escapeHtml(driver.tricycleImageUrl)}" alt="Tricycle photo" loading="lazy"></a>`
                         : ddRow('Tricycle photo', 'Not added yet')}
+                    ${driver.tricyclePermitImageUrl
+                        ? `<a class="dd-thumb" href="${escapeHtml(driver.tricyclePermitImageUrl)}" target="_blank" rel="noopener" title="Open the tricycle permit"><img src="${escapeHtml(driver.tricyclePermitImageUrl)}" alt="Tricycle permit" loading="lazy"></a>`
+                        : ddRow('Tricycle permit', 'Not uploaded yet')}
                 </div>
                 <div class="dd-card wide">
                     <div class="dd-card-title">License &amp; identification</div>

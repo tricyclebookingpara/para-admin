@@ -214,6 +214,9 @@ const ParaFirestore = (() => {
             // one of the three verification documents and has no review step.
             motorcycleModel: getField(data, 'motorcycleModel'),
             tricycleImageUrl: getField(data, 'tricycleImageUrl'),
+            // The 4th verification document: a photo of the tricycle permit
+            // (franchise / MTOP). No number or expiry is collected.
+            tricyclePermitImageUrl: getField(data, 'tricyclePermitImageUrl'),
             // Profile photo (set by the app). A new or replaced photo is
             // "pending" until the admin approves or rejects it; "" on drivers
             // who registered before the feature. See approveProfilePhoto /
@@ -250,6 +253,11 @@ const ParaFirestore = (() => {
             const item = listing.items.find((entry) => entry.name.replace(/\.[^.]+$/, '').toLowerCase() === baseName);
             documents[key] = item ? await item.getDownloadURL() : null;
         }));
+        // The permit's file name ends in a timestamp (tricycle_permit_<ms>.jpg), so
+        // it is matched by prefix. The tricyclePermitImageUrl field on the user doc
+        // always points at the current file and is preferred; this is the fallback.
+        const permit = listing.items.find((entry) => entry.name.toLowerCase().startsWith('tricycle_permit'));
+        documents.tricyclePermit = permit ? await permit.getDownloadURL() : null;
         return documents;
     }
 
