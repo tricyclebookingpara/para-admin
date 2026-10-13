@@ -1501,8 +1501,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('complaints-total-month').textContent = thisMonth;
     }
 
+    const COMPLAINTS_PAGE_SIZE = 25;
+    let complaintTablePage = 1;
+
+    window.changeComplaintPage = function(delta) {
+        complaintTablePage += delta;
+        renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
+    };
+
     window.complaintMgmtSort = 'newest';
     window.setComplaintSort = function(label) {
+        complaintTablePage = 1;
         window.complaintMgmtSort = /risk/i.test(label || '') ? 'risk' : 'newest';
         const btn = document.getElementById('complaintSortBtn');
         if (btn) btn.querySelector('.filter-val').textContent = label;
@@ -1528,6 +1537,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.setComplaintFilter = function(statusKey) {
         const normalizedKey = (statusKey || 'all').toLowerCase();
         window.complaintMgmtStatusFilter = normalizedKey;
+        complaintTablePage = 1;
         const btn = document.getElementById('complaintStatusBtn');
         if (btn) btn.querySelector('.filter-val').textContent = statusKey;
         
@@ -1553,12 +1563,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             return timeB - timeA;
         });
 
+        const paginationEl = document.getElementById('complaintPagination');
         if (!sortedComplaints.length) {
             tbody.innerHTML = emptyRow(5, 'No complaints found in Firestore.');
+            if (paginationEl) paginationEl.innerHTML = '';
             return;
         }
 
-        tbody.innerHTML = sortedComplaints.map((complaint) => `
+        // One page of rows at a time, like Booking Records.
+        const totalPages = Math.max(1, Math.ceil(sortedComplaints.length / COMPLAINTS_PAGE_SIZE));
+        complaintTablePage = Math.min(Math.max(1, complaintTablePage), totalPages);
+        const pageStart = (complaintTablePage - 1) * COMPLAINTS_PAGE_SIZE;
+        const pageItems = sortedComplaints.slice(pageStart, pageStart + COMPLAINTS_PAGE_SIZE);
+
+        tbody.innerHTML = pageItems.map((complaint) => `
             <tr>
                 <td><div class="book-id">${escapeHtml(complaint.ref)}</div><div class="book-time">Reporter: ${escapeHtml(complaint.reporter)}</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.reported)} ${riskChipHtml(riskOf(complaint.driverId))}</div><div class="detail-sub">Trip: ${escapeHtml(complaint.tripRef)}</div></td>
@@ -1567,6 +1585,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td><button class="action-btn" data-action="view-complaint" data-id="${escapeHtml(complaint.id)}">View Case</button></td>
             </tr>
         `).join('');
+
+        if (paginationEl) {
+            const rangeEnd = Math.min(sortedComplaints.length, pageStart + COMPLAINTS_PAGE_SIZE);
+            paginationEl.innerHTML = `
+                <span>Showing ${pageStart + 1}–${rangeEnd} of ${sortedComplaints.length}</span>
+                <div style="display:flex; gap:8px;">
+                    <button class="action-btn" ${complaintTablePage <= 1 ? 'disabled' : ''} onclick="changeComplaintPage(-1)">Prev</button>
+                    <span style="padding:6px 4px;">Page ${complaintTablePage} of ${totalPages}</span>
+                    <button class="action-btn" ${complaintTablePage >= totalPages ? 'disabled' : ''} onclick="changeComplaintPage(1)">Next</button>
+                </div>
+            `;
+        }
 
         bindRowActions(tbody, {
             'view-complaint': (ds) => window.openComplaintModal(ds.id)
