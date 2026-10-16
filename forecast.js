@@ -122,6 +122,8 @@
         [...(samples || []), ...(events || [])].forEach((record) => {
             const cell = record.barangay;
             if (!cell || !record.driverId || !Number.isFinite(record.ms)) return;
+            // A driver going offline is not available that hour.
+            if (record.event === 'offline') return;
             cells.add(cell);
             firstDriverMs = Math.min(firstDriverMs, record.ms);
             const parts = manilaParts(record.ms);

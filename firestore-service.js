@@ -1045,7 +1045,19 @@ const ParaFirestore = (() => {
         return [];
     }
 
+    // firestore.rules refuses a notification whose title is over 100 or
+    // message over 500 characters, so longer text is cut to fit.
+    const NOTIFICATION_TITLE_MAX = 100;
+    const NOTIFICATION_MESSAGE_MAX = 500;
+
+    function clampText(text, max) {
+        const chars = Array.from(String(text || ''));
+        return chars.length <= max ? chars.join('') : `${chars.slice(0, max - 1).join('')}…`;
+    }
+
     async function writeNotificationDocs(userIds, title, message, bookingId = '') {
+        title = clampText(title, NOTIFICATION_TITLE_MAX);
+        message = clampText(message, NOTIFICATION_MESSAGE_MAX);
         const createdAt = Date.now();
         for (let i = 0; i < userIds.length; i += NOTIFICATION_BATCH_SIZE) {
             const batch = db.batch();
@@ -1389,7 +1401,8 @@ const ParaFirestore = (() => {
                 const data = doc.data() || {};
                 const date = toDate(data.timestamp);
                 if (!date || Number.isNaN(date.getTime())) return;
-                rows.push({ driverId: data.driverId || '', area: data.area || '', ms: date.getTime() });
+                // driverStatusEvents also carry event: 'online' | 'offline'.
+                rows.push({ driverId: data.driverId || '', area: data.area || '', ms: date.getTime(), event: String(data.event || '').toLowerCase() });
             });
             if (snap.size < PREDICTION_PAGE_SIZE) return { rows, truncated: false };
             if (rows.length >= PREDICTION_MAX_LOG_DOCS) return { rows, truncated: true };

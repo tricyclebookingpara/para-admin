@@ -386,7 +386,7 @@
                         </div>
                         <div class="form-group" style="margin-top:16px;">
                             <label>Additional Note <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
-                            <textarea id="requestInfoNote" class="form-input" rows="3" placeholder="Add a specific instruction for the driver…"></textarea>
+                            <textarea id="requestInfoNote" class="form-input" rows="3" maxlength="400" placeholder="Add a specific instruction for the driver…"></textarea>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -603,7 +603,7 @@
                         <div class="form-group"><label>Driver Risk Score</label><div id="c-risk-box" class="risk-box"><div style="color:var(--text-muted);">—</div></div></div>
                         <hr style="border:none; border-top:1px solid var(--border-color); margin:20px 0;">
                         <h3 style="font-size:15px; font-weight:700; margin-bottom:14px;">Take Action</h3>
-                        <div class="form-group"><label>Resolution Note</label><textarea id="complaint-admin-notes" class="form-input" rows="3" placeholder="Type your resolution or notes here…"></textarea><div class="detail-sub" style="margin-top:4px;">Sent to the passenger who reported it, and to the driver too when you issue a warning or suspension.</div></div>
+                        <div class="form-group"><label>Resolution Note</label><textarea id="complaint-admin-notes" class="form-input" rows="3" maxlength="400" placeholder="Type your resolution or notes here…"></textarea><div class="detail-sub" style="margin-top:4px;">Sent to the passenger who reported it, and to the driver too when you issue a warning or suspension.</div></div>
                     </div>
                     <div class="modal-footer case-actions" id="complaintModalActions">
                         <div class="case-actions-main">
@@ -1015,8 +1015,8 @@
                             <div class="target-chip" data-target="everyone">Everyone</div>
                         </div>
                     </div>
-                    <div class="form-group"><label>Message Title</label><input type="text" class="form-input" id="notif-title" placeholder="e.g. System Maintenance Notice"></div>
-                    <div class="form-group"><label>Message Body</label><textarea class="form-input" id="notif-body" rows="5" placeholder="Type your announcement here…"></textarea></div>
+                    <div class="form-group"><label>Message Title</label><input type="text" class="form-input" id="notif-title" maxlength="100" placeholder="e.g. System Maintenance Notice"></div>
+                    <div class="form-group"><label>Message Body</label><textarea class="form-input" id="notif-body" rows="5" maxlength="500" placeholder="Type your announcement here…"></textarea></div>
                     <div style="display:flex; gap:12px; align-items:center; margin-top:6px;">
                         <button class="primary-btn" onclick="sendNotification()">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -1144,13 +1144,13 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=51"></script>
+<script src="firestore-service.js?v=52"></script>
 <script src="prediction.js?v=8"></script>
 <script src="sample-data.js?v=8"></script>
-<script src="forecast.js?v=6"></script>
+<script src="forecast.js?v=7"></script>
 <script src="script.js?v=92"></script>
 <script src="google-maps-config.js?v=1"></script>
-<script src="firestore-ui.js?v=89"></script>
+<script src="firestore-ui.js?v=90"></script>
 <script src="forecast-ui.js?v=5"></script>
 </body>
 </html>

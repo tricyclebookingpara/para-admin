@@ -159,9 +159,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     function riskExplainHtml() {
         return `<details class="risk-explain"><summary>How is this calculated?</summary>
             <ul>
-                <li><strong>Complaints (50%)</strong> — each counts 1 when filed, half as much every 30 days, and stops after 90 days. Complaints that were dismissed never count. A total of 3 or more gives the full 50 points.</li>
-                <li><strong>Rating (30%)</strong> — adjusted so a driver with few ratings isn’t judged on one bad trip. 4.0★ or better adds nothing; 2.5★ or lower adds the full 30.</li>
-                <li><strong>Past offences (20%)</strong> — warnings from the last 180 days plus suspensions you approved. 3 or more gives the full 20.</li>
+                <li><strong>Complaints (45%)</strong> — each counts 1 when filed, half as much every 30 days, and stops after 90 days. Complaints that were dismissed never count. A total of 3 or more gives the full 45 points.</li>
+                <li><strong>Rating (25%)</strong> — adjusted so a driver with few ratings isn’t judged on one bad trip. 4.0★ or better adds nothing; 2.5★ or lower adds the full 25.</li>
+                <li><strong>Past offences (15%)</strong> — warnings from the last 180 days plus suspensions you approved (a suspension and the president recommendation it carried out count once). 3 or more gives the full 15.</li>
+                <li><strong>Cancellations (15%)</strong> — rides the driver cancelled after accepting, out of those accepted in the last 30 days. Needs at least 10 accepted rides. 5% or less adds nothing; 25% or more adds the full 15.</li>
             </ul>
             <div>60+ is HIGH, 30–59 MEDIUM, under 30 LOW. Suspension is only suggested for a driver who already has a warning or an approved suspension.</div>
         </details>`;
@@ -300,6 +301,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // The document photos the driver uploaded in the app, from Firebase Storage
     // (see fetchDriverDocuments). Nothing is shown in place of a missing file.
     // The government ID is shown once, next to the profile photo (prefix cmp-gov).
+    const REQUIRED_DOCUMENT_COUNT = 4;
     const VERIFICATION_DOC_SLOTS = [
         { key: 'license', prefix: 'license' },
         { key: 'vehicleRegistration', prefix: 'reg' },
@@ -358,6 +360,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         VERIFICATION_DOC_SLOTS.forEach(({ key, prefix }) => show(prefix, documents[key], key !== 'tricyclePermit'));
         // The same ID photo again, next to the profile photo for the face check.
         show('cmp-gov', documents.governmentId);
+        // "x of 4 documents": the app counts the ID, license, OR/CR and tricycle
+        // permit. Left out when Storage couldn't be read, since the count would be a guess.
+        const found = ['governmentId', 'license', 'vehicleRegistration', 'tricyclePermit'].filter((key) => documents[key]).length;
+        const meta = document.getElementById('v-meta');
+        if (meta && !(error && found < REQUIRED_DOCUMENT_COUNT)) {
+            meta.insertAdjacentHTML('beforeend', `<span>${found} of ${REQUIRED_DOCUMENT_COUNT} documents</span>`);
+        }
     }
 
     // ── Duplicate accounts ───────────────────────────────────────
@@ -467,9 +476,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Pending covers both "never looked at" and "already reviewed once, waiting
             // on the driver to resubmit requested documents" — flag the latter so it
             // doesn't get mistaken for (or re-requested as) a fresh application.
-            const infoRequestNote = driver.infoRequest
-                ? `<div class="detail-sub" style="color:#B8860B; margin-top:4px;">Awaiting driver response</div>`
-                : '';
+            const resubmittedAt = driver.infoRequest ? Number(driver.infoRequest.submittedAt) || 0 : 0;
+            const infoRequestNote = !driver.infoRequest ? ''
+                : resubmittedAt
+                    ? `<div class="detail-sub" style="color:#1A73E8; font-weight:600; margin-top:4px;">Resubmitted ${escapeHtml(ParaFirestore.formatDateTime(resubmittedAt))} — review the new documents</div>`
+                    : `<div class="detail-sub" style="color:#B8860B; margin-top:4px;">Awaiting driver response</div>`;
             const duplicates = findDuplicates(driver).filter((d) => !d.soft);
             const duplicateNote = duplicates.length
                 ? `<div class="detail-sub" style="color:#EE5D50; font-weight:600; margin-top:4px;">${duplicates.some((d) => d.blocking) ? 'Duplicate account' : 'Possible duplicate'}</div>`
@@ -2047,8 +2058,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('v-lic-expiry').textContent = mapped.licenseExpiry || '—';
             document.getElementById('v-gov-no').textContent = mapped.governmentId || '—';
             document.getElementById('v-reg-date').textContent = mapped.vehicleRegistrationDate || '—';
+            const request = mapped.infoRequest;
+            const requestNote = !request ? ''
+                : request.submittedAt
+                    ? `<span>Requested documents resubmitted ${escapeHtml(ParaFirestore.formatDateTime(Number(request.submittedAt)))}</span>`
+                    : `<span>Waiting for: ${escapeHtml((request.documents || []).join(', ') || 'documents')}</span>`;
             document.getElementById('v-meta').innerHTML = renderBadge(mapped.verificationStatus)
-                + (mapped.submittedAt && mapped.submittedAt !== '—' ? `<span>Submitted ${escapeHtml(mapped.submittedAt)}</span>` : '');
+                + (mapped.submittedAt && mapped.submittedAt !== '—' ? `<span>Submitted ${escapeHtml(mapped.submittedAt)}</span>` : '')
+                + requestNote;
 
             loadVerificationDocuments(mapped);
 
