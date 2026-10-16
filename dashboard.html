@@ -6,7 +6,7 @@
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-    <link rel="stylesheet" href="style.css?v=72">
+    <link rel="stylesheet" href="style.css?v=74">
 </head>
 <body>
 <div class="app-background">
@@ -142,7 +142,7 @@
                         <div class="stat-icon icon-blue"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
                         <div class="stat-info"><h3>Total Bookings</h3><h2>—</h2><span class="stat-change neutral">Loading…</span></div>
                     </a>
-                    <a href="#bookings" data-view="bookings" class="stat-card stat-card-link" id="earningsCard" title="Estimated PARA share of the service fee - open Booking Records">
+                    <a href="#bookings" data-view="bookings" class="stat-card stat-card-link" id="earningsCard" title="PARA share of the service fee - open Booking Records">
                         <div class="stat-icon icon-green"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
                         <div class="stat-info"><h3>PARA Earnings</h3><h2>—</h2><span class="stat-change neutral">Loading…</span></div>
                     </a>
@@ -803,6 +803,11 @@
                         <div class="fee-item"><div class="fee-value" id="rep-driver">-</div><div class="fee-label" id="rep-driver-label">Drivers</div></div>
                         <div class="fee-item"><div class="fee-value" id="rep-toda">-</div><div class="fee-label" id="rep-toda-label">TODAs</div></div>
                     </div>
+                    <h4 style="margin:18px 0 8px;">TODA shares</h4>
+                    <table class="data-table compact-table">
+                        <thead><tr><th>TODA</th><th>Rides</th><th>TODA share</th></tr></thead>
+                        <tbody id="todaShareBody"><tr><td colspan="3" style="color:var(--text-muted);">Loading...</td></tr></tbody>
+                    </table>
                 </div>
 
                 <div class="chart-card report-chart-wide">
@@ -1139,13 +1144,13 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=50"></script>
+<script src="firestore-service.js?v=51"></script>
 <script src="prediction.js?v=8"></script>
 <script src="sample-data.js?v=8"></script>
 <script src="forecast.js?v=6"></script>
-<script src="script.js?v=89"></script>
+<script src="script.js?v=92"></script>
 <script src="google-maps-config.js?v=1"></script>
-<script src="firestore-ui.js?v=84"></script>
+<script src="firestore-ui.js?v=89"></script>
 <script src="forecast-ui.js?v=5"></script>
 </body>
 </html>

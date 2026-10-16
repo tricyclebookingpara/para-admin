@@ -158,8 +158,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // The service fee is charged on top of the fare and split PARA / driver /
     // TODA (percentages saved in settings/fare; 12 / 4 / 4 until they load).
-    // Bookings don't record the fee yet, so every figure built from this is an
-    // estimate: the percentage applied to a completed ride's fare.
+    // New bookings carry their own fee (mapBookingDoc); this is only used to
+    // estimate it for bookings made before the fee existed.
     function getServiceFee() {
         const s = window.serviceFeeSettings || {};
         const num = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
@@ -170,6 +170,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const trimPct = (value) => String(Number(Number(value).toFixed(2)));
+
+    // One booking's service fee and its split: what the booking recorded, or
+    // for an older booking without one, the current percentages applied to
+    // its fare (estimated: true).
+    function bookingFee(booking) {
+        if (booking.hasServiceFee) {
+            return { estimated: false, total: booking.serviceFee, para: booking.paraShare, driver: booking.driverShare, toda: booking.todaShare };
+        }
+        const fee = getServiceFee();
+        const fare = Number(booking.totalFare) || 0;
+        const part = (pct) => fare * pct / 100;
+        return { estimated: true, total: part(fee.totalPct), para: part(fee.paraPct), driver: part(fee.driverPct), toda: part(fee.todaPct) };
+    }
+
+    // Fee totals over completed bookings.
+    function sumFees(bookings) {
+        return bookings.filter(isRevenueEligible).reduce((sum, b) => {
+            const fee = bookingFee(b);
+            sum.total += fee.total;
+            sum.para += fee.para;
+            sum.driver += fee.driver;
+            sum.toda += fee.toda;
+            if (fee.estimated) sum.estimatedRides += 1;
+            return sum;
+        }, { total: 0, para: 0, driver: 0, toda: 0, estimatedRides: 0 });
+    }
 
     // The one Dashboard filter (Today / Weekly / Monthly / Yearly) drives the
     // cards, the trend chart and High Demand Areas, so they all read their
@@ -251,8 +277,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return {
             count: filtered.length,
             revenue,
-            // PARA's share of the service fee on those fares (estimated).
-            paraEarnings: revenue * getServiceFee().paraPct / 100
+            // PARA's share of the service fee on those fares.
+            paraEarnings: sumFees(filtered).para
         };
     }
 
@@ -291,7 +317,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cards[1].querySelector('.stat-change').textContent = formatChange(currentMetrics.paraEarnings, previousMetrics.paraEarnings);
             // What the number is made of, on hover.
             const fee = getServiceFee();
-            cards[1].title = `PARA's ${trimPct(fee.paraPct)}% of ${formatCurrency(currentMetrics.revenue)} in completed ride fares (estimated). The service fee is ${trimPct(fee.totalPct)}% on top of the fare: PARA ${trimPct(fee.paraPct)}%, driver ${trimPct(fee.driverPct)}%, TODA ${trimPct(fee.todaPct)}%. Click to open Booking Records.`;
+            cards[1].title = `PARA's share of the service fee on ${formatCurrency(currentMetrics.revenue)} in completed ride fares (estimated at the current ${trimPct(fee.paraPct)}% for rides booked before the fee). The service fee is ${trimPct(fee.totalPct)}% on top of the fare: PARA ${trimPct(fee.paraPct)}%, driver ${trimPct(fee.driverPct)}%, TODA ${trimPct(fee.todaPct)}%. Click to open Booking Records.`;
             cards[1].querySelector('.stat-change').className = `stat-change ${revenueTrend}`;
         }
         // "Active Drivers/Passengers" is a current total, not a period-scoped count —
@@ -777,24 +803,74 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Reports → Service Fee Breakdown for the selected month: completed ride
-    // fares, the service fee on top (20% by default) and its split. Estimated
-    // from the saved percentages, because bookings don't record the fee yet.
+    // fares, the service fee on top and its split, as recorded on each
+    // booking (estimated from the current percentages for older bookings),
+    // plus what each TODA is owed — PARA pays the TODA share out by hand.
     function updateFeeBreakdown(bookings) {
         const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
         const fee = getServiceFee();
         const monthLabel = reportsMonthBounds().label;
-        const fares = bookingsInReportsMonth(bookings).filter(isRevenueEligible).reduce((sum, b) => sum + (Number(b.totalFare) || 0), 0);
-        const part = (pct) => fares * pct / 100;
+        // Every ride belongs to a TODA, so a ride whose TODA isn't registered here
+        // (sample data, a misspelled name) is left out. Until the TODA accounts
+        // have loaded there is nothing to compare with, so nothing is left out.
+        const registered = registeredTodas();
+        const completed = bookingsInReportsMonth(bookings).filter(isRevenueEligible)
+            .filter((b) => !registered || registered.has(todaKey(b.driverTodaName)));
+        const fares = completed.reduce((sum, b) => sum + (Number(b.totalFare) || 0), 0);
+        const totals = sumFees(completed);
         set('rep-fares', formatCurrency(fares));
-        set('rep-fee', formatCurrency(part(fee.totalPct)));
-        set('rep-para', formatCurrency(part(fee.paraPct)));
-        set('rep-driver', formatCurrency(part(fee.driverPct)));
-        set('rep-toda', formatCurrency(part(fee.todaPct)));
+        set('rep-fee', formatCurrency(totals.total));
+        set('rep-para', formatCurrency(totals.para));
+        set('rep-driver', formatCurrency(totals.driver));
+        set('rep-toda', formatCurrency(totals.toda));
         set('rep-fee-label', `Service fee (${trimPct(fee.totalPct)}%)`);
         set('rep-para-label', `PARA (${trimPct(fee.paraPct)}%)`);
         set('rep-driver-label', `Drivers (${trimPct(fee.driverPct)}%)`);
         set('rep-toda-label', `TODAs (${trimPct(fee.todaPct)}%)`);
-        set('feeBreakdownNote', `${monthLabel} · estimated: the percentages from Fare Management applied to each completed ride's fare, on top of it. Bookings don't record the fee yet.`);
+        const estimatedNote = totals.estimatedRides
+            ? ` ${totals.estimatedRides} ride(s) booked before the service fee are estimated at today's percentages.`
+            : '';
+        set('feeBreakdownNote', `${monthLabel} · the service fee recorded on each completed ride, on top of its fare.${estimatedNote}`);
+        renderTodaShares(completed, registered);
+    }
+
+    // The TODAs that have a president account on this site, by name ignoring
+    // capital letters; null until those accounts have loaded.
+    function todaKey(name) {
+        return String(name || '').trim().toLowerCase();
+    }
+    function registeredTodas() {
+        const accounts = window.todaPresidentAccounts;
+        if (!accounts) return null;
+        const registered = new Map();
+        accounts.forEach((account) => {
+            if (todaKey(account.todaName)) registered.set(todaKey(account.todaName), String(account.todaName).trim());
+        });
+        return registered;
+    }
+
+    // TODA share per TODA for the month. Only rides that are paid count (a
+    // GCash ride is paid once the passenger pays), matching the president
+    // app's "TODA share this month" (fee_ledger).
+    function renderTodaShares(completed, registered) {
+        const body = document.getElementById('todaShareBody');
+        if (!body) return;
+        if (!registered) {
+            body.innerHTML = '<tr><td colspan="3" style="color:var(--text-muted);">Loading...</td></tr>';
+            return;
+        }
+        const byToda = new Map();
+        completed.filter((b) => b.paymentStatus === 'paid').forEach((b) => {
+            const name = registered.get(todaKey(b.driverTodaName));
+            const row = byToda.get(name) || { rides: 0, share: 0 };
+            row.rides += 1;
+            row.share += bookingFee(b).toda;
+            byToda.set(name, row);
+        });
+        const rows = [...byToda.entries()].sort((a, b) => b[1].share - a[1].share);
+        body.innerHTML = rows.length
+            ? rows.map(([name, row]) => `<tr><td>${escapeHtml(name)}</td><td>${row.rides}</td><td style="font-weight:600;">${escapeHtml(formatCurrency(row.share))}</td></tr>`).join('')
+            : '<tr><td colspan="3" style="color:var(--text-muted);">No paid rides for a registered TODA this month.</td></tr>';
     }
     window.refreshReportsFees = () => updateFeeBreakdown(dashboardBookings);
 
@@ -974,12 +1050,13 @@ document.addEventListener('DOMContentLoaded', () => {
         doc.setFontSize(11);
         doc.text(`Period: ${monthLabel}`, 14, 26);
         doc.text(`Total rides: ${rows.length}    Total fare (completed only): ${formatCurrencyPdf(totalFare)}`, 14, 33);
-        // Service fee on top of the fare, split three ways (estimated from the
-        // saved percentages — bookings don't record the fee yet).
+        // Service fee on top of the fare, split three ways, as recorded on each
+        // booking (older bookings estimated at the current percentages).
         const fee = getServiceFee();
-        const feeOf = (pct) => formatCurrencyPdf(totalFare * pct / 100);
+        const fees = sumFees(rows);
+        const estimated = fees.estimatedRides ? `, ${fees.estimatedRides} older ride(s) estimated` : '';
         doc.setFontSize(9);
-        const feeLines = doc.splitTextToSize(`Service fee (${trimPct(fee.totalPct)}%, estimated): ${feeOf(fee.totalPct)} - PARA ${trimPct(fee.paraPct)}%: ${feeOf(fee.paraPct)}, drivers ${trimPct(fee.driverPct)}%: ${feeOf(fee.driverPct)}, TODAs ${trimPct(fee.todaPct)}%: ${feeOf(fee.todaPct)}`, 182);
+        const feeLines = doc.splitTextToSize(`Service fee (${trimPct(fee.totalPct)}%${estimated}): ${formatCurrencyPdf(fees.total)} - PARA: ${formatCurrencyPdf(fees.para)}, drivers: ${formatCurrencyPdf(fees.driver)}, TODAs: ${formatCurrencyPdf(fees.toda)}`, 182);
         doc.text(feeLines, 14, 39);
         doc.setFontSize(11);
 

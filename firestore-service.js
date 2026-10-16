@@ -331,6 +331,11 @@ const ParaFirestore = (() => {
             passengerId: getField(data, 'passengerId', 'passenger_id', 'passengerUid', 'userId'),
             passengerName: getField(data, 'passengerName', 'passenger'),
             totalFare: Number(getField(data, 'fare', 'totalFare', 'amountPaid', 'amount', 'price', 'total_amount')) || 0,
+            // The service fee on top of the fare, from the percentages the app
+            // saved on the booking (same rounding as the app and the Cloud
+            // Functions, functions/src/fees.ts). Bookings made before the fee
+            // have none: hasServiceFee is false and the screens estimate.
+            ...bookingServiceFee(data),
             paymentMethod: getField(data, 'paymentMethod', 'payment_method'),
             paymentStatus: normalizeStatus(getField(data, 'paymentStatus', 'payment_status')),
             // The only ride-progress times the app records: when the driver
@@ -356,6 +361,25 @@ const ParaFirestore = (() => {
             earlyEndReviewedAtRaw: toDate(data.earlyEndReviewedAt),
             earlyEndReviewNote: data.earlyEndReviewNote || ''
         };
+    }
+
+    const round2 = (n) => Math.round(n * 100) / 100;
+
+    function bookingServiceFee(data) {
+        const fare = Number(data.fare) || 0;
+        const pct = (value) => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : 0);
+        const paraPct = pct(data.serviceFeeParaPct);
+        const driverPct = pct(data.serviceFeeDriverPct);
+        const todaPct = pct(data.serviceFeeTodaPct);
+        const totalPct = paraPct + driverPct + todaPct;
+        if (totalPct <= 0 || totalPct > 100 || fare <= 0) {
+            return { hasServiceFee: false, serviceFee: 0, paraShare: 0, driverShare: 0, todaShare: 0, amountPaid: fare };
+        }
+        const paraShare = round2(fare * paraPct / 100);
+        const driverShare = round2(fare * driverPct / 100);
+        const todaShare = round2(fare * todaPct / 100);
+        const serviceFee = round2(paraShare + driverShare + todaShare);
+        return { hasServiceFee: true, serviceFee, paraShare, driverShare, todaShare, amountPaid: round2(fare + serviceFee) };
     }
 
     // Per-driver stats from bookings — the app stores neither on the driver doc.
@@ -514,6 +538,18 @@ const ParaFirestore = (() => {
     // every record written here must carry one: a suspension the admin issues
     // is already decided (APPROVED); everything else is NOT_APPLICABLE.
     async function logDriverAction(driverId, driverName, actionType, reason, options = {}) {
+        // A warning or suspension also shows in the TODA president's driver
+        // history, which the app reads by todaName. Approval / Rejection rows
+        // are only this site's own verification log, so they stay out of it.
+        let todaName = '';
+        if (actionType === 'Warning' || actionType === 'Suspension') {
+            try {
+                const driverDoc = await db.collection(COLLECTIONS.users).doc(driverId).get();
+                todaName = getField(driverDoc.data(), 'todaName');
+            } catch (error) {
+                console.error('Could not read the driver\'s TODA:', error);
+            }
+        }
         const ref = db.collection('driver_actions').doc();
         await ref.set({
             actionId: ref.id,
@@ -526,7 +562,8 @@ const ParaFirestore = (() => {
             issuedBy: auth.currentUser ? auth.currentUser.uid : '',
             issuedByName: window.ParaAdminName || 'PARA Admin',
             issuedByRole: 'ADMIN',
-            complaintId: options.complaintId || ''
+            complaintId: options.complaintId || '',
+            ...(todaName ? { todaName } : {})
         });
     }
 
@@ -561,9 +598,14 @@ const ParaFirestore = (() => {
         };
     }
 
+    // Recommendations the president's app sends to the admin
+    // (DriverActionType.needsAdminReview): a suspension, or a request for the
+    // admin to review the driver further.
+    const ADMIN_REVIEW_ACTION_TYPES = ['Suspension', 'Further Review'];
+
     function listenSuspensionRequests(callback) {
         return db.collection('driver_actions')
-            .where('actionType', '==', 'Suspension')
+            .where('actionType', 'in', ADMIN_REVIEW_ACTION_TYPES)
             .onSnapshot((snapshot) => callback(snapshot.docs.map(mapDriverActionDoc)));
     }
 
@@ -1197,17 +1239,20 @@ const ParaFirestore = (() => {
         });
     }
 
-    // The mobile app prices a ride as (util/FareCalculator.kt):
+    // The mobile app reads settings/fare live and prices a ride as
+    // (util/FareCalculator.kt):
     //   fare = minimumFare + max(0, distanceKm - includedDistanceKm) * perKmRate
-    // per person: a shared ride pays that per rider, a solo ride pays for two persons. The
-    // app has not been checked against these numbers (₱20 minimum, 1 km, ₱5/km per person),
-    // so they are the defaults here, and what the admin saves in settings/fare
-    // is for the app to read.
+    // per person: a shared ride pays that per rider, a solo ride pays for two
+    // persons. These defaults are also the app's (FareSettings.kt) and the
+    // rules' (firestore.rules hasCurrentServiceFee), used until the admin
+    // first saves.
     const APP_FARE_DEFAULTS = { minimumFare: 20, includedDistanceKm: 1, perKmRate: 5 };
 
     // The service fee is charged ON TOP of the fare (20% in all) and split three
-    // ways. These are percentages of the fare; the app has to apply them when it
-    // prices a ride — the admin site only stores them and estimates from them.
+    // ways. The app saves these percentages on every new booking (the rules
+    // check they match settings/fare); the Cloud Functions charge GCash and the
+    // cash drivers' tab (PARA + TODA shares) from them. A change here applies
+    // to bookings made after it.
     const SERVICE_FEE_DEFAULTS = { serviceFeeParaPct: 12, serviceFeeDriverPct: 4, serviceFeeTodaPct: 4 };
     const SERVICE_FEE_KEYS = [
         ['serviceFeeParaPct', 'PARA service fee'],

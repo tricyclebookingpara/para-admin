@@ -1234,6 +1234,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             <div class="dd-card">
                 <div class="dd-card-title">Fare</div>
                 ${ddRow('Fare', `₱${Number(booking.totalFare || 0).toFixed(2)}`)}
+                ${booking.hasServiceFee ? ddRow('Service fee', `₱${booking.serviceFee.toFixed(2)}<div class="dd-row-sub">(PARA ₱${booking.paraShare.toFixed(2)} · driver ₱${booking.driverShare.toFixed(2)} · TODA ₱${booking.todaShare.toFixed(2)})</div>`, { html: true }) : ''}
+                ${booking.hasServiceFee ? ddRow('Passenger paid', `₱${booking.amountPaid.toFixed(2)}`) : ''}
                 ${ddRow('Payment', [booking.paymentMethod, booking.paymentStatus && String(booking.paymentStatus).toUpperCase()].filter(Boolean).join(' · '))}
                 ${ddRow('Booked on', booking.createdAtRaw ? ParaFirestore.formatDateTime(booking.createdAtRaw) : '')}
                 ${passenger && ParaFirestore.normalizeStatus(booking.status) === 'no_show' ? ddRow('Passenger’s no-shows', passenger.noShowCount) : ''}
@@ -1630,7 +1632,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             box.innerHTML = '<div class="risk-note" style="margin-top:0;">Not scored yet — treated as LOW.</div>';
             return;
         }
-        box.innerHTML = riskBodyHtml(risk, suspensionRecommendationsFor(complaint).length > 0);
+        // Only a recommended suspension is compared with the score; a "further
+        // review" request names no penalty.
+        box.innerHTML = riskBodyHtml(risk, suspensionRecommendationsFor(complaint).some((a) => a.actionType === 'Suspension'));
     }
 
     window.setComplaintFilter = function(statusKey) {
@@ -1679,7 +1683,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td><div class="book-id">${escapeHtml(complaint.ref)}</div><div class="book-time">Reporter: ${escapeHtml(complaint.reporter)}</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.reported)} ${riskChipHtml(riskOf(complaint.driverId))}</div><div class="detail-sub">Trip: ${escapeHtml(complaint.tripRef)}</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.issue)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
-                <td>${complaintBadge(complaint.status)}${hasOpenRecommendation(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#EE5D50; font-weight:600;">Suspension recommended</div>' : ''}${wasSuspendedByAdmin(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#EE5D50; font-weight:600;">Driver suspended</div>' : ''}${wasWarnedByAdmin(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#E08A00; font-weight:600;">Warning issued</div>' : ''}</td>
+                <td>${complaintBadge(complaint.status)}${openRecommendationLabel(complaint)}${wasSuspendedByAdmin(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#EE5D50; font-weight:600;">Driver suspended</div>' : ''}${wasWarnedByAdmin(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#E08A00; font-weight:600;">Warning issued</div>' : ''}</td>
                 <td><button class="action-btn" data-action="view-complaint" data-id="${escapeHtml(complaint.id)}">View Case</button></td>
             </tr>
         `).join('');
@@ -1883,8 +1887,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             renderTodaPresidentAccounts(window.todaPresidentAccounts);
         } catch (error) {
             console.error('Failed to load TODA President accounts:', error);
+            window.todaPresidentAccounts = [];
             renderTodaPresidentAccounts([]);
         }
+        // Reports → TODA shares lists only registered TODAs.
+        if (typeof window.refreshReportsFees === 'function') window.refreshReportsFees();
     }
 
     async function loadFareSettings() {
@@ -1912,7 +1919,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (lastUpdatedEl) {
                 lastUpdatedEl.textContent = fare.updatedAtRaw
                     ? `Last updated ${ParaFirestore.formatDateTime(fare.updatedAtRaw)}`
-                    : 'Showing the fares currently built into the app. Nothing saved yet.';
+                    : 'Showing the default fares. Press Save once so the app and the database rules use these numbers.';
             }
             if (typeof updateFarePreview === 'function') updateFarePreview();
         } catch (error) {
@@ -3256,7 +3263,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         showConfirmModal(
             'Save fare settings?',
-            `Saves ₱${settings.minimumFare} minimum fare (first ${settings.includedDistanceKm} km included) and ₱${settings.perKmRate} per km after that, plus a ${Number(feeTotal.toFixed(2))}% service fee on top of the fare (PARA ${settings.serviceFeeParaPct}%, driver ${settings.serviceFeeDriverPct}%, TODA ${settings.serviceFeeTodaPct}%), and a tide surcharge of ₱${settings.tideSurchargeFee} from ${settings.tideSurchargeFromFt} ft up to ${settings.tideSurchargeHighFt} ft and ₱${settings.tideSurchargeHighFee} at ${settings.tideSurchargeHighFt} ft and above. The app uses the fare and service fee for new bookings; the tide surcharge only takes effect once the app is updated to read it. Nobody is notified.`,
+            `Saves ₱${settings.minimumFare} minimum fare (first ${settings.includedDistanceKm} km included) and ₱${settings.perKmRate} per km after that, plus a ${Number(feeTotal.toFixed(2))}% service fee on top of the fare (PARA ${settings.serviceFeeParaPct}%, driver ${settings.serviceFeeDriverPct}%, TODA ${settings.serviceFeeTodaPct}%), and a tide surcharge of ₱${settings.tideSurchargeFee} from ${settings.tideSurchargeFromFt} ft up to ${settings.tideSurchargeHighFt} ft and ₱${settings.tideSurchargeHighFee} at ${settings.tideSurchargeHighFt} ft and above. The mobile app reads the fare and service fee live: they apply to bookings made after this (each booking keeps the numbers it was made with). The tide surcharge only takes effect once the app is updated to read it. Nobody is notified.`,
             'Save Changes',
             '#1A73E8',
             async () => {
@@ -3332,6 +3339,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // A case that is still open and has a suspension recommendation the admin
     // hasn't acted on yet.
+    // "Suspension recommended" / "Further review requested" under a case's status
+    // while the president's recommendation still waits for the admin.
+    function openRecommendationLabel(complaint) {
+        if (!hasOpenRecommendation(complaint)) return '';
+        const waiting = suspensionRecommendationsFor(complaint).filter(isAwaitingAdmin);
+        const suspension = waiting.some((a) => a.actionType === 'Suspension');
+        return `<div class="detail-sub" style="margin-top:6px; color:${suspension ? '#EE5D50' : '#FF9E2A'}; font-weight:600;">${suspension ? 'Suspension recommended' : 'Further review requested'}</div>`;
+    }
+
     function hasOpenRecommendation(complaint) {
         return ['pending', 'reviewing'].includes(complaint.status)
             && suspensionRecommendationsFor(complaint).some(isAwaitingAdmin);
@@ -3395,6 +3411,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const suspensionHeading = (action) => {
             const status = String(action.status || '').toUpperCase();
+            // "Request further review": the president wants the admin to look
+            // at the driver without naming a penalty.
+            if (action.actionType === 'Further Review') {
+                if (status === 'APPROVED') return { text: 'Requested further review — the driver was suspended', color: '#EE5D50' };
+                if (status === 'REJECTED') return { text: 'Requested further review — the case was closed', color: 'var(--text-muted)' };
+                return { text: 'Requests further review of the driver', color: '#FF9E2A' };
+            }
             if (status === 'APPROVED') return { text: 'Recommended suspending the driver — the driver was suspended', color: '#EE5D50' };
             if (status === 'REJECTED') return { text: 'Recommended suspending the driver — the case was closed without one', color: 'var(--text-muted)' };
             return { text: 'Recommends suspending the driver', color: '#EE5D50' };
@@ -3402,7 +3425,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const entries = [
             ...suspensionRecommendationsFor(complaint).map((action) => ({ action, ...suspensionHeading(action) })),
             ...linked
-                .filter((a) => a.actionType !== 'Suspension' && a.issuedByRole !== 'ADMIN' && a.issuedBy !== user.uid)
+                .filter((a) => a.actionType !== 'Suspension' && a.actionType !== 'Further Review' && a.issuedByRole !== 'ADMIN' && a.issuedBy !== user.uid)
                 .map((action) => ({
                     action,
                     text: action.actionType === 'Warning' ? 'Issued a warning to the driver' : (action.actionType === 'Invalid' ? 'Marked the driver report as invalid' : action.actionType),
@@ -3609,6 +3632,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                         const outcome = action.status === 'APPROVED' ? ' (the driver was suspended)'
                             : action.status === 'REJECTED' ? ' (the case was closed without a suspension)' : ' (awaiting admin)';
                         label = `Recommended suspending the driver${outcome}`;
+                    } else if (action.actionType === 'Further Review') {
+                        const outcome = action.status === 'APPROVED' ? ' (the driver was suspended)'
+                            : action.status === 'REJECTED' ? ' (the case was closed)' : ' (awaiting admin)';
+                        label = `Requested further review of the driver${outcome}`;
                     } else {
                         label = action.actionType === 'Warning' ? 'Issued a warning to the driver'
                             : action.actionType === 'Invalid' ? 'Marked the driver report as invalid' : action.actionType;
