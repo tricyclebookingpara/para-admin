@@ -567,6 +567,20 @@ const ParaFirestore = (() => {
             .onSnapshot((snapshot) => callback(snapshot.docs.map(mapDriverActionDoc)));
     }
 
+    // Warnings, for the Warned filter in Complaints: the ones the admin issued
+    // from a case carry that case's id (logDriverAction).
+    function listenWarnings(callback) {
+        return db.collection('driver_actions')
+            .where('actionType', '==', 'Warning')
+            .onSnapshot(
+                (snapshot) => callback(snapshot.docs.map(mapDriverActionDoc)),
+                (error) => {
+                    console.error('Failed to load warnings:', error);
+                    callback([]);
+                }
+            );
+    }
+
     // Every approval / rejection this admin site has logged, for the Approved and
     // Rejected lists in Driver Verification (who decided, when, and why).
     function listenVerificationDecisions(callback) {
@@ -1201,6 +1215,15 @@ const ParaFirestore = (() => {
         ['serviceFeeTodaPct', 'TODA service fee']
     ];
 
+    // Tide surcharge: a flat amount added to a ride when the tide is high. Heights
+    // are in feet, the unit of the LGU tide bulletin (tide_bulletin readings carry
+    // both feet and meters). From tideSurchargeFromFt up to (not including)
+    // tideSurchargeHighFt the surcharge is tideSurchargeFee; at tideSurchargeHighFt
+    // and above it is tideSurchargeHighFee; below tideSurchargeFromFt there is none.
+    // Like the other numbers here, the app has to read and
+    // apply them — the admin site only stores them.
+    const TIDE_SURCHARGE_DEFAULTS = { tideSurchargeFromFt: 3.6, tideSurchargeHighFt: 4.3, tideSurchargeFee: 5, tideSurchargeHighFee: 10 };
+
     async function getFareSettings() {
         const doc = await db.collection(COLLECTIONS.fare).doc('fare').get();
         const data = doc.exists ? (doc.data() || {}) : {};
@@ -1215,6 +1238,10 @@ const ParaFirestore = (() => {
             serviceFeeParaPct: read(data.serviceFeeParaPct, SERVICE_FEE_DEFAULTS.serviceFeeParaPct),
             serviceFeeDriverPct: read(data.serviceFeeDriverPct, SERVICE_FEE_DEFAULTS.serviceFeeDriverPct),
             serviceFeeTodaPct: read(data.serviceFeeTodaPct, SERVICE_FEE_DEFAULTS.serviceFeeTodaPct),
+            tideSurchargeFromFt: read(data.tideSurchargeFromFt, TIDE_SURCHARGE_DEFAULTS.tideSurchargeFromFt),
+            tideSurchargeHighFt: read(data.tideSurchargeHighFt, TIDE_SURCHARGE_DEFAULTS.tideSurchargeHighFt),
+            tideSurchargeFee: read(data.tideSurchargeFee, TIDE_SURCHARGE_DEFAULTS.tideSurchargeFee),
+            tideSurchargeHighFee: read(data.tideSurchargeHighFee, TIDE_SURCHARGE_DEFAULTS.tideSurchargeHighFee),
             updatedAtRaw: toDate(getField(data, 'updatedAt', 'updated_at'))
         };
     }
@@ -1245,6 +1272,14 @@ const ParaFirestore = (() => {
         if (feeTotal > 100) {
             throw new Error('The service fee shares can’t add up to more than 100%.');
         }
+        for (const key of Object.keys(TIDE_SURCHARGE_DEFAULTS)) {
+            if (!Number.isFinite(settings[key]) || settings[key] < 0) {
+                throw new Error('The tide levels and surcharges must be numbers of 0 or more.');
+            }
+        }
+        if (settings.tideSurchargeHighFt <= settings.tideSurchargeFromFt) {
+            throw new Error('The higher tide level must be above the lower one.');
+        }
     }
 
     // fare_history keeps every change (settings/fare only ever holds the
@@ -1269,7 +1304,11 @@ const ParaFirestore = (() => {
             perKmRate: settings.perKmRate,
             serviceFeeParaPct: settings.serviceFeeParaPct,
             serviceFeeDriverPct: settings.serviceFeeDriverPct,
-            serviceFeeTodaPct: settings.serviceFeeTodaPct
+            serviceFeeTodaPct: settings.serviceFeeTodaPct,
+            tideSurchargeFromFt: settings.tideSurchargeFromFt,
+            tideSurchargeHighFt: settings.tideSurchargeHighFt,
+            tideSurchargeFee: settings.tideSurchargeFee,
+            tideSurchargeHighFee: settings.tideSurchargeHighFee
         };
 
         // Replace the document (not merge) so the old base-fare / service-fee
@@ -1279,13 +1318,8 @@ const ParaFirestore = (() => {
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
-        logFareChange(
-            {
-                minimumFare: previous.minimumFare, includedDistanceKm: previous.includedDistanceKm, perKmRate: previous.perKmRate,
-                serviceFeeParaPct: previous.serviceFeeParaPct, serviceFeeDriverPct: previous.serviceFeeDriverPct, serviceFeeTodaPct: previous.serviceFeeTodaPct
-            },
-            next
-        ).catch((error) => console.error('Failed to log fare change:', error));
+        const { updatedAtRaw, ...previousValues } = previous;
+        logFareChange(previousValues, next).catch((error) => console.error('Failed to log fare change:', error));
     }
     // ── Prediction (driver availability & passenger demand) ────────────
     // Training data is what the mobile app already logs: where online drivers
@@ -1553,6 +1587,7 @@ const ParaFirestore = (() => {
         logDriverAction,
         fetchDriverActions,
         listenSuspensionRequests,
+        listenWarnings,
         listenVerificationDecisions,
         listenDriverRisk,
         fetchAdminIds,

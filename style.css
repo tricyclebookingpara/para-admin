@@ -873,6 +873,8 @@ body {
 }
 
 .close-btn:hover { background: var(--border-color); color: var(--text-main); }
+.close-btn:disabled { opacity: 0.5; cursor: default; }
+.modal-header-actions { display: flex; align-items: center; gap: 8px; }
 
 .modal-body {
     padding: 28px;
@@ -1084,7 +1086,8 @@ body {
 /* Complaint case window: Export PDF on the left, the decision buttons on the right. */
 .case-actions { justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
 .case-actions-main { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-left: auto; }
-.case-export-btn { display: inline-flex; align-items: center; gap: 7px; }
+#complaintModalActions { justify-content: center; }
+#complaintModalActions .case-actions-main { justify-content: center; margin-left: 0; }
 
 /* Driver details window */
 .data-table tbody tr.row-clickable { cursor: pointer; }
@@ -1384,6 +1387,16 @@ textarea.form-input { resize: vertical; }
 .fp-person { padding-bottom: 6px; border-bottom: 1px solid var(--table-border); margin-bottom: 16px; }
 .fp-person .fp-person-total { margin-top: 4px; padding-top: 10px; border-top: 1px dashed var(--border-color); color: var(--text-main); font-weight: 700; }
 .fp-person .fp-person-total span:last-child { font-size: 18px; color: var(--primary); }
+.tide-tiers { border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
+.tide-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; min-height: 52px; padding: 8px 14px; font-size: 14px; font-weight: 600; color: var(--text-main); }
+.tide-row + .tide-row { border-top: 1px solid var(--border-color); }
+.tide-head { min-height: 0; padding: 9px 14px; background: var(--bg-light); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
+.tide-row-none { color: var(--text-muted); font-weight: 500; }
+.tide-levels, .tide-money { display: inline-flex; align-items: center; gap: 6px; }
+.tide-dash { color: var(--text-muted); }
+.tide-tiers .tide-input { width: 58px; padding: 8px 4px; text-align: center; font-weight: 600; }
+.fp-tide { margin-bottom: 14px; }
+.fp-tide-label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
 .fp-scenarios { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .fp-card { background: var(--bg-light); border-radius: 14px; padding: 16px; }
 .fp-card-title { font-size: 15px; font-weight: 700; color: var(--text-main); }

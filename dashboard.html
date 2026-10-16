@@ -6,7 +6,7 @@
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-    <link rel="stylesheet" href="style.css?v=66">
+    <link rel="stylesheet" href="style.css?v=72">
 </head>
 <body>
 <div class="app-background">
@@ -543,21 +543,15 @@
                     <h1>Complaints Management</h1>
                     <div class="header-controls">
                         <div class="dropdown-wrapper">
-                            <button class="filter-btn" id="complaintSortBtn">Sort <span class="filter-val">Newest</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
-                            <div class="dropdown-menu" id="complaintSortDropdown">
-                                <div class="dropdown-content">
-                                    <div class="dropdown-item" onclick="setComplaintSort('Newest')"><span class="item-text">Newest</span></div>
-                                    <div class="dropdown-item" onclick="setComplaintSort('Driver risk (High)')"><span class="item-text">Driver risk (High)</span></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="dropdown-wrapper">
                             <button class="filter-btn" id="complaintStatusBtn">Status <span class="filter-val">All</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
                             <div class="dropdown-menu" id="complaintStatusDropdown">
                                 <div class="dropdown-content">
                                     <div class="dropdown-item" onclick="setComplaintFilter('All')"><span class="item-text">All</span></div>
-                                    <div class="dropdown-item" onclick="setComplaintFilter('Under Review')"><span class="item-text">Under Review</span></div>
-                                    <div class="dropdown-item" onclick="setComplaintFilter('Resolved')"><span class="item-text">Resolved</span></div>                                </div>
+                                    <div class="dropdown-item" onclick="setComplaintFilter('Pending')"><span class="item-text">Pending</span></div>
+                                    <div class="dropdown-item" onclick="setComplaintFilter('Resolved')"><span class="item-text">Resolved</span></div>
+                                    <div class="dropdown-item" onclick="setComplaintFilter('Warned')"><span class="item-text">Warned</span></div>
+                                    <div class="dropdown-item" onclick="setComplaintFilter('Dismissed')"><span class="item-text">Dismissed</span></div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -566,7 +560,7 @@
                 <div class="stats-bar">
                     <div class="stats-bar-item">
                         <div class="sbi-icon" style="background:rgba(255,158,42,0.1);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF9E2A" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
-                        <div><div class="sbi-label">Under Review</div><div class="sbi-value" id="complaints-under-review">0</div></div>
+                        <div><div class="sbi-label">Pending</div><div class="sbi-value" id="complaints-under-review">0</div></div>
                     </div>
                     <div class="stats-bar-item">
                         <div class="sbi-icon" style="background:rgba(5,205,153,0.1);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#05CD99" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
@@ -594,13 +588,13 @@
                 <div class="modal-content" style="max-width:680px;">
                     <div class="modal-header">
                         <h2>Case: <span id="c-ref" style="color:var(--primary);">CPL-0000</span></h2>
-                        <button class="close-btn" onclick="closeModal('complaintViewModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                        <div class="modal-header-actions"><button class="close-btn" id="complaintExportBtn" onclick="window.exportComplaintPdf()" title="Download this case as a PDF" aria-label="Download this case as a PDF"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button><button class="close-btn" onclick="closeModal('complaintViewModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
                     </div>
                     <div class="modal-body">
                         <div class="case-parties">
                             <div class="case-party"><div class="case-label">Reporter</div><div class="case-value" id="c-reporter">–</div><div class="case-sub" id="c-reporter-role">–</div></div>
                             <div class="case-party"><div class="case-label">Party Involved</div><div class="case-value" id="c-reported">–</div><div class="case-sub" id="c-reported-role">–</div></div>
-                            <div class="case-party"><div class="case-label">Status</div><div class="case-value"><span id="c-status" class="status-badge processing">UNDER REVIEW</span></div><div class="case-sub" id="c-filed">–</div></div>
+                            <div class="case-party"><div class="case-label">Status</div><div class="case-value"><span id="c-status" class="status-badge processing">PENDING</span></div><div class="case-sub" id="c-filed">–</div></div>
                         </div>
                         <div id="c-trip-line" class="case-trip-line" style="display:none;"></div>
                         <div class="form-group"><label>Issue Type</label><input type="text" class="form-input" id="c-issue" readonly style="background:var(--bg-light); border-color:transparent;"></div>
@@ -612,12 +606,12 @@
                         <div class="form-group"><label>Resolution Note</label><textarea id="complaint-admin-notes" class="form-input" rows="3" placeholder="Type your resolution or notes here…"></textarea><div class="detail-sub" style="margin-top:4px;">Sent to the passenger who reported it, and to the driver too when you issue a warning or suspension.</div></div>
                     </div>
                     <div class="modal-footer case-actions" id="complaintModalActions">
-                        <button class="btn btn-secondary case-export-btn" id="complaintExportBtn" onclick="window.exportComplaintPdf()" title="Download this case as a PDF"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export PDF</button>
                         <div class="case-actions-main">
                             <span id="complaintActionedNote" style="display:none; font-size:13px; color:var(--text-muted);">This case has already been reviewed.</span>
-                            <button class="btn" id="complaintWarnBtn" style="background:#EE5D50;color:white;" onclick="window.warnComplaint()">Issue Warning</button>
-                            <button class="btn" id="complaintSuspendBtn" style="background:var(--text-main);color:white;" onclick="window.suspendComplaint()">Suspend Account</button>
-                            <button class="btn btn-success" id="complaintResolveBtn" onclick="window.resolveComplaint()">Mark Resolved</button>
+                            <button class="btn" id="complaintDismissBtn" style="background:var(--primary);color:white;" onclick="window.dismissComplaint()" title="Close the complaint as unfounded">Dismiss</button>
+                            <button class="btn" id="complaintWarnBtn" style="background:#FF9E2A;color:white;" onclick="window.warnComplaint()">Issue Warning</button>
+                            <button class="btn" id="complaintSuspendBtn" style="background:#EE5D50;color:white;" onclick="window.suspendComplaint()">Suspend Account</button>
+                            <button class="btn" id="complaintResolveBtn" style="background:#05CD99;color:white;" onclick="window.resolveComplaint()">Mark Resolved</button>
                         </div>
                     </div>
                 </div>
@@ -667,6 +661,23 @@
                         <div class="form-group"><label>PARA share (%)</label><input type="number" class="form-input" id="fare-fee-para" value="12" min="0" max="100" step="0.5"></div>
                         <div class="form-group"><label>Driver share (%)</label><input type="number" class="form-input" id="fare-fee-driver" value="4" min="0" max="100" step="0.5"></div>
                         <div class="form-group"><label>TODA share (%)</label><input type="number" class="form-input" id="fare-fee-toda" value="4" min="0" max="100" step="0.5"><div class="detail-sub" style="margin-top:4px;">Total service fee: <strong id="fare-fee-total" style="color:var(--text-main);">20%</strong> of the fare, on top of it.</div></div>
+                        <div class="vf-block-title" style="margin:22px 0 12px;">Tide surcharge - added when the tide is high</div>
+                        <div class="tide-tiers">
+                            <div class="tide-row tide-head"><span>Tide level (ft)</span><span>Extra fee</span></div>
+                            <div class="tide-row tide-row-none">
+                                <span>Below <span id="tide-lbl-from">3.6</span></span>
+                                <span>None</span>
+                            </div>
+                            <div class="tide-row">
+                                <span class="tide-levels"><input type="number" class="form-input tide-input" id="fare-tide-from" value="3.6" min="0" step="0.1" aria-label="Lower tide level in feet"><span class="tide-dash">–</span><input type="number" class="form-input tide-input" id="fare-tide-high" value="4.3" min="0" step="0.1" aria-label="Higher tide level in feet"></span>
+                                <span class="tide-money">₱<input type="number" class="form-input tide-input" id="fare-tide-fee" value="5" min="0" aria-label="Extra fee for the lower tide range"></span>
+                            </div>
+                            <div class="tide-row">
+                                <span><span id="tide-lbl-high">4.3</span> and above</span>
+                                <span class="tide-money">₱<input type="number" class="form-input tide-input" id="fare-tide-high-fee" value="10" min="0" aria-label="Extra fee for the higher tide range"></span>
+                            </div>
+                        </div>
+                        <div class="detail-sub" style="margin-top:8px;">Levels are in feet, like the tide bulletin. The fee is a flat amount added to what each rider pays.</div>
                         <button class="primary-btn mt-16" onclick="saveFareSettings()" style="width:100%;">Save Fare Settings</button>
                         <div id="fareLastUpdated" style="font-size:12px; color:var(--text-muted); margin-top:10px; text-align:center;"></div>
                     </div>
@@ -680,12 +691,18 @@
                                 <div class="fp-line fp-person-total"><span>Fare per person</span><span id="prev-total">₱30.00</span></div>
                             </div>
 
+                            <div class="fp-tide">
+                                <label for="prev-tide" class="fp-tide-label">Tide level (ft)</label>
+                                <input type="number" class="form-input" id="prev-tide" min="0" step="0.1">
+                            </div>
+
                             <div class="fp-scenarios">
                                 <div class="fp-card">
                                     <div class="fp-card-title">Solo ride</div>
                                     <div class="fp-card-sub">Pays for two persons</div>
                                     <div class="fp-line"><span>Fare</span><span id="prev-solo">₱60.00</span></div>
                                     <div class="fp-line"><span>Service fee <span class="fp-pct">(<span id="prev-fee-pct">20</span>%)</span></span><span id="prev-fee">₱12.00</span></div>
+                                    <div class="fp-line" id="prev-tide-row"><span>Tide surcharge</span><span id="prev-tide-fee">₱0.00</span></div>
                                     <div class="fp-pay"><span>Total</span><span id="prev-pay">₱72.00</span></div>
                                 </div>
                                 <div class="fp-card">
@@ -693,6 +710,7 @@
                                     <div class="fp-card-sub">Each rider pays</div>
                                     <div class="fp-line"><span>Fare</span><span id="prev-shared">₱30.00</span></div>
                                     <div class="fp-line"><span>Service fee <span class="fp-pct">(<span id="prev-shared-pct">20</span>%)</span></span><span id="prev-shared-fee">₱6.00</span></div>
+                                    <div class="fp-line" id="prev-shared-tide-row"><span>Tide surcharge</span><span id="prev-shared-tide-fee">₱0.00</span></div>
                                     <div class="fp-pay"><span>Total</span><span id="prev-shared-pay">₱36.00</span></div>
                                 </div>
                             </div>
@@ -1121,12 +1139,13 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=47"></script>
+<script src="firestore-service.js?v=50"></script>
 <script src="prediction.js?v=8"></script>
 <script src="sample-data.js?v=8"></script>
 <script src="forecast.js?v=6"></script>
-<script src="script.js?v=86"></script>
-<script src="firestore-ui.js?v=75"></script>
+<script src="script.js?v=89"></script>
+<script src="google-maps-config.js?v=1"></script>
+<script src="firestore-ui.js?v=84"></script>
 <script src="forecast-ui.js?v=5"></script>
 </body>
 </html>

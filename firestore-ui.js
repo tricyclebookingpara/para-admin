@@ -70,7 +70,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const statusBadge = {
         pending: { className: 'processing', label: 'PENDING' },
-        reviewing: { className: 'processing', label: 'REVIEWING' },
+        // The president's app moves a complaint to REVIEWING when they recommend
+        // something; here it is still just open, so it reads Pending.
+        reviewing: { className: 'processing', label: 'PENDING' },
         approved: { className: 'approved', label: 'APPROVED' },
         rejected: { className: 'declined', label: 'REJECTED' },
         resolved: { className: 'approved', label: 'RESOLVED' },
@@ -102,6 +104,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         const badge = statusBadge[key] || { className: 'processing', label: String(status || 'UNKNOWN').toUpperCase() };
         const style = badge.style ? ` style="${badge.style}"` : '';
         return `<span class="status-badge ${badge.className}"${style}>${escapeHtml(customLabel || badge.label)}</span>`;
+    }
+
+    // A complaint closed without action is "Dismissed", the word the TODA
+    // president's app uses; the stored status is still REJECTED. The plain
+    // 'rejected' label stays for driver applications.
+    function complaintStatusLabel(status) {
+        const key = ParaFirestore.normalizeStatus(status);
+        if (key === 'rejected') return 'Dismissed';
+        if (key === 'reviewing') return 'Pending';
+        return String(status || '').replace(/_/g, ' ');
+    }
+
+    function complaintBadge(status) {
+        return ParaFirestore.normalizeStatus(status) === 'rejected' ? renderBadge('rejected', 'DISMISSED') : renderBadge(status);
     }
 
     // A driver's profile photo as a circle, or their initials when there is none
@@ -143,7 +159,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function riskExplainHtml() {
         return `<details class="risk-explain"><summary>How is this calculated?</summary>
             <ul>
-                <li><strong>Complaints (50%)</strong> — each counts 1 when filed, half as much every 30 days, and stops after 90 days. Complaints closed as rejected never count. A total of 3 or more gives the full 50 points.</li>
+                <li><strong>Complaints (50%)</strong> — each counts 1 when filed, half as much every 30 days, and stops after 90 days. Complaints that were dismissed never count. A total of 3 or more gives the full 50 points.</li>
                 <li><strong>Rating (30%)</strong> — adjusted so a driver with few ratings isn’t judged on one bad trip. 4.0★ or better adds nothing; 2.5★ or lower adds the full 30.</li>
                 <li><strong>Past offences (20%)</strong> — warnings from the last 180 days plus suspensions you approved. 3 or more gives the full 20.</li>
             </ul>
@@ -1245,7 +1261,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <tbody>${complaints.map((c) => `<tr>
                     <td><div class="book-id">${escapeHtml(c.ref)}</div><div class="book-time">${escapeHtml(ParaFirestore.formatDateTime(c.createdAtRaw))}</div></td>
                     <td><div class="detail-main">${escapeHtml(c.issue)}</div><div class="detail-sub">${escapeHtml(c.description)}</div></td>
-                    <td>${renderBadge(c.status)}</td>
+                    <td>${complaintBadge(c.status)}</td>
                     <td><button class="action-btn" data-trip-case="${escapeHtml(c.id)}">View Case</button></td>
                 </tr>`).join('')}</tbody>
             </table></div>`;
@@ -1263,15 +1279,99 @@ document.addEventListener('DOMContentLoaded', async () => {
             : '';
     }
 
-    // Map tiles: Esri's public street map, which needs no key. OpenStreetMap's
-    // own tile server refuses this site ("Access blocked", its tile usage
-    // policy), and CARTO's now needs an API key. If the tiles can't load, the
-    // pins still show on a plain background.
+    // The trip map is Google Maps, like the app. The key is in google-maps-config.js
+    // (window.GOOGLE_MAPS_API_KEY); the Maps script is only fetched when a trip map
+    // is first opened. When there is no key, or Google refuses it (wrong website
+    // address, billing off), the pins fall back to Leaflet on Esri's public street
+    // map, which needs no key, so the trip's locations are still visible.
     const TRIP_TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
     const TRIP_TILE_ATTRIBUTION = 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, OpenStreetMap contributors';
 
-    function addTripTiles(map) {
-        L.tileLayer(TRIP_TILE_URL, { maxZoom: 19, attribution: TRIP_TILE_ATTRIBUTION }).addTo(map);
+    let googleMapsPromise = null;
+    let googleMapsBroken = false;
+
+    function loadGoogleMaps() {
+        if (window.google && window.google.maps) return Promise.resolve();
+        if (googleMapsPromise) return googleMapsPromise;
+        googleMapsPromise = new Promise((resolve, reject) => {
+            window.__paraGoogleMapsReady = resolve;
+            // Google calls this when the key is rejected.
+            window.gm_authFailure = () => {
+                console.error('Google Maps refused the API key (check the allowed website addresses, the enabled API and billing).');
+                googleMapsBroken = true;
+                const booking = tripBooking();
+                if (booking) { tripMapKey = ''; renderTripMap(booking); }
+            };
+            const script = document.createElement('script');
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(window.GOOGLE_MAPS_API_KEY)}&v=weekly&callback=__paraGoogleMapsReady`;
+            script.async = true;
+            script.onerror = () => { googleMapsPromise = null; reject(new Error('The Google Maps script could not be loaded.')); };
+            document.head.appendChild(script);
+        });
+        return googleMapsPromise;
+    }
+
+    function clearTripMap() {
+        if (tripMap) { tripMap.remove(); tripMap = null; }
+        document.getElementById('trip-map').innerHTML = '';
+    }
+
+    function drawGoogleTripMap(container, points, line) {
+        container.innerHTML = '';
+        const map = new google.maps.Map(container, {
+            center: { lat: points[0].lat, lng: points[0].lng },
+            zoom: 15,
+            gestureHandling: 'cooperative',
+            mapTypeControl: false,
+            streetViewControl: false,
+            fullscreenControl: false,
+            clickableIcons: false
+        });
+        if (line) {
+            new google.maps.Polyline({
+                map,
+                path: line,
+                strokeOpacity: 0,
+                icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, strokeColor: '#A3AED0', scale: 2 }, offset: '0', repeat: '12px' }]
+            });
+        }
+        const bounds = new google.maps.LatLngBounds();
+        points.forEach(({ pin, lat, lng }, index) => {
+            bounds.extend({ lat, lng });
+            new google.maps.Marker({
+                map,
+                position: { lat, lng },
+                title: pin.label,
+                zIndex: index,
+                icon: { path: google.maps.SymbolPath.CIRCLE, scale: 9, fillColor: pin.color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }
+            });
+        });
+        const fit = () => {
+            map.fitBounds(bounds, 36);
+            // One pin (or pins on top of each other) would zoom in all the way.
+            google.maps.event.addListenerOnce(map, 'idle', () => { if (map.getZoom() > 17) map.setZoom(17); });
+        };
+        fit();
+        // The window is still fading in, so the map has to re-measure itself.
+        setTimeout(() => { google.maps.event.trigger(map, 'resize'); fit(); }, 260);
+    }
+
+    function drawLeafletTripMap(container, points, line) {
+        if (!window.L) {
+            container.innerHTML = '<div class="vf-tile-empty">The map could not be loaded.</div>';
+            return;
+        }
+        tripMap = L.map(container, { scrollWheelZoom: false });
+        L.tileLayer(TRIP_TILE_URL, { maxZoom: 19, attribution: TRIP_TILE_ATTRIBUTION }).addTo(tripMap);
+        if (line) {
+            L.polyline(line.map((point) => [point.lat, point.lng]), { color: '#A3AED0', weight: 2, dashArray: '6 6' }).addTo(tripMap);
+        }
+        const latLngs = points.map(({ pin, lat, lng }) => {
+            L.circleMarker([lat, lng], { radius: 9, color: '#fff', weight: 2, fillColor: pin.color, fillOpacity: 1 }).addTo(tripMap).bindTooltip(pin.label);
+            return [lat, lng];
+        });
+        tripMap.fitBounds(latLngs, { padding: [36, 36], maxZoom: 17 });
+        setTimeout(() => { if (tripMap) { tripMap.invalidateSize(); tripMap.fitBounds(latLngs, { padding: [36, 36], maxZoom: 17 }); } }, 260);
     }
 
     function renderTripMap(booking) {
@@ -1281,7 +1381,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const key = `${booking.id}|${pins.map((pin) => `${pin.key}:${booking[pin.key].lat},${booking[pin.key].lng}`).join(';')}`;
         if (key === tripMapKey) return;
         tripMapKey = key;
-        if (tripMap) { tripMap.remove(); tripMap = null; }
+        clearTripMap();
 
         if (!pins.length) {
             wrap.style.display = 'none';
@@ -1294,24 +1394,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         const legend = document.getElementById('trip-legend');
         legend.innerHTML = pins.map((pin) => `<span class="trip-legend-item"><i style="background:${pin.color};"></i>${escapeHtml(pin.label)}</span>`).join('');
 
-        if (!window.L) {
-            document.getElementById('trip-map').innerHTML = '<div class="vf-tile-empty">The map could not be loaded.</div>';
+        const container = document.getElementById('trip-map');
+        const points = pins.map((pin) => ({ pin, lat: booking[pin.key].lat, lng: booking[pin.key].lng }));
+        const line = booking.pickupLatLng && booking.destinationLatLng
+            ? [{ lat: booking.pickupLatLng.lat, lng: booking.pickupLatLng.lng }, { lat: booking.destinationLatLng.lat, lng: booking.destinationLatLng.lng }]
+            : null;
+
+        if (!window.GOOGLE_MAPS_API_KEY || googleMapsBroken) {
+            drawLeafletTripMap(container, points, line);
             return;
         }
-        tripMap = L.map('trip-map', { scrollWheelZoom: false });
-        addTripTiles(tripMap);
-        const points = [];
-        if (booking.pickupLatLng && booking.destinationLatLng) {
-            L.polyline([[booking.pickupLatLng.lat, booking.pickupLatLng.lng], [booking.destinationLatLng.lat, booking.destinationLatLng.lng]], { color: '#A3AED0', weight: 2, dashArray: '6 6' }).addTo(tripMap);
-        }
-        pins.forEach((pin) => {
-            const point = [booking[pin.key].lat, booking[pin.key].lng];
-            points.push(point);
-            L.circleMarker(point, { radius: 9, color: '#fff', weight: 2, fillColor: pin.color, fillOpacity: 1 }).addTo(tripMap).bindTooltip(pin.label);
+        container.innerHTML = '<div class="vf-tile-empty">Loading map…</div>';
+        loadGoogleMaps().then(() => {
+            if (tripMapKey !== key) return; // another trip was opened meanwhile
+            drawGoogleTripMap(container, points, line);
+        }).catch((error) => {
+            console.error('Google Maps failed to load:', error);
+            googleMapsBroken = true;
+            if (tripMapKey === key) { tripMapKey = ''; renderTripMap(booking); }
         });
-        tripMap.fitBounds(points, { padding: [36, 36], maxZoom: 17 });
-        // The window is still fading in, so the map has to re-measure itself.
-        setTimeout(() => { if (tripMap) { tripMap.invalidateSize(); tripMap.fitBounds(points, { padding: [36, 36], maxZoom: 17 }); } }, 260);
     }
 
     function renderTripModal() {
@@ -1470,8 +1571,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function getComplaintsForFilter(filterKey) {
         const key = (filterKey || 'all').toLowerCase();
-        if (key === 'under review') return allComplaints.filter((c) => ['pending', 'reviewing'].includes(c.status));
+        if (key === 'pending') return allComplaints.filter((c) => ['pending', 'reviewing'].includes(c.status));
+        if (key === 'warned') return allComplaints.filter(wasWarnedByAdmin);
         if (key === 'resolved') return allComplaints.filter((c) => c.status === 'resolved');
+        if (key === 'dismissed') return allComplaints.filter((c) => c.status === 'rejected');
         return allComplaints;
     }
 
@@ -1516,17 +1619,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
     };
 
-    window.complaintMgmtSort = 'newest';
-    window.setComplaintSort = function(label) {
-        complaintTablePage = 1;
-        window.complaintMgmtSort = /risk/i.test(label || '') ? 'risk' : 'newest';
-        const btn = document.getElementById('complaintSortBtn');
-        if (btn) btn.querySelector('.filter-val').textContent = label;
-        const dropdown = document.getElementById('complaintSortDropdown');
-        if (dropdown) dropdown.classList.remove('show');
-        renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
-    };
-
     // The "Driver Risk Score" block in the case window: the stored score for the
     // reported driver, what it suggests, why, and how it compares with the
     // TODA president's recommendation.
@@ -1560,14 +1652,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         const tbody = document.querySelector('#view-complaints .data-table tbody');
         if (!tbody) return;
 
+        // Cases still waiting on the admin stay on top; once one is closed it drops
+        // below them. Newest first within each group.
+        const isOpen = (c) => ['pending', 'reviewing'].includes(c.status);
         const sortedComplaints = [...(complaints || [])].sort((a, b) => {
             const timeA = a.createdAtRaw && a.createdAtRaw.getTime ? a.createdAtRaw.getTime() : (a.createdAt instanceof Date ? a.createdAt.getTime() : 0);
             const timeB = b.createdAtRaw && b.createdAtRaw.getTime ? b.createdAtRaw.getTime() : (b.createdAt instanceof Date ? b.createdAt.getTime() : 0);
-            // "Driver risk (High)": the most serious drivers first, newest within a score.
-            if (window.complaintMgmtSort === 'risk') {
-                return riskScoreOf(b.driverId) - riskScoreOf(a.driverId) || timeB - timeA;
-            }
-            return timeB - timeA;
+            return (isOpen(b) - isOpen(a)) || timeB - timeA;
         });
 
         const paginationEl = document.getElementById('complaintPagination');
@@ -1588,7 +1679,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td><div class="book-id">${escapeHtml(complaint.ref)}</div><div class="book-time">Reporter: ${escapeHtml(complaint.reporter)}</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.reported)} ${riskChipHtml(riskOf(complaint.driverId))}</div><div class="detail-sub">Trip: ${escapeHtml(complaint.tripRef)}</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.issue)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
-                <td>${renderBadge(complaint.status)}${hasOpenRecommendation(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#EE5D50; font-weight:600;">Suspension recommended</div>' : ''}</td>
+                <td>${complaintBadge(complaint.status)}${hasOpenRecommendation(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#EE5D50; font-weight:600;">Suspension recommended</div>' : ''}${wasSuspendedByAdmin(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#EE5D50; font-weight:600;">Driver suspended</div>' : ''}${wasWarnedByAdmin(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#E08A00; font-weight:600;">Warning issued</div>' : ''}</td>
                 <td><button class="action-btn" data-action="view-complaint" data-id="${escapeHtml(complaint.id)}">View Case</button></td>
             </tr>
         `).join('');
@@ -1809,6 +1900,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             setValue('fare-fee-para', fare.serviceFeeParaPct);
             setValue('fare-fee-driver', fare.serviceFeeDriverPct);
             setValue('fare-fee-toda', fare.serviceFeeTodaPct);
+            setValue('fare-tide-from', fare.tideSurchargeFromFt);
+            setValue('fare-tide-fee', fare.tideSurchargeFee);
+            setValue('fare-tide-high', fare.tideSurchargeHighFt);
+            setValue('fare-tide-high-fee', fare.tideSurchargeHighFee);
             // The dashboard and reports estimate earnings from the SAVED percentages.
             window.serviceFeeSettings = { paraPct: fare.serviceFeeParaPct, driverPct: fare.serviceFeeDriverPct, todaPct: fare.serviceFeeTodaPct };
             if (typeof window.updateDashboardDateCards === 'function') window.updateDashboardDateCards(window.currentDashboardDateFilter || 'Today');
@@ -2454,7 +2549,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td><div class="book-id">${escapeHtml(c.ref)}</div><div class="book-time">${escapeHtml(ParaFirestore.formatDateTime(c.createdAtRaw))}</div></td>
                 <td><div class="detail-main">${escapeHtml(c.issue)}</div><div class="detail-sub">${escapeHtml(c.description)}</div></td>
                 <td>${escapeHtml(c.reporter)}${c.tripRef ? `<div class="detail-sub">Trip: ${escapeHtml(c.tripRef)}</div>` : ''}</td>
-                <td>${renderBadge(c.status)}</td>
+                <td>${complaintBadge(c.status)}</td>
                 <td><button class="action-btn" data-dd-case="${escapeHtml(c.id)}">View Case</button></td>
             </tr>`).join('');
         return `
@@ -2659,7 +2754,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td><div class="book-id">${escapeHtml(c.ref)}</div><div class="book-time">${escapeHtml(ParaFirestore.formatDateTime(c.createdAtRaw))}</div></td>
                 <td><div class="detail-main">${escapeHtml(c.issue)}</div><div class="detail-sub">${escapeHtml(c.description)}</div></td>
                 <td>${escapeHtml(c.reported)}${c.tripRef ? `<div class="detail-sub">Trip: ${escapeHtml(c.tripRef)}</div>` : ''}</td>
-                <td>${renderBadge(c.status)}</td>
+                <td>${complaintBadge(c.status)}</td>
                 <td><button class="action-btn" data-dd-case="${escapeHtml(c.id)}">View Case</button></td>
             </tr>`).join('');
         return `
@@ -2900,7 +2995,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const statusEl = document.getElementById('c-status');
             const normalizedStatus = data.status;
-            statusEl.textContent = normalizedStatus.replace(/_/g, ' ').toUpperCase();
+            statusEl.textContent = complaintStatusLabel(normalizedStatus).toUpperCase();
             if (normalizedStatus === 'resolved') {
                 statusEl.className = 'status-badge approved';
             } else if (normalizedStatus === 'rejected') {
@@ -2913,7 +3008,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // as "View Details" on Driver Verification: don't let an
             // already-decided case be actioned again.
             const isOpen = ['pending', 'reviewing'].includes(normalizedStatus);
-            ['complaintWarnBtn', 'complaintSuspendBtn', 'complaintResolveBtn'].forEach((id) => {
+            ['complaintDismissBtn', 'complaintWarnBtn', 'complaintSuspendBtn', 'complaintResolveBtn'].forEach((id) => {
                 const btn = document.getElementById(id);
                 if (btn) btn.style.display = isOpen ? '' : 'none';
             });
@@ -3000,7 +3095,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 Warning: 'Warning issued and sent to the account.',
                 Suspension: 'Account suspended and notified.'
             };
-            window.showToast(successMessages[actionType] || 'Case marked as resolved.', actionType === 'Suspension' ? 'error' : (actionType === 'Warning' ? 'warning' : 'success'));
+            const closedMessage = status === 'REJECTED' ? 'Complaint dismissed.' : 'Case marked as resolved.';
+            window.showToast(successMessages[actionType] || closedMessage, actionType === 'Suspension' ? 'error' : (actionType === 'Warning' ? 'warning' : 'success'));
         } catch (error) {
             console.error(`Failed to update complaint to ${status}:`, error);
             window.showToast('Failed to update complaint status.', 'error');
@@ -3011,12 +3107,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!currentComplaintId) return;
         showConfirmModal(
             'Mark this case as resolved?',
-            'The complaint will be closed with no action taken against either account.',
+            'The complaint will be closed as handled, with no warning or suspension. The passenger is notified.',
             'Mark Resolved',
             '#05CD99',
             () => {
                 const notesEl = document.getElementById('complaint-admin-notes');
                 runComplaintAction('RESOLVED', notesEl ? notesEl.value.trim() : '', null);
+            }
+        );
+    };
+
+    // For a complaint with no basis (the president's app calls it Dismissed). It is
+    // saved as REJECTED, so it no longer counts toward the driver's risk score.
+    window.dismissComplaint = function() {
+        if (!currentComplaintId) return;
+        showConfirmModal(
+            'Dismiss this complaint?',
+            'The complaint will be closed as unfounded. It will not count toward the driver’s risk score, and the passenger is told it was closed without action.',
+            'Dismiss',
+            '#6B7A99',
+            () => {
+                const notesEl = document.getElementById('complaint-admin-notes');
+                runComplaintAction('REJECTED', notesEl ? notesEl.value.trim() : '', null);
             }
         );
     };
@@ -3120,7 +3232,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             perKmRate: Number(document.getElementById('fare-perkm').value),
             serviceFeeParaPct: Number(document.getElementById('fare-fee-para').value),
             serviceFeeDriverPct: Number(document.getElementById('fare-fee-driver').value),
-            serviceFeeTodaPct: Number(document.getElementById('fare-fee-toda').value)
+            serviceFeeTodaPct: Number(document.getElementById('fare-fee-toda').value),
+            tideSurchargeFromFt: Number(document.getElementById('fare-tide-from').value),
+            tideSurchargeHighFt: Number(document.getElementById('fare-tide-high').value),
+            tideSurchargeFee: Number(document.getElementById('fare-tide-fee').value),
+            tideSurchargeHighFee: Number(document.getElementById('fare-tide-high-fee').value)
         };
 
         const invalidField = Object.entries(settings).find(([, value]) => !Number.isFinite(value) || value < 0);
@@ -3133,10 +3249,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.showToast('The service fee shares can’t add up to more than 100%.', 'warning');
             return;
         }
+        if (settings.tideSurchargeHighFt <= settings.tideSurchargeFromFt) {
+            window.showToast('The higher tide level must be above the first one.', 'warning');
+            return;
+        }
 
         showConfirmModal(
             'Save fare settings?',
-            `Saves ₱${settings.minimumFare} minimum fare (first ${settings.includedDistanceKm} km included) and ₱${settings.perKmRate} per km after that, plus a ${Number(feeTotal.toFixed(2))}% service fee on top of the fare (PARA ${settings.serviceFeeParaPct}%, driver ${settings.serviceFeeDriverPct}%, TODA ${settings.serviceFeeTodaPct}%). The mobile app has these numbers built in and does not read them yet, so ride prices in the app will not change until it does. Nobody is notified.`,
+            `Saves ₱${settings.minimumFare} minimum fare (first ${settings.includedDistanceKm} km included) and ₱${settings.perKmRate} per km after that, plus a ${Number(feeTotal.toFixed(2))}% service fee on top of the fare (PARA ${settings.serviceFeeParaPct}%, driver ${settings.serviceFeeDriverPct}%, TODA ${settings.serviceFeeTodaPct}%), and a tide surcharge of ₱${settings.tideSurchargeFee} from ${settings.tideSurchargeFromFt} ft up to ${settings.tideSurchargeHighFt} ft and ₱${settings.tideSurchargeHighFee} at ${settings.tideSurchargeHighFt} ft and above. The app uses the fare and service fee for new bookings; the tide surcharge only takes effect once the app is updated to read it. Nobody is notified.`,
             'Save Changes',
             '#1A73E8',
             async () => {
@@ -3158,6 +3278,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // (Warning / Invalid / Suspension) with the reason, and the admin decides
     // for themselves using Issue Warning / Suspend Account / Mark Resolved.
     let suspensionActions = [];
+    let warningActions = [];
     let suspensionAdminIds = new Set([user.uid]);
     let suspensionRepairDone = false;
     let currentComplaintData = null;
@@ -3194,6 +3315,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     function isAwaitingAdmin(action) {
         const status = String(action.status || '').toUpperCase();
         return status === 'PENDING' || status === '';
+    }
+
+    // The admin closed this case by suspending the driver: Suspend Account logs a
+    // Suspension with the case's id. (A suspension from Driver Management has none.)
+    function wasSuspendedByAdmin(complaint) {
+        return suspensionActions.some((action) => isAdminAction(action) && action.complaintId === complaint.id);
+    }
+
+    // The admin closed this case by issuing the driver a warning (Issue Warning
+    // logs a Warning with the case's id). The president's recommended warnings
+    // aren't counted.
+    function wasWarnedByAdmin(complaint) {
+        return warningActions.some((action) => isAdminAction(action) && action.complaintId === complaint.id);
     }
 
     // A case that is still open and has a suspension recommendation the admin
@@ -3368,7 +3502,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             };
             const peso = (value) => `PHP ${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             const when = (value) => (value ? ParaFirestore.formatDateTime(value) : '—');
-            const statusText = String(complaint.status || '').replace(/_/g, ' ');
+            const statusText = complaintStatusLabel(complaint.status);
             const caseStatus = statusText ? statusText.charAt(0).toUpperCase() + statusText.slice(1) : '—';
 
             // Title block
@@ -3451,7 +3585,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             heading('Other complaints against this driver');
             if (otherCases.length) {
-                otherCases.slice(0, 15).forEach((c) => paragraph(`${c.ref} - ${c.issue} - ${String(c.status || '').replace(/_/g, ' ')} - ${when(c.createdAtRaw)}`, { size: 9 }));
+                otherCases.slice(0, 15).forEach((c) => paragraph(`${c.ref} - ${c.issue} - ${complaintStatusLabel(c.status)} - ${when(c.createdAtRaw)}`, { size: 9 }));
                 if (otherCases.length > 15) paragraph(`...and ${otherCases.length - 15} more.`, { size: 9 });
             } else {
                 paragraph('None on record.', { size: 9 });
@@ -3708,6 +3842,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshDriverDetails();
         const caseModal = document.getElementById('complaintViewModal');
         if (currentComplaintData && caseModal && caseModal.classList.contains('active')) renderCaseRisk(currentComplaintData);
+    });
+    ParaFirestore.listenWarnings((actions) => {
+        warningActions = actions;
+        renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
     });
     ParaFirestore.listenSuspensionRequests((actions) => {
         suspensionActions = actions;
