@@ -263,9 +263,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Only completed rides actually collected a fare — cancelled/declined bookings
-    // keep their quoted totalFare but never generate real revenue.
+    // keep their quoted totalFare but never generate real revenue. Every ride
+    // belongs to a TODA, so one under a TODA with no president account here
+    // (sample data, a misspelled name) isn't counted either. Until the TODA
+    // accounts have loaded there is nothing to compare with, so none are left out.
     function isRevenueEligible(booking) {
-        return booking.status === 'completed';
+        if (booking.status !== 'completed') return false;
+        const registered = registeredTodas();
+        return !registered || registered.has(todaKey(booking.driverTodaName));
     }
 
     function getBookingMetrics(bookings, start, end) {
@@ -317,7 +322,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cards[1].querySelector('.stat-change').textContent = formatChange(currentMetrics.paraEarnings, previousMetrics.paraEarnings);
             // What the number is made of, on hover.
             const fee = getServiceFee();
-            cards[1].title = `PARA's share of the service fee on ${formatCurrency(currentMetrics.revenue)} in completed ride fares (estimated at the current ${trimPct(fee.paraPct)}% for rides booked before the fee). The service fee is ${trimPct(fee.totalPct)}% on top of the fare: PARA ${trimPct(fee.paraPct)}%, driver ${trimPct(fee.driverPct)}%, TODA ${trimPct(fee.todaPct)}%. Click to open Booking Records.`;
+            cards[1].title = `PARA's share of the service fee on ${formatCurrency(currentMetrics.revenue)} in completed ride fares under registered TODAs (estimated at the current ${trimPct(fee.paraPct)}% for rides booked before the fee). The service fee is ${trimPct(fee.totalPct)}% on top of the fare: PARA ${trimPct(fee.paraPct)}%, driver ${trimPct(fee.driverPct)}%, TODA ${trimPct(fee.todaPct)}%. Click to open Analytics Overview.`;
             cards[1].querySelector('.stat-change').className = `stat-change ${revenueTrend}`;
         }
         // "Active Drivers/Passengers" is a current total, not a period-scoped count —
@@ -472,7 +477,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const areaCounts = {};
         const areaLabels = {};
         bookings.forEach((booking) => {
-            if (!isRevenueEligible(booking)) return;
+            if (booking.status !== 'completed') return; // a ride count, so every TODA's rides stay in
             const date = bookingDate(booking);
             if (!date || Number.isNaN(date.getTime()) || date < windowStart) return;
 
@@ -810,12 +815,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
         const fee = getServiceFee();
         const monthLabel = reportsMonthBounds().label;
-        // Every ride belongs to a TODA, so a ride whose TODA isn't registered here
-        // (sample data, a misspelled name) is left out. Until the TODA accounts
-        // have loaded there is nothing to compare with, so nothing is left out.
+        // isRevenueEligible leaves out rides under a TODA that isn't registered here.
         const registered = registeredTodas();
-        const completed = bookingsInReportsMonth(bookings).filter(isRevenueEligible)
-            .filter((b) => !registered || registered.has(todaKey(b.driverTodaName)));
+        const completed = bookingsInReportsMonth(bookings).filter(isRevenueEligible);
         const fares = completed.reduce((sum, b) => sum + (Number(b.totalFare) || 0), 0);
         const totals = sumFees(completed);
         set('rep-fares', formatCurrency(fares));
@@ -839,13 +841,17 @@ document.addEventListener('DOMContentLoaded', () => {
     function todaKey(name) {
         return String(name || '').trim().toLowerCase();
     }
+    // Cached per accounts list: this runs for every booking on every redraw.
+    let registeredTodasCache = { source: null, map: null };
     function registeredTodas() {
         const accounts = window.todaPresidentAccounts;
         if (!accounts) return null;
+        if (registeredTodasCache.source === accounts) return registeredTodasCache.map;
         const registered = new Map();
         accounts.forEach((account) => {
             if (todaKey(account.todaName)) registered.set(todaKey(account.todaName), String(account.todaName).trim());
         });
+        registeredTodasCache = { source: accounts, map: registered };
         return registered;
     }
 

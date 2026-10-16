@@ -1080,7 +1080,6 @@ body {
 .trip-legend-item { display: inline-flex; align-items: center; gap: 6px; }
 .trip-legend-item i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .vf-dup.muted { background: var(--bg-light); color: var(--text-muted); }
-.data-table tbody tr.row-alert td:first-child { box-shadow: inset 3px 0 0 #EE5D50; }
 .case-trip-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -6px 0 18px; font-size: 13px; color: var(--text-muted); }
 
 /* Complaint case window: Export PDF on the left, the decision buttons on the right. */

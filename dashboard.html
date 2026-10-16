@@ -6,7 +6,7 @@
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-    <link rel="stylesheet" href="style.css?v=74">
+    <link rel="stylesheet" href="style.css?v=75">
 </head>
 <body>
 <div class="app-background">
@@ -56,7 +56,6 @@
                     <a href="#bookings" class="nav-link" data-view="bookings">
                         <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                         <span>Booking Records</span>
-                        <span class="nav-badge hidden" id="bookingsNavBadge" title="Trips ended early, waiting for review"></span>
                     </a>
                     <div class="nav-group" id="reportsNavGroup">
                         <a href="#" class="nav-link nav-parent" id="reportsNavToggle">
@@ -142,7 +141,7 @@
                         <div class="stat-icon icon-blue"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
                         <div class="stat-info"><h3>Total Bookings</h3><h2>—</h2><span class="stat-change neutral">Loading…</span></div>
                     </a>
-                    <a href="#bookings" data-view="bookings" class="stat-card stat-card-link" id="earningsCard" title="PARA share of the service fee - open Booking Records">
+                    <a href="#reports" data-view="reports" class="stat-card stat-card-link" id="earningsCard" title="PARA share of the service fee - open Analytics Overview">
                         <div class="stat-icon icon-green"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
                         <div class="stat-info"><h3>PARA Earnings</h3><h2>—</h2><span class="stat-change neutral">Loading…</span></div>
                     </a>
@@ -318,9 +317,9 @@
                         </div>
                     </div>
                     <div class="modal-footer case-actions" id="verificationModalActions">
-                        <button class="btn btn-danger" id="verifyRejectBtn" onclick="rejectDriver()">Reject</button>
+                        <button class="btn" id="verifyRequestInfoBtn" style="background:#B8860B; color:#fff;" onclick="openRequestInfoModal()">Resubmit Document</button>
                         <div class="case-actions-main">
-                            <button class="btn" id="verifyRequestInfoBtn" style="background:#B8860B; color:#fff;" onclick="openRequestInfoModal()">Resubmit Document</button>
+                            <button class="btn btn-danger" id="verifyRejectBtn" onclick="rejectDriver()">Reject</button>
                             <button class="btn btn-success" id="verifyApproveBtn" onclick="approveDriver()">Approve Driver</button>
                         </div>
                     </div>
@@ -751,17 +750,9 @@
                         </div>
                     </div>
                 </div>
-                <div class="vf-tabs" id="bookingTabs">
-                    <button class="vf-tab active" data-tab="all">All bookings</button>
-                    <button class="vf-tab" data-tab="ended-early">Ended early <span class="vf-count" id="bk-count-early">0</span></button>
-                </div>
-                <div class="vf-tabs" id="earlyEndFilters" style="display:none;">
-                    <button class="vf-tab active" data-filter="unreviewed">Unreviewed <span class="vf-count" id="bk-count-unreviewed">0</span></button>
-                    <button class="vf-tab" data-filter="reviewed">Reviewed <span class="vf-count" id="bk-count-reviewed">0</span></button>
-                </div>
                 <div class="table-container">
                     <table class="data-table">
-                        <thead id="bookingHead"><tr><th>Booking ID</th><th>Status</th><th>Date</th><th>Driver / Plate</th><th>Passenger</th><th>Pickup</th><th>Destination</th><th>Fare</th></tr></thead>
+                        <thead><tr><th>Booking ID</th><th>Status</th><th>Date</th><th>Driver / Plate</th><th>Passenger</th><th>Pickup</th><th>Destination</th><th>Fare</th></tr></thead>
                         <tbody>
                             <tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr>
                         </tbody>
@@ -1148,9 +1139,9 @@
 <script src="prediction.js?v=8"></script>
 <script src="sample-data.js?v=8"></script>
 <script src="forecast.js?v=7"></script>
-<script src="script.js?v=92"></script>
+<script src="script.js?v=94"></script>
 <script src="google-maps-config.js?v=1"></script>
-<script src="firestore-ui.js?v=90"></script>
+<script src="firestore-ui.js?v=92"></script>
 <script src="forecast-ui.js?v=5"></script>
 </body>
 </html>

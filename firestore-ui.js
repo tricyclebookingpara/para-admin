@@ -946,12 +946,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // ── Trip location checks ─────────────────────────────────────
     // The app saves where the driver was at Arrived / Start ride / End ride. A
     // ride ended more than 300 m from the destination is flagged endedEarly.
-    // Most are harmless (the passenger asked to get off) — the queue exists to
-    // catch patterns and early drop-offs that come with a complaint.
-    const BOOKING_HEAD_ALL = '<tr><th>Booking ID</th><th>Status</th><th>Date</th><th>Driver / Plate</th><th>Passenger</th><th>Pickup</th><th>Destination</th><th>Fare</th></tr>';
-    const BOOKING_HEAD_EARLY = '<tr><th>Booking</th><th>Passenger</th><th>Driver / TODA</th><th>Destination</th><th>Ended</th><th>Fare</th><th>Review</th><th>Actions</th></tr>';
-    let bookingTab = 'all'; // 'all' | 'ended-early'
-    let earlyEndFilter = 'unreviewed'; // 'unreviewed' | 'reviewed'
+    // Most are harmless (the passenger asked to get off), so it shows as a note
+    // under the booking's status and in the trip window, where it can be reviewed.
 
     // Straight-line distance in metres between two {lat, lng} points, or null
     // when either has no location.
@@ -980,77 +976,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         return allComplaints.filter((c) => c.bookingId && (c.bookingId === booking.id || c.bookingId === booking.ref));
     }
 
-    // The queue flags rides that have a complaint, so redraw it when complaints change.
-    function renderBookingTableIfEarlyQueue() {
-        if (bookingTab === 'ended-early') renderBookingTable(window.allBookings || []);
-    }
-
-    function earlyEndTrips() {
-        return (window.allBookings || []).filter((b) => b.endedEarly);
-    }
-
-    function updateEarlyEndCounts() {
-        const trips = earlyEndTrips();
-        const unreviewed = trips.filter((b) => !b.earlyEndReviewedAtRaw).length;
-        const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
-        set('bk-count-early', unreviewed);
-        set('bk-count-unreviewed', unreviewed);
-        set('bk-count-reviewed', trips.length - unreviewed);
-        const badge = document.getElementById('bookingsNavBadge');
-        if (badge) {
-            badge.textContent = unreviewed || '';
-            badge.classList.toggle('hidden', !unreviewed);
-        }
-    }
-
-    function renderEarlyEndQueue(tbody) {
-        const paginationEl = document.getElementById('bookingPagination');
-        if (paginationEl) paginationEl.innerHTML = '';
-        const wantReviewed = earlyEndFilter === 'reviewed';
-        const trips = earlyEndTrips()
-            .filter((b) => Boolean(b.earlyEndReviewedAtRaw) === wantReviewed)
-            .sort((a, b) => timeOf(b.completedAtRaw || b.createdAtRaw) - timeOf(a.completedAtRaw || a.createdAtRaw));
-
-        if (!trips.length) {
-            tbody.innerHTML = emptyRow(8, wantReviewed ? 'No reviewed trips yet.' : 'No trips are waiting for review.');
-            return;
-        }
-        tbody.innerHTML = trips.map((booking) => {
-            const away = fmtDistance(distanceM(booking.completedLatLng, booking.destinationLatLng));
-            const complaints = complaintsForBooking(booking);
-            const reviewed = booking.earlyEndReviewedAtRaw;
-            return `<tr class="row-clickable${complaints.length ? ' row-alert' : ''}" data-booking-id="${escapeHtml(booking.id)}">
-                <td><div class="book-id">${escapeHtml(booking.ref)}</div><div class="book-time">${escapeHtml(booking.relativeTime)}</div>${complaints.length ? '<div class="detail-sub" style="color:#EE5D50; font-weight:600; margin-top:4px;">Complaint filed</div>' : ''}</td>
-                <td>${escapeHtml(booking.passengerName || '—')}</td>
-                <td><div class="detail-main">${escapeHtml(booking.driverName || '—')}</div><div class="detail-sub">${escapeHtml(booking.driverTodaName || '—')}</div></td>
-                <td style="max-width:200px; font-size:13px; line-height:1.4;">${escapeHtml(booking.dropoffLocation)}</td>
-                <td><div style="font-weight:700;">${escapeHtml(away)}</div><div class="detail-sub">from the destination${booking.completedAtRaw ? ` · ${escapeHtml(ParaFirestore.formatDateTime(booking.completedAtRaw))}` : ''}</div></td>
-                <td><div style="font-weight:600;">&#8369;${escapeHtml(Number(booking.totalFare || 0).toFixed(2))}</div>${paymentLine(booking)}</td>
-                <td>${reviewed ? renderBadge('resolved', 'REVIEWED') : renderBadge('pending', 'UNREVIEWED')}${reviewed && booking.earlyEndReviewNote ? `<div class="detail-sub" style="margin-top:4px; max-width:180px; line-height:1.4;">${escapeHtml(booking.earlyEndReviewNote)}</div>` : ''}</td>
-                <td><button class="action-btn" data-action="open-trip" data-id="${escapeHtml(booking.id)}">${reviewed ? 'View' : 'Review'}</button></td>
-            </tr>`;
-        }).join('');
-    }
-
     function renderBookingTable(bookings) {
         const tbody = document.querySelector('#view-bookings .data-table tbody');
         if (!tbody) return;
 
         window.allBookings = Array.isArray(bookings) ? bookings : [];
-        updateEarlyEndCounts();
         refreshTripModal();
-
-        const head = document.getElementById('bookingHead');
-        const filters = document.getElementById('earlyEndFilters');
-        const controls = document.querySelector('#view-bookings .header-controls');
-        const isQueue = bookingTab === 'ended-early';
-        if (head) head.innerHTML = isQueue ? BOOKING_HEAD_EARLY : BOOKING_HEAD_ALL;
-        if (filters) filters.style.display = isQueue ? '' : 'none';
-        if (controls) controls.style.display = isQueue ? 'none' : '';
-        if (isQueue) {
-            renderEarlyEndQueue(tbody);
-            return;
-        }
 
         let list = [...window.allBookings];
 
@@ -1121,28 +1052,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         return `<div class="detail-sub" style="margin-top:4px; font-weight:600; color:${reviewed ? 'var(--text-muted)' : '#FF9E2A'};">Ended early${reviewed ? ' · reviewed' : ''}</div>`;
     }
 
-    // Booking Records: All bookings / Ended early tabs, and a click on a row (or
-    // its Review button) opens the trip.
+    // Booking Records: a click on a row opens the trip.
     (function bindBookingRecords() {
-        const tabs = document.getElementById('bookingTabs');
-        const filters = document.getElementById('earlyEndFilters');
         const tbody = document.querySelector('#view-bookings .data-table tbody');
-        const refresh = () => renderBookingTable(window.allBookings || []);
-        tabs?.addEventListener('click', (e) => {
-            const tab = e.target.closest('.vf-tab');
-            if (!tab) return;
-            bookingTab = tab.dataset.tab;
-            tabs.querySelectorAll('.vf-tab').forEach((t) => t.classList.toggle('active', t === tab));
-            bookingTablePage = 1;
-            refresh();
-        });
-        filters?.addEventListener('click', (e) => {
-            const tab = e.target.closest('.vf-tab');
-            if (!tab) return;
-            earlyEndFilter = tab.dataset.filter;
-            filters.querySelectorAll('.vf-tab').forEach((t) => t.classList.toggle('active', t === tab));
-            refresh();
-        });
         tbody?.addEventListener('click', (e) => {
             const row = e.target.closest('tr[data-booking-id]');
             if (row && tbody.contains(row)) window.openTripModal(row.dataset.bookingId);
@@ -1897,12 +1809,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.todaPresidentAccounts = await ParaFirestore.fetchTodaPresidentAccounts();
             renderTodaPresidentAccounts(window.todaPresidentAccounts);
         } catch (error) {
+            // Left unset on purpose: an empty list would count as "no TODA is
+            // registered" and zero out every revenue figure.
             console.error('Failed to load TODA President accounts:', error);
-            window.todaPresidentAccounts = [];
             renderTodaPresidentAccounts([]);
         }
-        // Reports → TODA shares lists only registered TODAs.
-        if (typeof window.refreshReportsFees === 'function') window.refreshReportsFees();
+        // Only rides under a registered TODA count toward revenue, so redraw every
+        // chart, card and report that shows it.
+        if (typeof window.renderDashboardCharts === 'function' && window.dashboardBookings) window.renderDashboardCharts(window.dashboardBookings);
     }
 
     async function loadFareSettings() {
@@ -3874,7 +3788,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshDriverDetails();
         refreshPassengerDetails();
         refreshTripModal();
-        renderBookingTableIfEarlyQueue();
     });
     // Risk scores update on their own (when a complaint comes in, a rating, a
     // report, a decision — and nightly): redraw everything that shows one.
