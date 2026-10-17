@@ -1,6 +1,7 @@
 // Adds three SAMPLE pending driver applications (with sample documents) so
 // Driver Verification has something to show. Paste this whole file into the
-// browser console on the admin site while you are logged in, then run:
+// browser console on the admin site while you are logged in, then type one of
+// these commands on its own (nothing in front of it) and press Enter:
 //
 //     await addSampleDrivers()      // add them
 //     await removeSampleDrivers()   // delete them again
@@ -69,5 +70,5 @@
         console.log('Removed the sample drivers.');
     };
 
-    console.log('Ready: run  await addSampleDrivers()  or  await removeSampleDrivers()');
+    console.log('Loaded. Now type exactly one of these commands and press Enter:\n  await addSampleDrivers()\n  await removeSampleDrivers()');
 })();

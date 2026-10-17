@@ -3469,12 +3469,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             doc.setTextColor(110, 120, 150);
             doc.text(clean(`Generated ${ParaFirestore.formatDateTime(new Date())} by ${window.ParaAdminName || 'PARA Admin'}`), M, y + 12);
             y += 17;
-            doc.setFillColor(255, 244, 229);
-            doc.rect(M, y, W, 10, 'F');
-            doc.setFontSize(8.5);
-            doc.setTextColor(150, 90, 0);
-            doc.text(doc.splitTextToSize('CONFIDENTIAL - contains personal information. For documentation and for reporting to the proper authorities only.', W - 6), M + 3, y + 4.2);
-            y += 12;
 
             heading('Case summary');
             field('Case reference', complaint.ref);
@@ -3590,6 +3584,23 @@ document.addEventListener('DOMContentLoaded', async () => {
             doc.setTextColor(110, 120, 150);
             doc.text('Prepared by (name and signature)', M, y + 17);
             doc.text('Date', M + 100, y + 17);
+
+            // Confidentiality notice: one sentence in a black-outlined white box at the
+            // bottom of the last page (on a new page if the sign-off leaves no room).
+            const noticeLines = doc.splitTextToSize('This report is confidential. It contains personal information and is intended only for documentation and for reporting to the proper authorities.', W - 16);
+            const noticeHeight = noticeLines.length * 4.8 + 9;
+            const noticeBottom = 282;
+            if (y + 17 + 8 > noticeBottom - noticeHeight) doc.addPage();
+            const noticeTop = noticeBottom - noticeHeight;
+            doc.setFillColor(255, 255, 255);
+            doc.setDrawColor(0, 0, 0);
+            doc.setLineWidth(0.5);
+            doc.roundedRect(M, noticeTop, W, noticeHeight, 1.5, 1.5, 'FD');
+            doc.setFont(undefined, 'normal');
+            doc.setFontSize(9);
+            doc.setTextColor(0, 0, 0);
+            doc.text(noticeLines, M + W / 2, noticeTop + 6.4, { align: 'center' });
+            doc.setLineWidth(0.2);
 
             // Page footer
             const pages = doc.getNumberOfPages();
