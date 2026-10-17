@@ -81,9 +81,38 @@ document.addEventListener('DOMContentLoaded', () => {
         { groupId: 'reportsNavGroup', childViews: ['reports', 'driver-availability'] }
     ];
 
+    // The search box in the top bar is only shown on the pages that list people
+    // and records; everywhere else it is hidden.
+    const SEARCH_VIEWS = ['driver-management', 'passenger-management', 'complaints', 'bookings'];
+    const SEARCH_PLACEHOLDERS = {
+        'driver-management': 'Search drivers by name, plate or phone…',
+        'passenger-management': 'Search passengers by name, phone or email…',
+        'complaints': 'Search complaints by case, driver, passenger or issue…',
+        'bookings': 'Search bookings by ID, driver, passenger or place…'
+    };
+
     function switchView(viewId) {
         navLinks.forEach(link => link.classList.toggle('active', link.dataset.view === viewId));
         views.forEach(view => view.classList.toggle('active', view.id === 'view-' + viewId));
+        const search = document.getElementById('topbarSearch');
+        if (search) {
+            const show = SEARCH_VIEWS.includes(viewId);
+            search.style.display = show ? '' : 'none';
+            // A new page starts with an empty search box; the two list pages filter
+            // their own list, the others jump to a result.
+            const box = document.getElementById('globalSearchInput');
+            if (box) {
+                box.value = '';
+                box.placeholder = SEARCH_PLACEHOLDERS[viewId] || 'Search drivers, passengers, bookings…';
+            }
+            if (typeof window.resetListSearch === 'function') window.resetListSearch();
+            // Without the search box the bar only holds the bell and Admin, so it is compact.
+            search.closest('.topbar')?.classList.toggle('topbar-compact', !show);
+            if (!show) {
+                const input = document.getElementById('globalSearchInput');
+                if (input) input.value = '';
+            }
+        }
         // Update page title in topbar breadcrumb
         const breadcrumb = document.getElementById('topbar-title');
         if (breadcrumb) {

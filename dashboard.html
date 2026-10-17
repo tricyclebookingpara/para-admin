@@ -6,7 +6,7 @@
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-    <link rel="stylesheet" href="style.css?v=76">
+    <link rel="stylesheet" href="style.css?v=80">
 </head>
 <body>
 <div class="app-background">
@@ -88,10 +88,9 @@
         <!-- Main Content -->
         <section class="main-content">
             <header class="topbar">
-                <div style="position:relative; flex:1; max-width:340px;">
+                <div id="topbarSearch" style="position:relative; flex:1; max-width:340px;">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     <input type="text" id="globalSearchInput" class="form-input" placeholder="Search drivers, passengers, bookings…" autocomplete="off" style="width:100%; padding-left:36px; padding-top:9px; padding-bottom:9px;">
-                    <div class="dropdown-menu" id="globalSearchResults" style="left:0; right:auto; top:calc(100% + 8px); min-width:320px; max-height:360px; overflow-y:auto;"></div>
                 </div>
                 <div class="topbar-right">
                     <div class="topbar-actions">
@@ -196,9 +195,6 @@
             <div class="view-section" id="view-driver-verification">
                 <div class="page-header">
                     <h1>Driver Verification</h1>
-                    <div class="header-controls">
-                        <input type="search" class="vf-search" id="verificationSearch" placeholder="Search name, license or plate" autocomplete="off">
-                    </div>
                 </div>
                 <div class="vf-tabs" id="verificationTabs">
                     <button class="vf-tab active" data-status="pending">Pending <span class="vf-count" id="vf-count-pending">0</span></button>
@@ -456,7 +452,7 @@
             <div class="modal-overlay" id="driverHistoryModal">
                 <div class="modal-content" style="max-width:520px;">
                     <div class="modal-header">
-                        <h2 id="driverHistoryTitle">Driver History</h2>
+                        <h2 id="driverHistoryTitle">Logs</h2>
                         <button class="close-btn" onclick="closeModal('driverHistoryModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
                     </div>
                     <div class="modal-body">
@@ -1055,12 +1051,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=53"></script>
+<script src="firestore-service.js?v=54"></script>
 <script src="prediction.js?v=14"></script>
 <script src="forecast.js?v=20"></script>
-<script src="script.js?v=94"></script>
+<script src="script.js?v=100"></script>
 <script src="google-maps-config.js?v=1"></script>
-<script src="firestore-ui.js?v=95"></script>
+<script src="firestore-ui.js?v=100"></script>
 <script src="forecast-ui.js?v=29"></script>
 </body>
 </html>

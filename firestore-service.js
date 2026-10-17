@@ -332,9 +332,10 @@ const ParaFirestore = (() => {
             passengerName: getField(data, 'passengerName', 'passenger'),
             totalFare: Number(getField(data, 'fare', 'totalFare', 'amountPaid', 'amount', 'price', 'total_amount')) || 0,
             // The service fee on top of the fare, from the percentages the app
-            // saved on the booking (same rounding as the app and the Cloud
-            // Functions, functions/src/fees.ts). Bookings made before the fee
-            // have none: hasServiceFee is false and the screens estimate.
+            // saved on the booking. Not rounded per ride, so totals equal the fares
+            // times the percentage; screens round only when they show an amount.
+            // Bookings made before the fee have none: hasServiceFee is false and
+            // the screens estimate.
             ...bookingServiceFee(data),
             paymentMethod: getField(data, 'paymentMethod', 'payment_method'),
             paymentStatus: normalizeStatus(getField(data, 'paymentStatus', 'payment_status')),
@@ -363,8 +364,6 @@ const ParaFirestore = (() => {
         };
     }
 
-    const round2 = (n) => Math.round(n * 100) / 100;
-
     function bookingServiceFee(data) {
         const fare = Number(data.fare) || 0;
         const pct = (value) => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : 0);
@@ -375,11 +374,11 @@ const ParaFirestore = (() => {
         if (totalPct <= 0 || totalPct > 100 || fare <= 0) {
             return { hasServiceFee: false, serviceFee: 0, paraShare: 0, driverShare: 0, todaShare: 0, amountPaid: fare };
         }
-        const paraShare = round2(fare * paraPct / 100);
-        const driverShare = round2(fare * driverPct / 100);
-        const todaShare = round2(fare * todaPct / 100);
-        const serviceFee = round2(paraShare + driverShare + todaShare);
-        return { hasServiceFee: true, serviceFee, paraShare, driverShare, todaShare, amountPaid: round2(fare + serviceFee) };
+        const paraShare = fare * paraPct / 100;
+        const driverShare = fare * driverPct / 100;
+        const todaShare = fare * todaPct / 100;
+        const serviceFee = fare * totalPct / 100;
+        return { hasServiceFee: true, serviceFee, paraShare, driverShare, todaShare, amountPaid: fare + serviceFee };
     }
 
     // Per-driver stats from bookings — the app stores neither on the driver doc.

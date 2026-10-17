@@ -434,7 +434,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 rejected: 'No rejected applications.',
                 photos: 'No profile photos are waiting for review.'
             };
-            tbody.innerHTML = emptyRow(5, verificationSearchTerm ? 'No applications match your search.' : emptyLabels[currentVerificationFilter]);
+            tbody.innerHTML = emptyRow(5, emptyLabels[currentVerificationFilter]);
             return;
         }
 
@@ -631,6 +631,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         return chip ? `<div style="margin-top:6px;">${chip}</div>` : '';
     }
 
+    // On Driver Management and Passenger Management the top-bar search box filters
+    // the list as you type, matching any part of the name, plate, phone, e-mail…
+    // (on the other pages it still opens the quick-jump results instead).
+    let listSearchTerm = '';
+    function matchesListSearch(values) {
+        return !listSearchTerm || values.some((value) => String(value || '').toLowerCase().includes(listSearchTerm));
+    }
+
     function renderDriverManagementTable(drivers) {
         const tbody = document.querySelector('#view-driver-management .data-table tbody');
         if (!tbody) return;
@@ -659,8 +667,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
 
+        list = list.filter((d) => matchesListSearch([d.name, d.vehicle, d.plate, d.motorcycleModel, d.phone, d.email, d.license]));
+
         if (!list.length) {
-            tbody.innerHTML = emptyRow(5, 'No approved drivers found in Firestore.');
+            tbody.innerHTML = emptyRow(5, listSearchTerm ? 'No drivers match your search.' : 'No approved drivers found in Firestore.');
             return;
         }
 
@@ -697,7 +707,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td>${renderBadge(isSuspended ? 'suspended' : 'active')}${driverRiskFlag(driver)}${driverLicenseFlag(driver)}${suspensionNote}${driverPresenceLine(driver)}</td>
                 <td style="white-space:nowrap;">
                     <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
-                        <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-driver" data-id="${escapeHtml(driver.id)}" data-name="${escapeHtml(driver.name)}">History</button>
+                        <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-driver" data-id="${escapeHtml(driver.id)}" data-name="${escapeHtml(driver.name)}">Logs</button>
                         ${actionBtn}
                     </div>
                 </td>
@@ -795,11 +805,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Newest sign-up first (those with no sign-up date go last).
         const joined = (p) => (p.memberSinceRaw ? new Date(p.memberSinceRaw).getTime() || 0 : 0);
         const all = (statusFilter === 'all' ? passengers : passengers.filter((p) => String(p.status).toLowerCase() === statusFilter))
+            .filter((p) => matchesListSearch([p.name, p.phone, p.email]))
             .slice()
             .sort((a, b) => joined(b) - joined(a));
 
         if (!all.length) {
-            tbody.innerHTML = emptyRow(7, 'No passengers found in Firestore.');
+            tbody.innerHTML = emptyRow(7, listSearchTerm ? 'No passengers match your search.' : 'No passengers found in Firestore.');
             if (paginationEl) paginationEl.innerHTML = '';
             return;
         }
@@ -839,7 +850,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td>${renderBadge(statusKey)}${suspensionNote}</td>
                 <td style="white-space:nowrap;">
                     <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
-                        <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-passenger" data-id="${escapeHtml(passenger.id)}" data-name="${escapeHtml(passenger.name)}">History</button>
+                        <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-passenger" data-id="${escapeHtml(passenger.id)}" data-name="${escapeHtml(passenger.name)}">Logs</button>
                         ${actionBtn}
                     </div>
                 </td>
@@ -1002,10 +1013,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
 
+        list = list.filter((b) => matchesListSearch([b.ref, b.id, b.driverName, b.plate, b.passengerName, b.pickupLocation, b.dropoffLocation, b.status]));
+
         const paginationEl = document.getElementById('bookingPagination');
 
         if (!list.length) {
-            tbody.innerHTML = emptyRow(8, 'No bookings found in Firestore.');
+            tbody.innerHTML = emptyRow(8, listSearchTerm ? 'No bookings match your search.' : 'No bookings found in Firestore.');
             if (paginationEl) paginationEl.innerHTML = '';
             return;
         }
@@ -1487,13 +1500,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
     }
 
+    // The Status filter, then whatever is typed in the top-bar search box (case
+    // number, passenger, driver, issue, description or trip).
     function getComplaintsForFilter(filterKey) {
         const key = (filterKey || 'all').toLowerCase();
-        if (key === 'pending') return allComplaints.filter((c) => ['pending', 'reviewing'].includes(c.status));
-        if (key === 'warned') return allComplaints.filter(wasWarnedByAdmin);
-        if (key === 'resolved') return allComplaints.filter((c) => c.status === 'resolved');
-        if (key === 'dismissed') return allComplaints.filter((c) => c.status === 'rejected');
-        return allComplaints;
+        let list = allComplaints;
+        if (key === 'pending') list = allComplaints.filter((c) => ['pending', 'reviewing'].includes(c.status));
+        else if (key === 'warned') list = allComplaints.filter(wasWarnedByAdmin);
+        else if (key === 'resolved') list = allComplaints.filter((c) => c.status === 'resolved');
+        else if (key === 'dismissed') list = allComplaints.filter((c) => c.status === 'rejected');
+        return listSearchTerm
+            ? list.filter((c) => matchesListSearch([c.ref, c.id, c.reporter, c.reported, c.issue, c.description, c.tripRef]))
+            : list;
     }
 
     // Driver/passenger lists can finish loading after complaints do (separate
@@ -1583,7 +1601,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const paginationEl = document.getElementById('complaintPagination');
         if (!sortedComplaints.length) {
-            tbody.innerHTML = emptyRow(5, 'No complaints found in Firestore.');
+            tbody.innerHTML = emptyRow(5, listSearchTerm ? 'No complaints match your search.' : 'No complaints found in Firestore.');
             if (paginationEl) paginationEl.innerHTML = '';
             return;
         }
@@ -2004,7 +2022,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     let allDrivers = [];
-    let verificationSearchTerm = '';
     // Latest approval / rejection logged for each driver (see logDriverAction).
     const verificationDecisions = new Map();
 
@@ -2028,8 +2045,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             tab.classList.toggle('active', tab.dataset.status === currentVerificationFilter);
         });
 
-        const filtered = allDrivers.filter((d) => inVerificationTab(d, currentVerificationFilter)
-            && (!verificationSearchTerm || [d.name, d.license, d.plate, d.vehicle].some((v) => String(v || '').toLowerCase().includes(verificationSearchTerm))));
+        const filtered = allDrivers.filter((d) => inVerificationTab(d, currentVerificationFilter));
 
         if (currentVerificationFilter === 'photos') {
             // Oldest upload first.
@@ -2093,10 +2109,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const tab = e.target.closest('.vf-tab');
         if (!tab) return;
         currentVerificationFilter = tab.dataset.status;
-        applyVerificationFilter();
-    });
-    document.getElementById('verificationSearch')?.addEventListener('input', (e) => {
-        verificationSearchTerm = e.target.value.trim().toLowerCase();
         applyVerificationFilter();
     });
 
@@ -2262,51 +2274,50 @@ document.addEventListener('DOMContentLoaded', async () => {
         );
     };
 
-    // Shared by driver and passenger "History" buttons — same driver_actions-style
-    // shape, just a different collection/id field behind fetchActions.
+    // Shared by the driver and passenger "Logs" buttons: the account's suspensions
+    // and reactivations, newest first. (Warnings, approvals and the TODA president's
+    // recommendations are not shown here.)
+    const ACCOUNT_LOG_TYPES = ['Suspension', 'Reactivation'];
+
     async function openActionHistoryModal(name, fetchActions, noneLabel) {
         const titleEl = document.getElementById('driverHistoryTitle');
         const listEl = document.getElementById('driverHistoryList');
-        if (titleEl) titleEl.textContent = `${name || 'Record'} — History`;
+        if (titleEl) titleEl.textContent = `${name || 'Record'} — Logs`;
         if (listEl) listEl.innerHTML = '<div style="color:var(--text-muted); font-size:13px;">Loading…</div>';
         document.getElementById('driverHistoryModal').classList.add('active');
 
         try {
-            const actions = await fetchActions();
+            const fromPresident = (action) => action.issuedByRole !== 'ADMIN' && action.issuedBy && action.issuedBy !== user.uid;
+            const actions = (await fetchActions()).filter((action) => ACCOUNT_LOG_TYPES.includes(action.actionType) && !fromPresident(action));
             if (!listEl) return;
             if (!actions.length) {
                 listEl.innerHTML = `<div style="color:var(--text-muted); font-size:13px;">${escapeHtml(noneLabel)}</div>`;
                 return;
             }
-            const typeColor = { Suspension: '#EE5D50', Rejection: '#EE5D50', Reactivation: '#05CD99', Approval: '#05CD99', Warning: '#FF9E2A' };
+            const typeColor = { Suspension: '#EE5D50', Reactivation: '#05CD99' };
             listEl.innerHTML = actions.map((action) => {
                 const color = typeColor[action.actionType] || 'var(--text-main)';
                 const when = action.issuedAt ? new Date(Number(action.issuedAt)).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
-                // Records the TODA president made (rather than this admin site) say so.
-                const fromPresident = action.issuedByRole !== 'ADMIN' && action.issuedBy && action.issuedBy !== user.uid;
-                const byLine = fromPresident ? `From the TODA president${action.issuedByName ? ` (${action.issuedByName})` : ''}` : '';
 
                 return `
                     <div style="border:1px solid var(--border-color); border-radius:10px; padding:12px 14px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                            <strong style="color:${color}; font-size:13px;">${escapeHtml(action.actionType || 'Action')}</strong>
+                            <strong style="color:${color}; font-size:13px;">${escapeHtml(action.actionType)}</strong>
                             <span style="font-size:12px; color:var(--text-muted);">${escapeHtml(when)}</span>
                         </div>
                         ${action.reason ? `<div style="font-size:13px; color:var(--text-main);">${escapeHtml(action.reason)}</div>` : ''}
-                        ${byLine ? `<div class="detail-sub" style="margin-top:4px;">${escapeHtml(byLine)}</div>` : ''}
                     </div>
                 `;
             }).join('');
         } catch (error) {
-            console.error('Failed to load history:', error);
-            if (listEl) listEl.innerHTML = '<div style="color:var(--text-muted); font-size:13px;">Could not load history.</div>';
+            console.error('Failed to load logs:', error);
+            if (listEl) listEl.innerHTML = '<div style="color:var(--text-muted); font-size:13px;">Could not load the logs.</div>';
         }
     }
 
     window.openDriverHistoryModal = function(driverId, name) {
-        openActionHistoryModal(name, () => ParaFirestore.fetchDriverActions(driverId), 'No actions recorded for this driver yet.');
+        openActionHistoryModal(name, () => ParaFirestore.fetchDriverActions(driverId), 'No suspensions or reactivations recorded for this driver yet.');
     };
-
     // ── Driver details window (click a row in Driver Management) ──
     const DD_BOOKINGS_PAGE_SIZE = 8;
     let ddDriver = null;
@@ -2769,7 +2780,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     })();
 
     window.openPassengerHistoryModal = function(passengerId, name) {
-        openActionHistoryModal(name, () => ParaFirestore.fetchPassengerActions(passengerId), 'No actions recorded for this passenger yet.');
+        openActionHistoryModal(name, () => ParaFirestore.fetchPassengerActions(passengerId), 'No suspensions or reactivations recorded for this passenger yet.');
     };
 
     // "indefinitely" / "for 3 days" in the suspension toasts.
@@ -3825,117 +3836,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadTodaPresidentAccounts();
     loadNotificationHistory();
 
-    // ── Global Search ────────────────────────────────────────────
-    // Searches over data already loaded in memory for the other views
-    // (drivers, passengers, bookings) — no extra Firestore reads.
-    function buildSearchIndex() {
-        const results = [];
-
-        (window.driverManagementDrivers || []).forEach((d) => {
-            results.push({
-                type: 'Driver',
-                id: d.id,
-                label: d.name || 'Unnamed driver',
-                sub: `Plate: ${d.plate || '—'}`,
-                haystack: `${d.name || ''} ${d.plate || ''} ${d.license || ''}`.toLowerCase(),
-                data: d
-            });
-        });
-
-        (window.allPassengers || []).forEach((p) => {
-            results.push({
-                type: 'Passenger',
-                id: p.id,
-                label: p.name || 'Unnamed passenger',
-                sub: p.phone || p.email || '',
-                haystack: `${p.name || ''} ${p.phone || ''} ${p.email || ''}`.toLowerCase(),
-                data: p
-            });
-        });
-
-        (window.allBookings || window.dashboardBookings || []).forEach((b) => {
-            results.push({
-                type: 'Booking',
-                id: b.id,
-                label: b.ref || b.id,
-                sub: `${b.driverName || 'Unknown driver'} · ${b.dateLabel || ''}`,
-                haystack: `${b.ref || ''} ${b.driverName || ''} ${b.passengerName || ''}`.toLowerCase(),
-                data: b
-            });
-        });
-
-        return results;
-    }
-
-    function goToSearchResult(item) {
-        if (item.type === 'Driver') {
-            document.querySelector('[data-view="driver-management"]')?.click();
-            window.openDriverDetailsModal(item.id);
-        } else if (item.type === 'Passenger') {
-            document.querySelector('[data-view="passenger-management"]')?.click();
-            window.openPassengerDetailsModal(item.id);
-        } else if (item.type === 'Booking') {
-            document.querySelector('[data-view="bookings"]')?.click();
-            const datePicker = document.getElementById('bookingDatePicker');
-            if (datePicker && item.data.createdAtRaw) {
-                const d = new Date(item.data.createdAtRaw);
-                const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                datePicker.value = iso;
-            }
-            window.bookingStatusFilter = 'all';
-            const statusBtn = document.getElementById('statusFilterBtn');
-            if (statusBtn) {
-                const filterText = statusBtn.querySelector('.filter-val');
-                if (filterText) filterText.textContent = 'All';
-            }
-            bookingTablePage = 1;
-            renderBookingTable(window.allBookings || []);
-        }
-    }
-
-    function renderSearchResults(query) {
-        const panel = document.getElementById('globalSearchResults');
-        if (!panel) return;
-
-        const q = query.trim().toLowerCase();
-        if (q.length < 2) {
-            panel.classList.remove('show');
-            panel.innerHTML = '';
-            return;
-        }
-
-        const matches = buildSearchIndex().filter((item) => item.haystack.includes(q)).slice(0, 8);
-
-        if (!matches.length) {
-            panel.innerHTML = `<div class="dropdown-content"><div class="dropdown-item" style="cursor:default;"><span class="item-text" style="color:var(--text-muted);">No matches</span></div></div>`;
-            panel.classList.add('show');
-            return;
-        }
-
-        panel.innerHTML = `<div class="dropdown-content">${matches.map((item, i) => `
-            <div class="dropdown-item" data-search-index="${i}">
-                <span class="item-text"><strong>${escapeHtml(item.label)}</strong> — ${escapeHtml(item.sub)}<br><span style="font-size:11px; color:var(--text-muted);">${item.type}</span></span>
-            </div>
-        `).join('')}</div>`;
-        panel.classList.add('show');
-
-        panel.querySelectorAll('[data-search-index]').forEach((el) => {
-            el.addEventListener('click', () => {
-                goToSearchResult(matches[Number(el.dataset.searchIndex)]);
-                panel.classList.remove('show');
-                const input = document.getElementById('globalSearchInput');
-                if (input) input.value = '';
-            });
-        });
-    }
-
+    // ── Top-bar search ───────────────────────────────────────────
+    // On the list pages (Driver Management, Passenger Management, Complaints and
+    // Booking Records) the search box filters that page's list as you type.
     const globalSearchInput = document.getElementById('globalSearchInput');
+
+    const SEARCH_REDRAW = {
+        'view-driver-management': () => renderDriverManagementTable(window.driverManagementDrivers || []),
+        'view-passenger-management': () => { passengerTablePage = 1; renderPassengerTable(window.allPassengers || []); },
+        'view-complaints': () => { complaintTablePage = 1; renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter)); },
+        'view-bookings': () => { bookingTablePage = 1; renderBookingTable(window.allBookings || []); }
+    };
+
+    // Called when another page is opened: the typed text is cleared, so the lists show everything again.
+    window.resetListSearch = function() {
+        if (!listSearchTerm) return;
+        listSearchTerm = '';
+        Object.values(SEARCH_REDRAW).forEach((redraw) => redraw());
+    };
+
     if (globalSearchInput) {
-        globalSearchInput.addEventListener('input', (e) => renderSearchResults(e.target.value));
-        globalSearchInput.addEventListener('click', (e) => e.stopPropagation());
-        document.addEventListener('click', () => {
-            const panel = document.getElementById('globalSearchResults');
-            if (panel) panel.classList.remove('show');
+        globalSearchInput.addEventListener('input', (e) => {
+            const redraw = SEARCH_REDRAW[document.querySelector('.view-section.active')?.id];
+            if (!redraw) return;
+            listSearchTerm = e.target.value.trim().toLowerCase();
+            redraw();
         });
     }
 });
