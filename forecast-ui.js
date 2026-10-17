@@ -1,12 +1,16 @@
 // Availability & Demand Forecast page (admin website).
 //
-// Prediction phase: the admin picks a day, hour and area. Rainfall, tide and
-// high-water risk for that time are looked up, and each saved model gives a
-// number (Y = b0 + b1x1 + … + bnxn) plus a HIGH / MODERATE / LOW status.
-// The website shows both the number and the status; the mobile apps show the
-// status only.
-// Training phase: "Train models" reads what the app has logged, fits both
-// regressions (see forecast.js) and saves the coefficients.
+// Two separately trained multiple linear regressions (see forecast.js):
+//   Model A  passenger booking requests per barangay and hour
+//   Model B  eligible, online, unoccupied drivers per barangay at the start of the hour
+//
+// The page does three different things, and keeps them apart:
+//   TRAINING   learns coefficients from the last six months of Firestore records
+//              (automatic, at most once a day, one browser at a time)
+//   EVALUATION is shown as the scores of a trial model on later, unseen hours
+//   INFERENCE  uses the saved models to forecast one of the next 24 whole hours
+// Opening the page shows the NEXT hour. Past hours and anything beyond 24 hours
+// ahead cannot be chosen.
 (function () {
     'use strict';
 
@@ -16,136 +20,122 @@
     if (!P || !F || !view) return;
 
     const $ = (id) => document.getElementById(id);
-    const DAY_MS = 24 * 3600 * 1000;
-    // Real-data training reads this much history (all that is available, up to a year).
-    const REAL_HISTORY_DAYS = 365;
+    const ALL = 'ALL';
     const ENV_CACHE_MS = 30 * 60 * 1000;
     const DOW_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    const ALL_AREAS = 'ALL';
-    const KINDS = {
-        availability: { title: 'Driver availability', unit: 'Available drivers', save: 'saveDriverAvailabilityModel', fetch: 'fetchDriverAvailabilityModel' },
-        demand: { title: 'Passenger booking demand', unit: 'Bookings', save: 'savePassengerDemandModel', fetch: 'fetchPassengerDemandModel' }
-    };
+    const MODELS = [
+        { key: 'demand', letter: 'A', title: 'Booking demand', unit: 'booking requests', totalId: 'demand' },
+        { key: 'availability', letter: 'B', title: 'Driver availability', unit: 'available drivers', totalId: 'availability' }
+    ];
 
-    const models = { availability: null, demand: null };
-    let staleModels = false;
-    let modelsLoaded = false;
+    const state = { demand: null, availability: null, problems: {}, loaded: false };
+    let lastAttempt = null;
+    let trainNotes = [];
     let loadingModels = false;
+    let training = false;
+    let lastForecastAt = 0;
     let requestId = 0;
-    let viewKind = 'availability';
-    // The tide readings (from Firestore) and their by-date index.
+    let slotsBase = null;
     let tideReadings = [];
     let tideIndex = P.indexTide([]);
-    const envCache = new Map(); // key -> { at, promise }
-    let scatterChart = null;
+    const envCache = new Map();
+    const lockOwner = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
+    // ── small helpers ──────────────────────────────────────────────────
     function toast(message, type) {
         if (typeof window.showToast === 'function') window.showToast(message, type || 'success');
     }
 
-    function clear(el) {
-        while (el.firstChild) el.removeChild(el.firstChild);
+    function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+
+    function make(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text != null) node.textContent = text;
+        return node;
     }
 
-    function cell(row, text, style) {
-        const td = document.createElement('td');
-        td.textContent = text;
-        if (style) td.style.cssText = style;
-        row.appendChild(td);
-        return td;
+    const fmt = (value, digits) => (Number.isFinite(value) ? value.toFixed(digits) : '—');
+    const noStop = (text) => String(text || '').replace(/[.\s]+$/, '');
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const fmtWhen = (ms) => new Date(ms).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const clock = (hour) => `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour >= 12 ? 'PM' : 'AM'}`;
+    const clockOfMinutes = (m) => `${Math.floor(m / 60) % 12 === 0 ? 12 : Math.floor(m / 60) % 12}:${pad2(m % 60)} ${Math.floor(m / 60) >= 12 ? 'PM' : 'AM'}`;
+    const models = () => MODELS.map((m) => state[m.key]).filter(Boolean);
+    const anyModel = () => state.demand || state.availability;
+
+    function addTag(parent, text, kind) {
+        parent.appendChild(make('span', `fx-tag${kind ? ` ${kind}` : ''}`, text));
     }
 
-    function fmt(value, digits) {
-        return Number.isFinite(value) ? value.toFixed(digits) : '—';
+    function setLabel(el, text, kind) {
+        el.textContent = text || '';
+        el.className = `fx-label${kind ? ` ${kind}` : ''}`;
     }
 
-    function pad2(n) { return String(n).padStart(2, '0'); }
-
-    // ── Labels and colours ─────────────────────────────────────────────
-    // Availability and the environment run green (good/calm) → red (scarce/
-    // severe). Demand is not good or bad, so HIGH is blue and LOW is plain.
-    const TONES = {
-        availability: { HIGH: 'tone-green', MODERATE: 'tone-amber', LOW: 'tone-red' },
-        demand: { HIGH: 'tone-blue', MODERATE: 'tone-amber', LOW: '' },
-        severity: { Light: 'tone-green', Low: 'tone-green', LOW: 'tone-green', Moderate: 'tone-amber', MODERATE: 'tone-amber', Strong: 'tone-red', High: 'tone-red', HIGH: 'tone-red', SEVERE: 'tone-red' }
-    };
-
-    function setLabel(el, text, tone) {
-        el.textContent = text || '—';
-        el.className = `fc-label${el.classList.contains('fc-label-lg') ? ' fc-label-lg' : ''}${tone ? ` ${tone}` : ''}`;
+    // Demand is not good or bad, so HIGH is blue and LOW is plain; for drivers
+    // a LOW supply is the warning.
+    function levelClass(modelKey, level) {
+        if (!level) return '';
+        if (modelKey === 'demand') return level === 'HIGH' ? 'demand-high' : (level === 'LOW' ? 'demand-low' : 'moderate');
+        return level.toLowerCase();
     }
 
-    function formatClock(minutes) {
-        const h = Math.floor(minutes / 60);
-        const m = minutes % 60;
-        return `${h % 12 === 0 ? 12 : h % 12}:${pad2(m)} ${h >= 12 ? 'PM' : 'AM'}`;
+    function validityTag(parent, validity) {
+        const v = (validity && validity.status) || 'UNVALIDATED';
+        addTag(parent, v === 'VALIDATED' ? 'Validated' : (v === 'EXPLORATORY' ? 'Exploratory' : 'Not evaluated'), v === 'VALIDATED' ? 'good' : (v === 'EXPLORATORY' ? 'warn' : 'bad'));
     }
 
-    // ── Inputs ─────────────────────────────────────────────────────────
-    function initInputs() {
-        const select = $('fc-hour');
-        for (let h = 0; h < 24; h += 1) {
-            const option = document.createElement('option');
-            option.value = String(h);
-            option.textContent = formatClock(h * 60);
-            select.appendChild(option);
-        }
-        const now = P.manilaParts(Date.now());
-        $('fc-date').value = now.dateKey;
-        select.value = String(now.hour);
-        showDayOfWeek();
+    // ── target-hour choices: the next 24 whole hours ───────────────────
+    function slotLabel(slot, todayKey) {
+        const day = slot.dateKey === todayKey ? 'today' : (slot.dateKey === P.addDays(todayKey, 1) ? 'tomorrow' : slot.dateKey);
+        const prefix = slot.hoursAhead === 1 ? 'Next hour · ' : '';
+        return `${prefix}${clock(slot.hour)}–${pad2(slot.hour)}:59, ${day} (${slot.hoursAhead} h ahead)`;
     }
 
-    function showDayOfWeek() {
-        const dateKey = $('fc-date').value;
-        $('fc-dow').textContent = dateKey ? DOW_NAMES[P.dayOfWeekOf(dateKey)] : '';
-    }
-
-    function useNextHour() {
-        const next = P.manilaParts(Date.now() + 3600 * 1000);
-        $('fc-date').value = next.dateKey;
-        $('fc-hour').value = String(next.hour);
-        showDayOfWeek();
-        runPrediction();
-    }
-
-    function knownModel() {
-        return models.availability || models.demand;
-    }
-
-    function renderAreaOptions() {
-        const select = $('fc-area');
-        const previous = select.value;
+    function buildSlots() {
+        const slots = F.forecastSlots(Date.now());
+        const select = $('fx-slot');
+        if (slotsBase === slots[0].targetMs && select.options.length === slots.length) return slots;
+        const previous = Number(select.value);
         clear(select);
-        const model = knownModel();
-        const all = document.createElement('option');
-        all.value = ALL_AREAS;
-        all.textContent = 'All barangays (Hagonoy)';
-        select.appendChild(all);
-        // Every barangay is listed; with a trained model, the ones it has no
-        // data for are shown but cannot be chosen.
-        P.HAGONOY_BARANGAYS.forEach((name) => {
-            const option = document.createElement('option');
-            option.value = name;
-            const hasData = !model || model.areas.includes(name);
-            option.textContent = hasData ? name : `${name} (no data yet)`;
-            option.disabled = !hasData;
+        const todayKey = P.manilaParts(Date.now()).dateKey;
+        slots.forEach((slot) => {
+            const option = make('option', '', slotLabel(slot, todayKey));
+            option.value = String(slot.targetMs);
             select.appendChild(option);
         });
-        const usable = (name) => Array.from(select.options).some((o) => o.value === name && !o.disabled);
-        const preferred = [previous, ALL_AREAS].find((name) => name && usable(name));
-        select.value = preferred || (Array.from(select.options).find((o) => !o.disabled) || {}).value || '';
+        const keep = slots.find((s) => s.targetMs === previous);
+        select.value = String((keep || slots[0]).targetMs);
+        slotsBase = slots[0].targetMs;
+        return slots;
     }
 
-    // ── Tide data (uploaded Excel, stored in Firestore) ────────────────
+    function buildAreas() {
+        const select = $('fx-area');
+        if (select.options.length) return;
+        const all = make('option', '', 'All barangays (total)');
+        all.value = ALL;
+        select.appendChild(all);
+        P.HAGONOY_BARANGAYS.forEach((name) => {
+            const option = make('option', '', `${name} (${P.todasOf(name).join(' / ')})`);
+            option.value = name;
+            select.appendChild(option);
+        });
+    }
+
+    function selectedSlot() {
+        const slots = buildSlots();
+        const wanted = Number($('fx-slot').value);
+        return slots.find((s) => s.targetMs === wanted) || slots[0];
+    }
+
+    // ── tide data (uploaded Excel, stored in Firestore) ────────────────
     function setTideReadings(readings) {
         tideReadings = readings;
         tideIndex = P.indexTide(readings);
         const status = $('fc-tide-file-status');
-        if (!tideIndex.dates.length) {
-            status.textContent = 'No tide data loaded yet.';
-            return;
-        }
+        if (!tideIndex.dates.length) { status.textContent = 'No tide data loaded yet.'; return; }
         const first = tideIndex.dates[0];
         const last = tideIndex.dates[tideIndex.dates.length - 1];
         status.textContent = `${readings.length} reading${readings.length === 1 ? '' : 's'} loaded · ${first}${first === last ? '' : ` to ${last}`}`;
@@ -154,7 +144,7 @@
     async function loadTideBulletin() {
         if (!window.ParaFirestore) return;
         try {
-            const since = P.addDays(P.manilaParts(Date.now()).dateKey, -130);
+            const since = P.addDays(P.trainingWindow(Date.now()).startKey, -(P.CONFIG.baselineDays + 2));
             setTideReadings(await window.ParaFirestore.fetchTideBulletin(since));
         } catch (error) {
             console.error('Failed to load the tide data:', error);
@@ -178,428 +168,17 @@
         } catch (error) {
             console.error('Failed to save the tide data:', error);
             toast('Tide data loaded here, but could not be saved — the mobile app will not see it.', 'error');
-            // Still usable on this page until reload.
             const kept = tideReadings.filter((r) => !readings.some((n) => n.dateKey === r.dateKey));
             setTideReadings([...kept, ...readings]);
         }
-        runPrediction();
-    }
-
-    // ── Prediction phase ───────────────────────────────────────────────
-    function getEnvironment(dateKey) {
-        const from = P.addDays(dateKey, -P.CONFIG.baselineDays);
-        const to = P.addDays(dateKey, P.CONFIG.dischargeAheadDays + 1);
-        const key = `${from}|${to}`;
-        const cached = envCache.get(key);
-        if (cached && Date.now() - cached.at < ENV_CACHE_MS) return cached.promise;
-        const promise = P.loadEnvironment(from, to).catch((error) => {
-            envCache.delete(key);
-            throw error;
-        });
-        envCache.set(key, { at: Date.now(), promise });
-        return promise;
-    }
-
-    function clearPredictions() {
-        ['drv', 'dem'].forEach((p) => {
-            $(`fc-${p}-value`).textContent = '—';
-            setLabel($(`fc-${p}-badge`), '—', '');
-        });
-        $('fc-range-warning').style.display = 'none';
-    }
-
-    function clearConditions() {
-        $('fc-rain-value').textContent = '—';
-        setLabel($('fc-rain-label'), '—', '');
-        $('fc-tide-value').textContent = '—';
-        setLabel($('fc-tide-label'), '—', '');
-        setLabel($('fc-risk-label'), '—', '');
-        $('fc-tide-note').textContent = '';
-        $('fc-tide-note').style.color = '';
-    }
-
-    // Shows a predicted count as a whole number and gives it its status. The
-    // status is read from the same rounded number the admin sees. For "All
-    // barangays" the barangay predictions are added up and the whole-town
-    // thresholds apply.
-    function showPrediction(kind, prefix, input) {
-        const model = models[kind];
-        if (!model) {
-            $(`fc-${prefix}-value`).textContent = '—';
-            setLabel($(`fc-${prefix}-badge`), 'NOT TRAINED', '');
-            return;
-        }
-        const allTown = input.area === ALL_AREAS;
-        const raw = allTown ? F.predictAll(model, input) : F.predict(model, input);
-        const value = Math.round(raw);
-        const status = P.classify(value, F.thresholdsFor(model, allTown));
-        $(`fc-${prefix}-value`).textContent = String(value);
-        setLabel($(`fc-${prefix}-badge`), status || 'SET THRESHOLDS', status ? TONES[kind][status] : '');
-    }
-
-    async function runPrediction() {
-        const dateKey = $('fc-date').value;
-        const hour = Number($('fc-hour').value);
-        const area = $('fc-area').value;
-        const myRequest = ++requestId;
-        showDayOfWeek();
-
-        if (!dateKey) {
-            clearConditions();
-            clearPredictions();
-            $('fc-env-status').textContent = 'Pick a day.';
-            return;
-        }
-        $('fc-env-status').textContent = '';
-
-        let env;
-        try {
-            env = { ...(await getEnvironment(dateKey)), tide: tideIndex };
-        } catch (error) {
-            if (myRequest !== requestId) return;
-            console.error('Failed to load environment data:', error);
-            clearConditions();
-            clearPredictions();
-            $('fc-env-status').textContent = 'Could not load weather data.';
-            toast('Could not load weather data.', 'error');
-            return;
-        }
-        if (myRequest !== requestId) return;
-        clearConditions();
-
-        // Rainfall and tide are shown whenever they exist, even if the full
-        // set of inputs the prediction needs is not available yet.
-        const rainMm = env.rain.get(P.hourKey(dateKey, hour));
-        if (rainMm !== undefined) {
-            $('fc-rain-value').textContent = rainMm.toFixed(2);
-            setLabel($('fc-rain-label'), P.rainLabel(rainMm), TONES.severity[P.rainLabel(rainMm)]);
-        }
-        const reading = P.nearestTideReading(tideIndex, dateKey, hour * 60 + 30);
-        const tideNote = $('fc-tide-note');
-        if (reading) {
-            const level = P.tideLabel(reading.meters, P.tideLevels(tideIndex));
-            $('fc-tide-value').textContent = reading.feet.toFixed(1);
-            setLabel($('fc-tide-label'), level, level ? TONES.severity[level] : '');
-            if (reading.distanceMinutes > P.CONFIG.tideMatchWarnMinutes) {
-                tideNote.textContent = `⚠ Nearest reading that day is at ${formatClock(reading.minutes)}, ${(reading.distanceMinutes / 60).toFixed(1)} h away — may not be reliable.`;
-                tideNote.style.color = 'var(--status-decl-text)';
-            } else {
-                tideNote.textContent = `Reading at ${formatClock(reading.minutes)}`;
-            }
-        } else {
-            tideNote.textContent = `No tide reading for ${dateKey}.`;
-        }
-
-        const environment = P.environmentFor(env, dateKey, hour);
-        if (!environment.ok) {
-            clearPredictions();
-            const messages = [];
-            if (environment.issues.some((i) => i.startsWith('tide bulletin'))) {
-                messages.push(`No tide data for ${dateKey}.`);
-            } else if (environment.issues.some((i) => i.startsWith('tide'))) {
-                messages.push('The high-water risk needs a few more days of tide data.');
-            }
-            if (environment.issues.some((i) => i.startsWith('rain') || i.startsWith('river'))) {
-                messages.push(`No rainfall data for ${dateDisplay(dateKey, hour)} yet (forecasts reach about 2 weeks ahead).`);
-            }
-            $('fc-env-status').textContent = messages.join(' ');
-            return;
-        }
-
-        const riskName = P.RISK_LEVELS[environment.riskLevel];
-        setLabel($('fc-risk-label'), riskName, TONES.severity[riskName]);
-
-        if (!area || (!models.availability && !models.demand)) {
-            clearPredictions();
-            setLabel($('fc-drv-badge'), 'NOT TRAINED', '');
-            setLabel($('fc-dem-badge'), 'NOT TRAINED', '');
-            return;
-        }
-
-        const input = {
-            hour,
-            dow: P.dayOfWeekOf(dateKey),
-            area,
-            rainfallMm: environment.rainfallMm,
-            tideM: environment.tideM,
-            riskLevel: environment.riskLevel
-        };
-        showPrediction('availability', 'drv', input);
-        showPrediction('demand', 'dem', input);
-
-        const outside = new Set();
-        Object.values(models).forEach((m) => { if (m) F.outOfRangeInputs(m, input).forEach((label) => outside.add(label)); });
-        const warning = $('fc-range-warning');
-        if (outside.size) {
-            warning.textContent = `⚠ The ${[...outside].join(', ')} for this request is outside the range the models were trained on, so the prediction is an extrapolation and may be less reliable.`;
-            warning.style.display = 'block';
-        } else {
-            warning.style.display = 'none';
-        }
-    }
-
-    function dateDisplay(dateKey, hour) {
-        return `${dateKey} ${formatClock(hour * 60)}`;
-    }
-
-    // ── Showing the trained models ─────────────────────────────────────
-    function featureLabel(model, name) {
-        if (name === 'hour') return 'Hour of day (x1)';
-        if (name === 'day_of_week') return 'Day of week (x2, Monday = 0 … Sunday = 6)';
-        if (name === 'rainfall_mm') return 'Rainfall, mm (x4)';
-        if (name === 'tide_height_m') return 'Tide height, m (x5)';
-        if (name === 'high_water_risk') return 'High-water risk level, 0–3 (x6)';
-        if (name.startsWith('area:')) {
-            return `Location (x3): ${name.slice(5)} vs. ${model.areaBaseline}`;
-        }
-        return name;
-    }
-
-    function renderModelNote() {
-        const note = $('fc-model-note');
-        if (staleModels) {
-            note.textContent = 'Saved models are out of date — train again.';
-            return;
-        }
-        const model = knownModel();
-        if (!model) {
-            note.textContent = 'No trained models yet.';
-            return;
-        }
-        const when = new Date(model.trainedAt).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-        const source = model.dataSource === 'sample' ? 'sample data' : 'real app data';
-        note.textContent = `Last trained ${when} · ${model.metrics.records.toLocaleString()} records · ${source}`;
-    }
-
-    function renderScatter(model) {
-        const canvas = $('fc-scatter');
-        if (scatterChart) { scatterChart.destroy(); scatterChart = null; }
-        if (!model || !canvas || typeof Chart === 'undefined' || !model.testPoints || !model.testPoints.length) return;
-        const points = model.testPoints.map((p) => ({ x: p.a, y: p.p }));
-        const maxValue = Math.max(1, ...points.map((p) => Math.max(p.x, p.y)));
-        scatterChart = new Chart(canvas.getContext('2d'), {
-            type: 'scatter',
-            data: {
-                datasets: [
-                    { label: 'Test records', data: points, backgroundColor: 'rgba(26,115,232,0.45)', pointRadius: 3 },
-                    { type: 'line', label: 'Perfect prediction', data: [{ x: 0, y: 0 }, { x: maxValue, y: maxValue }], borderColor: '#05CD99', borderDash: [6, 4], borderWidth: 2, pointRadius: 0 }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } },
-                scales: {
-                    x: { title: { display: true, text: `Actual ${KINDS[viewKind].unit.toLowerCase()}` }, min: 0, grid: { color: '#F4F7FE' } },
-                    y: { title: { display: true, text: 'Predicted' }, min: 0, grid: { color: '#F4F7FE' } }
-                }
-            }
-        });
-    }
-
-    function renderTrainingResults() {
-        const box = $('fc-train-results');
-        if (!models.availability && !models.demand) {
-            box.style.display = 'none';
-            return;
-        }
-        [['availability', 'drv'], ['demand', 'dem']].forEach(([kind, prefix]) => {
-            [['thr', 'thresholds'], ['all', 'thresholdsAll']].forEach(([id, field]) => {
-                const thresholds = (models[kind] && models[kind][field]) || {};
-                $(`fc-${prefix}-${id}-low`).value = thresholds.lowBelow == null ? '' : thresholds.lowBelow;
-                $(`fc-${prefix}-${id}-high`).value = thresholds.highFrom == null ? '' : thresholds.highFrom;
-            });
-        });
-        if (!models[viewKind]) viewKind = models.availability ? 'availability' : 'demand';
-        const model = models[viewKind];
-        box.style.display = 'block';
-        view.querySelectorAll('.fc-tab').forEach((tab) => {
-            tab.classList.toggle('active', tab.dataset.kind === viewKind);
-            tab.disabled = !models[tab.dataset.kind];
-        });
-
-        const metricsBody = $('fc-metrics-table').querySelector('tbody');
-        clear(metricsBody);
-        const tr = document.createElement('tr');
-        cell(tr, `${model.metrics.trainRecords.toLocaleString()} / ${model.metrics.testRecords.toLocaleString()}${model.metrics.inSample ? ' (same data)' : ''}`);
-        cell(tr, fmt(model.metrics.r2, 3));
-        cell(tr, fmt(model.metrics.mae, 2));
-        cell(tr, fmt(model.metrics.rmse, 2));
-        metricsBody.appendChild(tr);
-        $('fc-metrics-note').textContent = model.metrics.inSample ? 'Fewer than 50 records, so these scores are measured on the training data itself.' : '';
-
-        const coefBody = $('fc-coef-table').querySelector('tbody');
-        clear(coefBody);
-        const interceptRow = document.createElement('tr');
-        cell(interceptRow, `Intercept (b0) — reference location: ${model.areaBaseline}`, 'font-weight:600;');
-        cell(interceptRow, fmt(model.intercept, 4));
-        coefBody.appendChild(interceptRow);
-        model.features.forEach((name) => {
-            const row = document.createElement('tr');
-            cell(row, featureLabel(model, name));
-            const dropped = (model.dropped || []).includes(name);
-            cell(row, dropped ? '— (no variation in data)' : fmt(model.coefficients[name], 4), dropped ? 'color:var(--text-muted);' : '');
-            coefBody.appendChild(row);
-        });
-
-        renderScatter(model);
-    }
-
-    function refreshAll() {
-        renderAreaOptions();
-        renderModelNote();
-        renderTrainingResults();
-    }
-
-    // ── Loading the saved models ───────────────────────────────────────
-    async function loadSavedModels() {
-        if (loadingModels || !window.ParaFirestore) return;
-        loadingModels = true;
-        const tidePromise = loadTideBulletin();
-        try {
-            const [availability, demand] = await Promise.all([
-                window.ParaFirestore[KINDS.availability.fetch](),
-                window.ParaFirestore[KINDS.demand.fetch]()
-            ]);
-            staleModels = Boolean((availability && !F.isCurrent(availability)) || (demand && !F.isCurrent(demand)));
-            models.availability = F.isCurrent(availability) ? availability : null;
-            models.demand = F.isCurrent(demand) ? demand : null;
-            modelsLoaded = true;
-        } catch (error) {
-            console.error('Failed to load the saved models:', error);
-            $('fc-model-note').textContent = 'Could not load the saved models.';
-        } finally {
-            loadingModels = false;
-        }
-        await tidePromise;
-        refreshAll();
-        runPrediction();
-    }
-
-    // ── Training phase ─────────────────────────────────────────────────
-    function setTrainStatus(text) {
-        $('fc-train-status').textContent = text;
-    }
-
-    function showTrainWarnings(warnings) {
-        const box = $('fc-train-warnings');
-        if (!warnings.length) { box.style.display = 'none'; return; }
-        clear(box);
-        warnings.forEach((text) => {
-            const line = document.createElement('div');
-            line.textContent = `⚠ ${text}`;
-            box.appendChild(line);
-        });
-        box.style.display = 'block';
-    }
-
-    function sinceForDays(days) {
-        const { dateKey } = P.manilaParts(Date.now() - days * DAY_MS);
-        return new Date(`${dateKey}T00:00:00+08:00`);
-    }
-
-    // Where the training records come from: generated sample data (until the
-    // app has enough history) or what the app has really logged. Both give the
-    // trainer the same shapes, so everything after this point is identical.
-    async function collectTrainingData(source) {
-        if (source === 'sample') {
-            setTrainStatus('Generating sample records…');
-            const sample = await window.ParaSampleData.generate(Date.now());
-            return { raw: sample.raw, options: { labelled: true, dataSource: 'sample', loadEnvironment: sample.loadEnvironment } };
-        }
-        setTrainStatus('Reading the tide data, driver activity and completed rides…');
-        await loadTideBulletin();
-        if (!tideReadings.length) {
-            throw new Error('Upload the tide data (Excel) first — the models need the tide for the dates they train on.');
-        }
-        const raw = await window.ParaFirestore.fetchPredictionTrainingData(sinceForDays(REAL_HISTORY_DAYS));
-        raw.tide = tideReadings;
-        return { raw, options: { dataSource: 'real' } };
-    }
-
-    async function trainModels() {
-        if (!window.ParaFirestore) return;
-        const button = $('fc-train-btn');
-        button.disabled = true;
-        showTrainWarnings([]);
-        const source = $('fc-data-source').value === 'real' ? 'real' : 'sample';
-
-        try {
-            const { raw, options } = await collectTrainingData(source);
-            const result = await F.train(raw, { ...options, onProgress: setTrainStatus });
-
-            // Keep thresholds the admin already confirmed, but only when they
-            // were set for the same kind of data (sample counts and real counts
-            // are not comparable).
-            Object.keys(KINDS).forEach((kind) => {
-                ['thresholds', 'thresholdsAll'].forEach((field) => {
-                    const previous = models[kind] && models[kind][field];
-                    if (previous && previous.lowBelow != null && previous.highFrom != null && models[kind].dataSource === source) {
-                        result.models[kind][field] = { lowBelow: previous.lowBelow, highFrom: previous.highFrom, suggested: false };
-                    }
-                });
-                models[kind] = result.models[kind];
-            });
-            staleModels = false;
-
-            const warnings = [...result.warnings];
-            try {
-                await Promise.all(Object.keys(KINDS).map((kind) => window.ParaFirestore[KINDS[kind].save](models[kind])));
-            } catch (error) {
-                console.error('Failed to save the models:', error);
-                warnings.push('The models were trained but could not be saved (check permissions), so they are only available until this page is reloaded.');
-            }
-
-            const s = result.summary;
-            setTrainStatus(`Trained on ${s.records.toLocaleString()} barangay-hour records from ${s.from} to ${s.to} (${s.days} day${s.days === 1 ? '' : 's'}, ${s.areas} barangay${s.areas === 1 ? '' : 's'}) — ${s.driverLogs.toLocaleString()} driver logs and ${s.rides.toLocaleString()} completed bookings. On average ${s.meanOnline.toFixed(1)} drivers online, ${s.meanBusy.toFixed(1)} busy and ${s.meanBookings.toFixed(2)} bookings per barangay and hour.`);
-            showTrainWarnings(warnings);
-            refreshAll();
-            runPrediction();
-            toast('Models trained.', 'success');
-        } catch (error) {
-            console.error('Training failed:', error);
-            setTrainStatus(error.message || 'Training failed.');
-            toast(error.message || 'Training failed.', 'error');
-        } finally {
-            button.disabled = false;
-        }
-    }
-
-    async function saveThresholds() {
-        const edits = [];
-        for (const [kind, prefix] of [['availability', 'drv'], ['demand', 'dem']]) {
-            if (!models[kind]) continue;
-            const next = {};
-            for (const [id, field, scope] of [['thr', 'thresholds', 'per barangay'], ['all', 'thresholdsAll', 'all barangays']]) {
-                const low = parseFloat($(`fc-${prefix}-${id}-low`).value);
-                const high = parseFloat($(`fc-${prefix}-${id}-high`).value);
-                if (!Number.isFinite(low) || !Number.isFinite(high) || low < 0 || high <= low) {
-                    toast(`${KINDS[kind].title} (${scope}): enter two numbers where HIGH-from is larger than LOW-below.`, 'error');
-                    return;
-                }
-                next[field] = { lowBelow: low, highFrom: high, suggested: false };
-            }
-            edits.push({ kind, next });
-        }
-        if (!edits.length) return;
-        edits.forEach(({ kind, next }) => Object.assign(models[kind], next));
-        try {
-            await Promise.all(edits.map(({ kind }) => window.ParaFirestore[KINDS[kind].save](models[kind])));
-            toast('Thresholds saved.', 'success');
-        } catch (error) {
-            console.error('Failed to save thresholds:', error);
-            toast('Thresholds applied here, but could not be saved.', 'error');
-        }
-        refreshAll();
-        runPrediction();
+        // New tide data can change which predictors the models may use.
+        if (!(state.demand && state.availability) || (lastAttempt && lastAttempt.ok === false)) await trainModels();
+        runForecast();
     }
 
     async function clearTideData() {
         if (!window.ParaFirestore) return;
-        if (!tideReadings.length) {
-            toast('There is no tide data to clear.', 'error');
-            return;
-        }
+        if (!tideReadings.length) { toast('There is no tide data to clear.', 'error'); return; }
         if (!window.confirm('Clear ALL uploaded tide data? The website and the mobile apps will have no tide readings until you upload a new file.')) return;
         const button = $('fc-tide-clear-btn');
         button.disabled = true;
@@ -613,43 +192,546 @@
         } finally {
             button.disabled = false;
         }
-        runPrediction();
+        runForecast();
     }
 
-    // ── Wiring ─────────────────────────────────────────────────────────
-    initInputs();
-    renderAreaOptions();
+    // ── weather inputs ─────────────────────────────────────────────────
+    function getEnvironment(dateKey) {
+        const from = P.addDays(dateKey, -P.CONFIG.baselineDays);
+        const to = P.addDays(dateKey, P.CONFIG.dischargeAheadDays + 1);
+        const key = `${from}|${to}`;
+        const cached = envCache.get(key);
+        if (cached && Date.now() - cached.at < ENV_CACHE_MS) return cached.promise;
+        const promise = P.loadEnvironment(from, to).catch((error) => { envCache.delete(key); throw error; });
+        envCache.set(key, { at: Date.now(), promise });
+        return promise;
+    }
 
-    ['fc-date', 'fc-hour', 'fc-area'].forEach((id) => $(id).addEventListener('change', runPrediction));
-    $('fc-next-hour-btn').addEventListener('click', useNextHour);
-    $('fc-train-btn').addEventListener('click', trainModels);
-    $('fc-save-thresholds-btn').addEventListener('click', saveThresholds);
-    $('fc-tide-clear-btn').addEventListener('click', clearTideData);
-    view.querySelectorAll('.fc-tab').forEach((tab) => {
-        tab.addEventListener('click', () => {
-            if (!models[tab.dataset.kind]) return;
-            viewKind = tab.dataset.kind;
-            renderTrainingResults();
-        });
-    });
-
-    const tideFileInput = $('fc-tide-file');
-    $('fc-tide-upload-btn').addEventListener('click', () => tideFileInput.click());
-    tideFileInput.addEventListener('change', async () => {
-        const file = tideFileInput.files && tideFileInput.files[0];
-        if (!file) return;
-        try {
-            await uploadTideBulletin(file);
-        } finally {
-            tideFileInput.value = '';
+    function showConditions(env, slot, environment) {
+        $('fx-rain').textContent = '—';
+        $('fx-tide').textContent = '—';
+        $('fx-env-note').textContent = '';
+        const rainMm = env.rain.get(P.hourKey(slot.dateKey, slot.hour));
+        if (rainMm !== undefined) $('fx-rain').textContent = `${rainMm.toFixed(2)} mm · ${P.rainLabel(rainMm)}`;
+        const mid = slot.hour * 60 + 30;
+        const nearest = P.nearestTideReading(tideIndex, slot.dateKey, mid);
+        const reading = nearest ? (P.tideAt(tideIndex, slot.dateKey, mid) || { ...nearest, interpolated: false }) : null;
+        if (reading) {
+            const level = P.tideLabel(reading.meters, P.tideLevels(tideIndex));
+            $('fx-tide').textContent = `${reading.feet.toFixed(1)} ft${level ? ` · ${level}` : ''}`;
+            if (!reading.interpolated && nearest.distanceMinutes > P.CONFIG.tideMatchWarnMinutes) {
+                $('fx-env-note').textContent = `The nearest tide reading that day is at ${clockOfMinutes(nearest.minutes)}, ${(nearest.distanceMinutes / 60).toFixed(1)} h away, so the tide may not be reliable.`;
+            }
+        } else {
+            $('fx-env-note').textContent = `No tide reading for ${slot.dateKey}.`;
         }
+    }
+
+    // ── forecasts and charts ───────────────────────────────────────────
+    const charts = {};
+    const COLORS = { demand: '#1a73e8', availability: '#05CD99', p33: '#F0A30A', p67: '#E31A1A' };
+
+    function destroyCharts() {
+        Object.keys(charts).forEach((k) => { charts[k].destroy(); delete charts[k]; });
+    }
+
+    // How far off the forecast usually was on hours the model had not seen (MAE of the trial model).
+    function showError(area) {
+        const parts = [];
+        MODELS.forEach((m) => {
+            const e = state[m.key] && state[m.key].evaluation;
+            if (!e || !e.performed) return;
+            const v = area === ALL ? e.totalMae : e.model.mae;
+            if (Number.isFinite(v)) parts.push(`${v.toFixed(1)} ${m.key === 'demand' ? 'requests' : 'drivers'}`);
+        });
+        $('fx-error').textContent = parts.length ? parts.join(' · ') : '—';
+    }
+
+    function resetForecast(message) {
+        $('fx-error').textContent = '—';
+        MODELS.forEach((m) => {
+            $(`fx-${m.totalId}-total`).textContent = '—';
+            setLabel($(`fx-${m.totalId}-total-label`), '', '');
+        });
+        destroyCharts();
+        $('fx-balance-status').textContent = '—';
+        $('fx-balance-status').className = 'fx-balance-status';
+        $('fx-balance-detail').textContent = '';
+        $('fx-balance-chart').style.display = 'none';
+        $('fx-message').textContent = message || '';
+    }
+
+    function unavailableMessage() {
+        if (training) return 'Updating the models. This can take a minute or two.';
+        const problems = Object.values(state.problems).filter(Boolean);
+        const detail = lastAttempt && lastAttempt.message ? ` Latest training attempt: ${noStop(lastAttempt.message)}.` : '';
+        const rejected = problems.length ? ` A saved model was rejected: ${noStop(problems[0])}.` : '';
+        return `Forecast unavailable: insufficient validated historical data.${rejected}${detail}`;
+    }
+
+    async function environmentOf(slot) {
+        const env = { ...(await getEnvironment(slot.dateKey)), tide: tideIndex };
+        return { env, environment: P.environmentFor(env, slot.dateKey, slot.hour) };
+    }
+
+    // One prediction for one slot: a barangay, or all barangays added up.
+    // Throws when the model cannot forecast it (no history, missing input, …).
+    function predictFor(model, slot, environment, area) {
+        const dow = P.dayOfWeekOf(slot.dateKey);
+        const one = (name) => F.predictDetailed(model, F.inputFor(model, environment, { hour: slot.hour, dow, area: name }));
+        if (area === ALL) {
+            let sum = 0;
+            let counted = 0;
+            P.HAGONOY_BARANGAYS.forEach((name) => {
+                if (!model.areas.includes(name)) return;
+                sum += one(name).nonNegative;
+                counted += 1;
+            });
+            if (!counted) throw new Error('The model has no records for any barangay.');
+            const value = Math.round(sum);
+            return { value, level: F.classifyCount(value, F.thresholdsFor(model, true)), counted };
+        }
+        if (!model.areas.includes(area)) throw new Error(`This model has no records for ${area}.`);
+        const detail = one(area);
+        return { value: detail.display, level: F.classifyCount(detail.display, F.thresholdsFor(model, false)), raw: detail.raw, clipped: detail.clipped, counted: 1 };
+    }
+
+    // Axis labels in plain words: "10 AM", with the weekday under the first hour and
+    // under every midnight, so "12 AM" is clearly the start of the next day.
+    const tickLabel = (slot, index) => {
+        const base = `${slot.hour % 12 === 0 ? 12 : slot.hour % 12} ${slot.hour >= 12 ? 'PM' : 'AM'}`;
+        return index === 0 || slot.hour === 0 ? [base, DOW_NAMES[P.dayOfWeekOf(slot.dateKey)].slice(0, 3)] : base;
+    };
+    const fullSlotLabel = (slot) => `${DOW_NAMES[P.dayOfWeekOf(slot.dateKey)]} ${clock(slot.hour)}–${pad2(slot.hour)}:59 (${slot.hoursAhead} h ahead)`;
+
+    // Predicted requests against predicted drivers, judged against history.
+    function showBalance(slot, area, results, series, slots) {
+        const status = $('fx-balance-status');
+        const detail = $('fx-balance-detail');
+        status.className = 'fx-balance-status';
+        status.textContent = '—';
+        detail.textContent = '';
+        destroyCharts(); // the old chart must go before a new one can use the canvas
+        $('fx-balance-chart').style.display = 'none';
+        const bal = state.demand && state.demand.balance;
+        if (!state.demand || !state.availability) { detail.textContent = 'Both forecasts are needed to compare bookings with drivers.'; return; }
+        if (!results.demand || !results.availability) { detail.textContent = 'Not available for this hour.'; return; }
+        const req = results.demand.value;
+        const drv = results.availability.value;
+        const ratio = req / Math.max(drv, 1);
+        const people = `${req} booking request${req === 1 ? '' : 's'} expected, ${drv} driver${drv === 1 ? '' : 's'} available.`;
+        if (!bal) { detail.textContent = people; return; }
+        const th = area === ALL ? bal.allBarangays : bal.perBarangayHour;
+        const level = F.classifyCount(ratio, th);
+        if (!level) { detail.textContent = people; return; }
+        const none = drv === 0 && req > 0;
+        const words = {
+            LOW: ['Enough drivers for the bookings', 'enough', 'Drivers should be able to cover the expected bookings.'],
+            MODERATE: ['Drivers and bookings are balanced', 'balanced', 'About the usual balance for this hour.'],
+            HIGH: ['Not enough drivers for the bookings', 'short', 'More bookings than usual for the drivers available.']
+        }[level];
+        status.textContent = none ? 'No drivers available for the bookings' : words[0];
+        status.classList.add(none ? 'short' : words[1]);
+        detail.textContent = `${people} ${none ? 'Bookings may go unanswered.' : words[2]}`;
+        if (typeof Chart !== 'undefined' && $('fx-line-balance')) {
+            $('fx-balance-chart').style.display = 'block';
+            const selectedIndex = slots.findIndex((x) => x.targetMs === slot.targetMs);
+            // a shaded band marks the hour chosen in the Target hour dropdown
+            const hourBand = {
+                id: 'hourBand',
+                beforeDatasetsDraw(chart) {
+                    const point = chart.getDatasetMeta(0).data[selectedIndex];
+                    if (!point) return;
+                    const { ctx, chartArea } = chart;
+                    const width = Math.max(14, chartArea.width / slots.length);
+                    ctx.save();
+                    ctx.fillStyle = 'rgba(27, 37, 75, 0.12)';
+                    ctx.fillRect(point.x - width / 2, chartArea.top, width, chartArea.height);
+                    ctx.restore();
+                }
+            };
+            charts.balance = new Chart($('fx-line-balance').getContext('2d'), {
+                plugins: [hourBand],
+                type: 'line',
+                data: {
+                    labels: slots.map(tickLabel),
+                    datasets: [
+                        { label: 'Predicted booking requests', data: series.demand, borderColor: COLORS.demand, backgroundColor: COLORS.demand, borderWidth: 2, tension: 0.25, pointRadius: slots.map((x, i) => (i === selectedIndex ? 8 : 2)), pointBackgroundColor: slots.map((x, i) => (i === selectedIndex ? '#1B254B' : COLORS.demand)) },
+                        { label: 'Predicted available drivers', data: series.availability, borderColor: COLORS.availability, backgroundColor: COLORS.availability, borderWidth: 2, tension: 0.25, pointRadius: slots.map((x, i) => (i === selectedIndex ? 8 : 2)), pointBackgroundColor: slots.map((x, i) => (i === selectedIndex ? '#1B254B' : COLORS.availability)) }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }, tooltip: { callbacks: { title: (items) => fullSlotLabel(slots[items[0].dataIndex]) } } },
+                    scales: { y: { min: 0, title: { display: true, text: 'count' }, grid: { color: '#F4F7FE' } }, x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 }, grid: { display: false } } }
+                }
+            });
+        }
+    }
+
+    // Predicted against actual on the hours the trial model never saw.
+    const evidenceCharts = {};
+    function drawEvidence() {
+        if (typeof Chart === 'undefined') return;
+        Object.keys(evidenceCharts).forEach((k) => { evidenceCharts[k].destroy(); delete evidenceCharts[k]; });
+        MODELS.forEach((m) => {
+            const model = state[m.key];
+            const canvas = $(`fx-scatter-${m.key}`);
+            if (!canvas) return;
+            canvas.parentNode.style.display = model && model.testPoints && model.testPoints.length ? 'block' : 'none';
+            if (!model || !model.testPoints || !model.testPoints.length) return;
+            const points = model.testPoints.map((p) => ({ x: p.a, y: p.p }));
+            const top = Math.max(1, ...points.map((p) => Math.max(p.x, p.y)));
+            evidenceCharts[m.key] = new Chart(canvas.getContext('2d'), {
+                type: 'scatter',
+                data: { datasets: [
+                    { label: 'Held-out barangay-hours', data: points, backgroundColor: `${COLORS[m.key]}88`, pointRadius: 3 },
+                    { type: 'line', label: 'Perfect prediction', data: [{ x: 0, y: 0 }, { x: top, y: top }], borderColor: '#1B254B', borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0 }
+                ] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+                    scales: { x: { min: 0, title: { display: true, text: `Actual ${m.unit}` }, grid: { color: '#F4F7FE' } }, y: { min: 0, title: { display: true, text: 'Predicted' }, grid: { color: '#F4F7FE' } } }
+                }
+            });
+        });
+    }
+
+    async function runForecast() {
+        const slot = selectedSlot();
+        const area = $('fx-area').value || ALL;
+        const mine = ++requestId;
+        MODELS.forEach((m) => {
+            $(`fx-${m.totalId}-total-name`).textContent = `Model ${m.letter} · ${m.key === 'demand' ? 'Booking requests' : 'Available drivers'}, ${area === ALL ? 'all barangays' : area}`;
+        });
+        if (!anyModel()) {
+            resetForecast(state.loaded ? unavailableMessage() : 'Loading the saved models…');
+            return;
+        }
+        let main;
+        try {
+            main = await environmentOf(slot);
+        } catch (error) {
+            if (mine !== requestId) return;
+            console.error('Failed to load environment data:', error);
+            resetForecast('Weather data could not be loaded, so no forecast can be made.');
+            return;
+        }
+        if (mine !== requestId) return;
+        showConditions(main.env, slot, main.environment);
+        if (!main.environment.ok) {
+            resetForecast(`A required weather input is missing (${main.environment.issues.join('; ')}), so no forecast is shown. Nothing is filled in.`);
+            return;
+        }
+
+        // the next 24 hours for the chosen barangay (or all), and every barangay at the chosen hour
+        const slots = F.forecastSlots(Date.now());
+        const series = {};
+        MODELS.forEach((m) => { series[m.key] = []; });
+        for (const s of slots) {
+            let envs = null;
+            try { envs = await environmentOf(s); } catch (error) { envs = null; }
+            MODELS.forEach((m) => {
+                let value = null;
+                const model = state[m.key];
+                if (model && envs && envs.environment.ok) {
+                    try { value = predictFor(model, s, envs.environment, area).value; } catch (error) { value = null; }
+                }
+                series[m.key].push(value);
+            });
+        }
+        if (mine !== requestId) return;
+        const notes = [];
+        const headline = {};
+        MODELS.forEach((m) => {
+            const model = state[m.key];
+            const totalEl = $(`fx-${m.totalId}-total`);
+            const labelEl = $(`fx-${m.totalId}-total-label`);
+            totalEl.textContent = '—';
+            setLabel(labelEl, '', '');
+            if (!model) {
+                notes.push(`${m.title}: no valid model (${noStop(state.problems[m.key] || (lastAttempt && lastAttempt.unavailable && lastAttempt.unavailable[m.key]) || 'not trained yet')}).`);
+                return;
+            }
+            try {
+                const result = predictFor(model, slot, main.environment, area);
+                headline[m.key] = result;
+                totalEl.textContent = String(result.value);
+                setLabel(labelEl, result.level || 'n/a', levelClass(m.key, result.level));
+                totalEl.title = result.raw != null ? `Raw model value ${result.raw.toFixed(3)}${result.clipped ? ' (below 0, shown as 0)' : ''}` : '';
+                if (area === ALL && result.counted < P.HAGONOY_BARANGAYS.length) notes.push(`${m.title}: the total covers ${result.counted} of ${P.HAGONOY_BARANGAYS.length} barangays (the model has no records for the others).`);
+                const probe = F.inputFor(model, main.environment, { hour: slot.hour, dow: P.dayOfWeekOf(slot.dateKey), area: model.areas[0], histMean: 0 });
+                const out = F.outOfRangeInputs(model, probe);
+                if (out.length) notes.push(`${m.title}: the ${out.join(', ')} is outside the range the model was trained on, so this is an extrapolation.`);
+            } catch (error) {
+                notes.push(`${m.title}: no forecast (${noStop(error.message)}).`);
+            }
+        });
+        $('fx-message').textContent = notes.join(' ');
+        showBalance(slot, area, headline, series, slots);
+        showError(area);
+        lastForecastAt = Date.now();
+        renderStatusLines();
+    }
+
+    // ── model status ───────────────────────────────────────────────────
+    function addRow(box, name, value) {
+        const row = make('div', 'fx-row');
+        row.appendChild(make('span', '', name));
+        row.appendChild(make('span', '', value));
+        box.appendChild(row);
+    }
+
+    function featureLabel(model, name) {
+        if (name.startsWith('hour:')) return `Hour of day: ${clock(Number(name.slice(5)))} vs 12:00 AM`;
+        if (name.startsWith('dow:')) return `Day of week: ${DOW_NAMES[Number(name.slice(4))]} vs Monday`;
+        if (name.startsWith('area:')) return `Barangay: ${name.slice(5)} vs ${model.areaBaseline}`;
+        if (name === 'history_mean') return 'Historical mean for the same barangay, weekday and hour';
+        if (name === 'rainfall_mm') return 'Rainfall in the target hour (mm)';
+        if (name === 'tide_height_m') return 'Tide height (m)';
+        return name;
+    }
+
+    const prettyDate = (dateKey) => {
+        const [y, mo, d] = String(dateKey).split('-').map(Number);
+        return new Date(Date.UTC(y, mo - 1, d)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+    };
+
+    function renderModelBox(m) {
+        const model = state[m.key];
+        const box = make('div', 'fx-model');
+        const h = make('h4', '', m.key === 'demand' ? 'Booking demand' : 'Driver availability');
+        box.appendChild(h);
+        if (!model) {
+            addTag(h, 'Not available', 'bad');
+            addRow(box, 'Status', 'No valid model yet.');
+            return box;
+        }
+        validityTag(h, model.validity);
+        const c = model.coverage;
+        const e = model.evaluation;
+        const reasons = [];
+        if (!e.performed) reasons.push('not tested on a later period yet');
+        else if (e.beatsBaseline === false) reasons.push('not yet better than a simple weekday-and-hour average');
+        if (c.usableDays < P.CONFIG.preliminaryDays) reasons.push(`only ${Math.min(c.usableDays, c.windowDays)} days of data`);
+        if (model.adequacy && model.adequacy.thin) reasons.push('little data for the number of factors used');
+        addRow(box, 'Status', model.validity.status === 'VALIDATED' ? 'Validated' : `Still being tested${reasons.length ? `: ${reasons.join('; ')}` : ''}`);
+        addRow(box, 'Last trained', fmtWhen(model.trainedAt));
+        addRow(box, 'Data used', `${prettyDate(c.windowStartKey)} to ${prettyDate(c.windowEndKey)} (${Math.min(c.usableDays, c.windowDays)} days)`);
+        addRow(box, 'Barangays', `${model.areaCount}`);
+        if (e.performed) {
+            addRow(box, 'Tested on', `${prettyDate(e.testFrom)} to ${prettyDate(e.testTo)}`);
+            addRow(box, 'Average error (MAE)', `${fmt(e.model.mae, 2)} (simple average: ${fmt(e.baseline.mae, 2)})`);
+            addRow(box, 'Typical error (RMSE)', `${fmt(e.model.rmse, 2)} (simple average: ${fmt(e.baseline.rmse, 2)})`);
+            addRow(box, 'R²', `${fmt(e.model.r2, 2)} (simple average: ${fmt(e.baseline.r2, 2)})`);
+        }
+        const t = model.thresholds;
+        const ta = model.thresholdsAll;
+        if (t.available) addRow(box, 'Low / High cut-offs, one barangay', `Low up to ${fmt(t.p33, 1)}, High above ${fmt(t.p67, 1)}`);
+        if (ta.available) addRow(box, 'Low / High cut-offs, all barangays', `Low up to ${fmt(ta.p33, 1)}, High above ${fmt(ta.p67, 1)}`);
+        addRow(box, 'Tide used', model.tideMode === 'with_tide' ? 'Yes' : 'No');
+
+        const details = make('details', 'fx-details');
+        details.appendChild(make('summary', '', 'Equation'));
+        const table = make('table', 'data-table fx-table');
+        const body = make('tbody');
+        const addCoef = (label, value) => { const tr = make('tr'); tr.appendChild(make('td', '', label)); tr.appendChild(make('td', 'fx-num', value)); body.appendChild(tr); };
+        addCoef(`Starting value (${model.areaBaseline})`, fmt(model.intercept, 4));
+        model.features.forEach((name) => addCoef(featureLabel(model, name), (model.dropped || []).includes(name) ? '—' : fmt(model.coefficients[name], 4)));
+        table.appendChild(body);
+        details.appendChild(table);
+        box.appendChild(details);
+        return box;
+    }
+
+    function renderModels() {
+        const holder = $('fx-models');
+        clear(holder);
+        MODELS.forEach((m) => holder.appendChild(renderModelBox(m)));
+    }
+
+    function renderMethod() {
+        const el = $('fx-method');
+        el.textContent = [
+            'The system learns from the last six months of bookings and driver activity. For every barangay and every hour it looks at the day of the week, the hour, the barangay, what usually happens at that time, the rain and the tide.',
+            'A multiple linear regression turns these into one equation that predicts the number of booking requests (Model A) or the number of available drivers (Model B). The numbers in the equation are learned from the records, not set by hand.',
+            'Each model is checked on a later period it was not trained on, and compared with a simple average for the same weekday and hour. Low, Moderate and High compare a prediction with that model\'s own past figures.',
+            'Forecasts refresh every hour. The models are retrained once a day.'
+        ].join('\n\n');
+        el.style.whiteSpace = 'pre-line';
+    }
+
+    // Last successful training, last forecast refresh and how retraining is scheduled.
+    function renderStatusLines() {
+        const box = $('fx-status-lines');
+        clear(box);
+        const line = (label, value) => { const d = make('div'); d.appendChild(make('b', '', `${label}: `)); d.appendChild(document.createTextNode(value)); box.appendChild(d); };
+        const trained = MODELS.map((m) => state[m.key] && state[m.key].trainedAt).filter(Boolean);
+        line('Models last trained', trained.length ? fmtWhen(Math.min(...trained)) : 'not yet');
+        line('Forecast updated', lastForecastAt ? fmtWhen(lastForecastAt) : 'not yet');
+    }
+
+    function renderAll() {
+        renderStatusLines();
+        buildSlots();
+        renderModels();
+        renderMethod();
+    }
+
+    // ── loading and training ───────────────────────────────────────────
+    function setTrainStatus(text) { $('fx-train-status').textContent = text; }
+
+    async function loadModels() {
+        state.problems = {};
+        const docs = await Promise.all(MODELS.map((m) => window.ParaFirestore.fetchPredictionModel(m.key)));
+        MODELS.forEach((m, i) => {
+            state[m.key] = null;
+            if (!docs[i]) return;
+            const check = F.validateArtifact(docs[i]);
+            if (check.ok) state[m.key] = docs[i];
+            else state.problems[m.key] = check.problems.join('; ');
+        });
+        state.loaded = true;
+    }
+
+    function needsTraining() {
+        const today = P.manilaParts(Date.now()).dateKey;
+        const stale = MODELS.some((m) => !state[m.key] || F.needsRetrain(state[m.key], Date.now()));
+        if (!stale) return false;
+        // do not hammer the database right after a failed attempt (15 minutes), but
+        // never block a retry for the rest of the day: the data may have changed
+        const recent = lastAttempt && lastAttempt.attemptDateKey === today && Number.isFinite(lastAttempt.attemptedAt) && Date.now() - lastAttempt.attemptedAt < 15 * 60 * 1000;
+        return !(recent && !(state.demand && state.availability));
+    }
+
+    async function loadSavedModels() {
+        if (loadingModels || !window.ParaFirestore) return;
+        loadingModels = true;
+        let failed = false;
+        const tidePromise = loadTideBulletin();
+        try {
+            await loadModels();
+            try { lastAttempt = await window.ParaFirestore.fetchPredictionTrainingStatus(); } catch (error) { lastAttempt = null; }
+        } catch (error) {
+            failed = true;
+            console.error('Failed to load the saved models:', error);
+            setTrainStatus('Could not load the saved models.');
+        } finally {
+            loadingModels = false;
+        }
+        await tidePromise;
+        renderAll();
+        runForecast();
+        if (!failed && needsTraining()) await trainModels();
+    }
+
+    function summaryText(s) {
+        return `Trained on ${s.records.toLocaleString()} barangay-hour records (${s.days} day${s.days === 1 ? '' : 's'}, ${s.areas} barangay${s.areas === 1 ? '' : 's'}, ${s.from} to ${s.to}) inside the six-month window ${s.window.from} to ${s.window.to}: ${s.requests.toLocaleString()} booking requests and ${s.driverLogs.toLocaleString()} driver log entries.`;
+    }
+
+    // Reads Firestore only, never substitutes generated data, never saves a
+    // model that failed a check, never replaces the last valid model on failure.
+    async function trainModels() {
+        if (!window.ParaFirestore || training) return;
+        training = true;
+        $('fx-train-btn').disabled = true;
+        $('fx-train-btn').textContent = 'Updating… please wait';
+        if (!anyModel()) resetForecast(unavailableMessage());
+        const today = P.manilaParts(Date.now()).dateKey;
+        let locked = false;
+        try {
+            locked = await window.ParaFirestore.acquirePredictionLock(lockOwner);
+            if (!locked) { setTrainStatus('Another administrator\'s browser is training the models right now. Reload in a few minutes.'); return; }
+            setTrainStatus('Reading the records…');
+            await loadTideBulletin();
+            const since = new Date(P.trainingWindow(Date.now()).lookbackStartMs);
+            const raw = await window.ParaFirestore.fetchPredictionTrainingData(since, { schema: P.CONFIG.dataSchema, plausibleFromMs: P.CONFIG.plausibleFromMs });
+            raw.tide = tideReadings;
+            const result = await F.train(raw, { onProgress: setTrainStatus });
+            const warnings = [...result.warnings];
+            const saved = {};
+            const kept = {};
+            const saveErrors = [];
+            for (const m of MODELS) {
+                const model = result.models[m.key];
+                if (!model) continue;
+                const current = state[m.key];
+                if (current && model.validity.status === 'UNVALIDATED' && current.validity && current.validity.status !== 'UNVALIDATED') {
+                    // a new model that could not be evaluated never replaces a model that was
+                    kept[m.key] = true;
+                    warnings.push(`The new ${m.title.toLowerCase()} model could not be evaluated on a later period, so the previous model (trained ${fmtWhen(current.trainedAt)}) was kept.`);
+                    continue;
+                }
+                try {
+                    await window.ParaFirestore.savePredictionModel(m.key, model);
+                    state[m.key] = model;
+                    state.problems[m.key] = '';
+                    saved[m.key] = true;
+                } catch (error) {
+                    console.error(`Failed to save the ${m.key} model:`, error);
+                    saveErrors.push(`${m.title}: ${error.message}`);
+                    warnings.push(`The ${m.title.toLowerCase()} model was trained but NOT saved (${error.message}). The previous saved model, if any, was kept.`);
+                }
+            }
+            const ok = Boolean((saved.demand || kept.demand) && (saved.availability || kept.availability));
+            const note = ok ? 'Both models trained and saved.' : `Not every model could be built: ${Object.entries(result.unavailable).map(([k, v]) => `${k}: ${v}`).join(' ') || 'a save was refused.'}${saveErrors.length ? ` Save error: ${saveErrors.join(' | ')}.` : ''} Previous saved models were kept.`;
+            lastAttempt = { ok, attemptDateKey: today, message: ok ? '' : note, built: { demand: Boolean(saved.demand), availability: Boolean(saved.availability) }, unavailable: result.unavailable };
+            try { await window.ParaFirestore.savePredictionTrainingStatus(lastAttempt); } catch (error) { console.warn('Could not record the training attempt.', error); }
+            trainNotes = warnings;
+            setTrainStatus(ok ? 'Models updated.' : note);
+            if (saved.demand || saved.availability) toast('Models updated.', 'success');
+        } catch (error) {
+            console.error('Training did not complete:', error);
+            lastAttempt = { ok: false, attemptDateKey: today, message: error.message || 'Training failed.', built: { demand: false, availability: false }, unavailable: {} };
+            if (locked) { try { await window.ParaFirestore.savePredictionTrainingStatus(lastAttempt); } catch (e) { /* not critical */ } }
+            setTrainStatus(`Training did not complete: ${noStop(error.message) || 'unknown error'}.${anyModel() ? ' The last valid model was kept and is shown as stale until training succeeds.' : ' There is no valid model yet.'}`);
+        } finally {
+            if (locked) { try { await window.ParaFirestore.releasePredictionLock(lockOwner); } catch (e) { console.warn('Could not release the training lock.', e); } }
+            training = false;
+            $('fx-train-btn').disabled = false;
+            $('fx-train-btn').textContent = 'Update models now';
+        }
+        renderAll();
+        runForecast();
+    }
+
+    // ── wiring ─────────────────────────────────────────────────────────
+    buildSlots();
+    renderMethod();
+    resetForecast('Loading the saved models…');
+    buildAreas();
+    const topDetails = document.querySelector('.fx-top-details');
+    if (topDetails) topDetails.addEventListener('toggle', () => { if (topDetails.open) drawEvidence(); });
+    $('fx-area').addEventListener('change', runForecast);
+    $('fx-slot').addEventListener('change', runForecast);
+    $('fx-train-btn').addEventListener('click', () => {
+        if (training) return;
+        if (!window.confirm('Update both models now? This can take a couple of minutes. The current models are kept if it fails.')) return;
+        lastAttempt = null;
+        trainModels();
+    });
+    $('fc-tide-clear-btn').addEventListener('click', clearTideData);
+    const fileInput = $('fc-tide-file');
+    $('fc-tide-upload-btn').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        try { await uploadTideBulletin(file); } finally { fileInput.value = ''; }
     });
 
-    // Load the saved models the first time the page is opened (the admin is
-    // signed in by then).
+    let loadedOnce = false;
     function onViewShown() {
-        if (view.classList.contains('active') && !modelsLoaded) loadSavedModels();
+        if (!view.classList.contains('active')) return;
+        if (!loadedOnce) { loadedOnce = true; loadSavedModels(); } else { buildSlots(); runForecast(); }
     }
     new MutationObserver(onViewShown).observe(view, { attributes: true, attributeFilter: ['class'] });
+    // the next-hour list moves forward as the clock does
+    setInterval(() => {
+        if (!view.classList.contains('active') || training) return;
+        const before = slotsBase;
+        buildSlots();
+        if (slotsBase !== before) runForecast();
+    }, 60 * 1000);
     onViewShown();
 })();

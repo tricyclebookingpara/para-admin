@@ -1380,72 +1380,338 @@ const ParaFirestore = (() => {
     }
     // ── Prediction (driver availability & passenger demand) ────────────
     // Training data is what the mobile app already logs: where online drivers
-    // are (driverLocationSamples, every ~5 min) and when they go on/offline
-    // (driverStatusEvents), plus completed bookings. Trained coefficients are
-    // saved in settings/driver_availability_model so every screen reads the
-    // same model.
+    // are (driverLocationSamples), the status changes of drivers
+    // (driverStatusEvents), every booking request, and the driver roster
+    // (users with role DRIVER). See docs/MLR_DATA_SCHEMA.md for the exact fields
+    // expected and which of them are verified. Models are saved in the
+    // `settings` collection, see PREDICTION_MODEL_DOCS.
     const PREDICTION_PAGE_SIZE = 2000;
-    const PREDICTION_MAX_LOG_DOCS = 60000;
+    const PREDICTION_MAX_LOG_DOCS = 120000;
+    const DAY_MS = 24 * 3600 * 1000;
 
-    async function fetchActivityLog(collectionName, sinceDate) {
+    // Training batches produced by fetchPredictionTrainingData IN THIS PAGE are
+    // remembered here. The training code and the model-save
+    // layer both ask whether a batch / batch id is one of them, so a data set
+    // (or an artifact) that did not come through this function is refused.
+    // This is a browser-side check, not a security boundary: see
+    // docs/MLR_PRODUCTION_SAFEGUARDS.md.
+    const trainingBatches = new WeakSet();
+    const trainingBatchIds = new Set();
+
+    function isOperationalBatch(raw) {
+        return Boolean(raw && typeof raw === 'object' && trainingBatches.has(raw));
+    }
+
+    // A stored time, read without guessing. Only a Firestore Timestamp, a Date
+    // or a millisecond number is accepted; seconds, text and anything outside
+    // the plausible range are reported as invalid, not converted.
+    function normalizeTimestamp(value, plausibleFromMs, nowMs) {
+        const from = Number.isFinite(plausibleFromMs) ? plausibleFromMs : Date.UTC(2020, 0, 1);
+        const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+        let ms = NaN;
+        let kind = 'missing';
+        if (value === undefined || value === null || value === '') return { ms, kind, valid: false };
+        if (typeof value === 'object' && typeof value.toDate === 'function') { ms = value.toDate().getTime(); kind = 'timestamp'; }
+        else if (value instanceof Date) { ms = value.getTime(); kind = 'date'; }
+        else if (typeof value === 'number') { ms = value; kind = value >= 1e11 ? 'number-ms' : 'number-seconds-or-small'; }
+        else if (typeof value === 'string') { kind = 'string'; }
+        else { kind = typeof value; }
+        const valid = (kind === 'timestamp' || kind === 'date' || kind === 'number-ms')
+            && Number.isFinite(ms) && ms >= from && ms <= now + DAY_MS;
+        return { ms: valid ? ms : NaN, kind, valid };
+    }
+
+    // Seeded sample records are in the live collections (isSeed: true, ids SEED_...).
+    // They are treated as ordinary history and only COUNTED (`seed`), so the page
+    // can say how much of the history they are. A record is excluded only when its
+    // driver/passenger is on the configured test-account lists.
+    function exclusionOf(data, id, schema) {
+        const s = schema || {};
+        const drivers = s.excludeDriverIds || [];
+        const passengers = s.excludePassengerIds || [];
+        // a booking or log names the driver / passenger; a user document is the account itself
+        if (drivers.includes(data.driverId) || passengers.includes(data.passengerId) || drivers.includes(data.uid) || drivers.includes(id) || passengers.includes(id)) return 'test-account';
+        return '';
+    }
+
+    function isSeedRecord(data, id, schema) {
+        const prefix = (schema && schema.seedIdPrefix) || 'SEED_';
+        const ids = [data.driverId, data.passengerId, data.bookingId, data.rideGroupId, data.uid, id];
+        return data.isSeed === true || ids.some((v) => typeof v === 'string' && v.startsWith(prefix));
+    }
+
+    // The status a driver event records. The field that holds it is read from
+    // CONFIG.dataSchema.driverEvents.statusField (the schema check showed it is
+    // `event`). Without a configured field no event has a recognised status and
+    // the availability model is not built.
+    function readEventStatus(data, statusField) {
+        if (!statusField) return '';
+        const value = data[statusField];
+        return value === undefined || value === null ? '' : String(value).toUpperCase();
+    }
+
+    // Which kind of value the `timestamp` field holds, from the newest document.
+    async function detectLogTimestampKind(collectionName, plausibleFromMs) {
+        const snap = await db.collection(collectionName).orderBy('timestamp', 'desc').limit(1).get();
+        if (snap.empty) return 'none';
+        return normalizeTimestamp((snap.docs[0].data() || {}).timestamp, plausibleFromMs).kind;
+    }
+
+    // Newest first. If the cap is hit, the NEWEST contiguous stretch is kept and
+    // `earliestMs` says where it starts, so the caller can cut its window there
+    // (two truncated logs would otherwise cover different periods).
+    async function fetchActivityLog(collectionName, sinceDate, options) {
+        const o = options || {};
         const rows = [];
+        const fieldsSeen = new Set();
+        const stats = { read: 0, invalidTimestamp: 0, seed: 0, testAccount: 0 };
+        const kind = await detectLogTimestampKind(collectionName, o.plausibleFromMs);
+        if (kind === 'none') return { rows, truncated: false, kind, earliestMs: NaN, fieldsSeen: [], stats };
+        if (kind !== 'timestamp' && kind !== 'number-ms') {
+            throw new Error(`The "timestamp" field of ${collectionName} is stored as "${kind}". Only Firestore Timestamps and millisecond numbers can be read; no data were used.`);
+        }
+        const bound = kind === 'timestamp' ? sinceDate : sinceDate.getTime();
         let last = null;
+        let truncated = false;
         for (;;) {
             let query = db.collection(collectionName)
-                .where('timestamp', '>=', sinceDate)
-                .orderBy('timestamp')
+                .where('timestamp', '>=', bound)
+                .orderBy('timestamp', 'desc')
                 .limit(PREDICTION_PAGE_SIZE);
             if (last) query = query.startAfter(last);
             const snap = await query.get();
             snap.docs.forEach((doc) => {
                 const data = doc.data() || {};
-                const date = toDate(data.timestamp);
-                if (!date || Number.isNaN(date.getTime())) return;
-                // driverStatusEvents also carry event: 'online' | 'offline'.
-                rows.push({ driverId: data.driverId || '', area: data.area || '', ms: date.getTime(), event: String(data.event || '').toLowerCase() });
+                stats.read += 1;
+                if (exclusionOf(data, doc.id, o.schema) === 'test-account') { stats.testAccount += 1; return; }
+                const t = normalizeTimestamp(data.timestamp, o.plausibleFromMs);
+                if (!t.valid) { stats.invalidTimestamp += 1; return; }
+                if (isSeedRecord(data, doc.id, o.schema)) stats.seed += 1;
+                if (fieldsSeen.size < 40 && rows.length < 20) Object.keys(data).forEach((k) => fieldsSeen.add(k));
+                const row = { driverId: data.driverId || '', area: data[o.locationField || 'area'] || '', ms: t.ms };
+                if (o.withStatus) row.status = readEventStatus(data, o.statusField);
+                rows.push(row);
             });
-            if (snap.size < PREDICTION_PAGE_SIZE) return { rows, truncated: false };
-            if (rows.length >= PREDICTION_MAX_LOG_DOCS) return { rows, truncated: true };
+            if (snap.size < PREDICTION_PAGE_SIZE) break;
+            if (rows.length >= PREDICTION_MAX_LOG_DOCS) { truncated = true; break; }
             last = snap.docs[snap.docs.length - 1];
         }
+        const earliestMs = rows.reduce((m, r) => Math.min(m, r.ms), Infinity);
+        return { rows, truncated, kind, earliestMs: Number.isFinite(earliestMs) ? earliestMs : NaN, fieldsSeen: [...fieldsSeen], stats };
     }
 
-    async function fetchPredictionTrainingData(sinceDate) {
+    // Eligibility facts about each driver. Approval and suspension are the
+    // CURRENT state; the times (verifiedAt, suspendedAt/suspendedUntil) are what
+    // lets the trainer decide whether a driver was eligible at an earlier hour.
+    // A time that is not stored is NaN, and the trainer treats that driver's
+    // earlier hours as uncertain.
+    const rosterStats = { excluded: 0, seed: 0 };
+    async function fetchDriverRoster(plausibleFromMs, schema) {
+        let snap = await db.collection(COLLECTIONS.users).where('role', '==', 'DRIVER').get();
+        if (snap.empty) snap = await db.collection(COLLECTIONS.users).get();
+        const all = snap.docs.filter((doc) => isDriverRole(doc.data()));
+        const kept = all.filter((doc) => exclusionOf(doc.data() || {}, doc.id, schema) === '');
+        rosterStats.excluded = all.length - kept.length;
+        rosterStats.seed = kept.filter((doc) => isSeedRecord(doc.data() || {}, doc.id, schema)).length;
+        return kept.map((doc) => {
+            const data = doc.data() || {};
+            const driver = mapDriverDoc(doc);
+            const at = (value) => normalizeTimestamp(value, plausibleFromMs).ms;
+            return {
+                id: doc.id,
+                approved: driver.verificationStatus === 'approved',
+                approvedAtMs: at(data.verifiedAt),
+                suspended: driver.accountStatus === 'suspended',
+                suspendedAtMs: at(data.suspendedAt),
+                suspendedUntilMs: at(data.suspendedUntil)
+            };
+        });
+    }
+
+    // options.schema is ParaPrediction.CONFIG.dataSchema (which fields to read);
+    // options.plausibleFromMs is CONFIG.plausibleFromMs.
+    async function fetchPredictionTrainingData(sinceDate, options) {
+        const o = options || {};
+        const schema = o.schema || {};
         const sinceMs = sinceDate.getTime();
-        const [samples, events, bookingsSnap] = await Promise.all([
-            fetchActivityLog('driverLocationSamples', sinceDate),
-            fetchActivityLog('driverStatusEvents', sinceDate),
-            db.collection(COLLECTIONS.bookings).where('status', '==', 'COMPLETED').get()
+        const nowMs = Date.now();
+        const eventSchema = schema.driverEvents || {};
+        const locationSchema = schema.driverLocations || {};
+        const bookingSchema = schema.bookings || {};
+        const requestTimeFields = bookingSchema.requestTimeFields || ['timestamp', 'createdAt'];
+        const barangayField = bookingSchema.pickupBarangayField || '';
+
+        const [samples, events, bookingsSnap, roster] = await Promise.all([
+            fetchActivityLog(locationSchema.collection || 'driverLocationSamples', sinceDate, { plausibleFromMs: o.plausibleFromMs, locationField: locationSchema.locationField || 'area', schema }),
+            fetchActivityLog(eventSchema.collection || 'driverStatusEvents', sinceDate, { plausibleFromMs: o.plausibleFromMs, locationField: locationSchema.locationField || 'area', withStatus: true, statusField: eventSchema.statusField, schema }),
+            // Every booking, any status: a request that was cancelled or never
+            // matched is still demand. The collection is read whole once a day;
+            // the booking time may be a number or a Timestamp, so it is filtered
+            // here, not in the query.
+            db.collection(COLLECTIONS.bookings).get(),
+            fetchDriverRoster(o.plausibleFromMs, schema)
         ]);
 
+        const bookingStats = { read: 0, fieldUse: {}, kinds: {}, missingTimestamp: 0, invalidTimestamp: 0, withRecordedBarangay: 0, seed: 0, testAccount: 0 };
         const bookings = [];
         bookingsSnap.docs.forEach((doc) => {
             const data = doc.data() || {};
+            bookingStats.read += 1;
+            if (exclusionOf(data, doc.id, schema) === 'test-account') { bookingStats.testAccount += 1; return; }
+            if (isSeedRecord(data, doc.id, schema)) bookingStats.seed += 1;
+            // The REQUEST time: the first of the configured fields that is present.
+            let field = null;
+            for (const name of requestTimeFields) {
+                if (data[name] !== undefined && data[name] !== null && data[name] !== '') { field = name; break; }
+            }
+            const t = field ? normalizeTimestamp(data[field], o.plausibleFromMs, nowMs) : { ms: NaN, kind: 'missing', valid: false };
+            if (!field) bookingStats.missingTimestamp += 1;
+            else {
+                bookingStats.fieldUse[field] = (bookingStats.fieldUse[field] || 0) + 1;
+                bookingStats.kinds[t.kind] = (bookingStats.kinds[t.kind] || 0) + 1;
+                if (!t.valid) bookingStats.invalidTimestamp += 1;
+            }
+            if (t.valid && t.ms < sinceMs) return;
             const pickup = data.pickupLatLng || {};
             const lat = Number(pickup.lat);
             const lng = Number(pickup.lng);
-            // Counted when the ride ended; older bookings without completedAt
-            // fall back to when they were booked.
-            const ms = Number(data.completedAt) > 0 ? Number(data.completedAt) : Number(data.timestamp);
-            if (!Number.isFinite(ms) || ms < sinceMs) return;
             const hasPickup = Boolean(lat || lng); // the app's "unset" point is 0,0
+            const completedMs = Number(data.completedAt) > 0 ? normalizeTimestamp(data.completedAt, o.plausibleFromMs, nowMs).ms : NaN;
+            // When the driver ACCEPTED the request (when the stored field exists).
+            const acceptedField = bookingSchema.acceptedTimeField || 'acceptedAt';
+            const acceptedMs = Number(data[acceptedField]) > 0 ? normalizeTimestamp(data[acceptedField], o.plausibleFromMs, nowMs).ms : NaN;
+            const recorded = barangayField && typeof data[barangayField] === 'string' ? data[barangayField].trim() : '';
+            if (recorded) bookingStats.withRecordedBarangay += 1;
             bookings.push({
+                id: String(getField(data, 'bookingId', 'bookingRef') || doc.id),
+                ms: t.valid ? t.ms : NaN,
+                timeKind: t.kind,
+                statusRaw: normalizeStatus(data.status),
                 driverId: data.driverId || '',
+                createdMs: t.valid ? t.ms : NaN,
+                acceptedMs,
+                completedMs,
                 lat: hasPickup ? lat : NaN,
                 lng: hasPickup ? lng : NaN,
-                ms,
-                // booking created -> drop-off: the stretch the driver was busy
-                createdMs: Number(data.timestamp),
-                completedMs: Number(data.completedAt) > 0 ? Number(data.completedAt) : NaN,
-                address: data.pickupLocation || ''
+                address: data.pickupLocation || '',
+                recordedBarangay: recorded,
+                isTest: data.isTest === true || data.isDemo === true,
+                joinRequestExpired: data.joinRequestExpired === true
             });
         });
 
-        return {
+        // A truncated log keeps its newest stretch only; the usable window starts
+        // where the SHORTEST of the truncated logs starts.
+        const truncatedStarts = [samples, events].filter((l) => l.truncated && Number.isFinite(l.earliestMs)).map((l) => l.earliestMs);
+        const dataStartMs = truncatedStarts.length ? Math.max(...truncatedStarts) : null;
+
+        let projectId = '';
+        try { projectId = firebase.app().options.projectId || ''; } catch (error) { /* not available */ }
+        const batchId = `batch-${nowMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        const raw = {
             samples: samples.rows,
             events: events.rows,
             bookings,
-            truncated: samples.truncated || events.truncated
+            roster,
+            truncated: samples.truncated || events.truncated,
+            dataStartMs,
+            eventFieldsSeen: events.fieldsSeen,
+            provenance: {
+                source: 'firestore',
+                seedPolicy: 'Seeded sample records (isSeed or SEED_ ids) are used as ordinary history and counted in seedIncluded; only listed test accounts are excluded; nothing is verified as genuine activity',
+                batchId,
+                projectId,
+                readAt: nowMs,
+                collections: [COLLECTIONS.bookings, eventSchema.collection || 'driverStatusEvents', locationSchema.collection || 'driverLocationSamples', COLLECTIONS.users],
+                counts: { bookingDocs: bookingStats.read, samples: samples.rows.length, events: events.rows.length, roster: roster.length },
+                seedIncluded: { bookings: bookingStats.seed, samples: samples.stats.seed, events: events.stats.seed, drivers: rosterStats.seed },
+                testAccountExcluded: { bookings: bookingStats.testAccount, samples: samples.stats.testAccount, events: events.stats.testAccount },
+                assumptions: schema.assumptions || [],
+                timestamps: {
+                    bookings: bookingStats,
+                    samples: { kind: samples.kind, invalid: samples.stats.invalidTimestamp },
+                    events: { kind: events.kind, invalid: events.stats.invalidTimestamp }
+                },
+                schemaVerified: Boolean(bookingSchema.verified && eventSchema.verified && locationSchema.verified),
+                statusField: eventSchema.statusField || null,
+                dataStartMs
+            }
+        };
+        trainingBatches.add(raw);
+        trainingBatchIds.add(batchId);
+        return raw;
+    }
+
+    // A read-only summary of what the booking, driver-event, driver-location and
+    // driver documents actually contain: field names, value types, how the time
+    // is stored, and the values of short category-like fields. It shows no names,
+    // addresses, ids or coordinates. Used to verify the schema the models depend
+    // on (docs/MLR_DATA_SCHEMA.md); it writes nothing.
+    async function inspectPredictionSchema(options) {
+        const o = options || {};
+        const schema = o.schema || {};
+        const sampleSize = o.sampleSize || 200;
+        const describe = (docs, extra) => {
+            const out = { sampled: docs.length, fields: {}, categories: {}, time: {} };
+            const distinct = {};
+            docs.forEach((doc) => {
+                const data = doc.data() || {};
+                Object.keys(data).forEach((key) => {
+                    const v = data[key];
+                    const type = v === null ? 'null' : (Array.isArray(v) ? 'array' : (v && typeof v.toDate === 'function' ? 'timestamp' : typeof v));
+                    const f = out.fields[key] || (out.fields[key] = { present: 0, types: {} });
+                    f.present += 1;
+                    f.types[type] = (f.types[type] || 0) + 1;
+                    if (type === 'string' && v.length <= 24) {
+                        const d = distinct[key] || (distinct[key] = {});
+                        d[v.toUpperCase()] = (d[v.toUpperCase()] || 0) + 1;
+                    }
+                });
+            });
+            Object.keys(distinct).forEach((key) => {
+                // category-like: few distinct short values (not names, addresses or ids)
+                if (Object.keys(distinct[key]).length <= 12 && out.fields[key].present >= Math.min(20, docs.length)) out.categories[key] = distinct[key];
+            });
+            if (extra) extra(out, docs);
+            return out;
+        };
+        const newest = async (name) => {
+            try { return (await db.collection(name).orderBy('timestamp', 'desc').limit(sampleSize).get()).docs; } catch (error) { return (await db.collection(name).limit(sampleSize).get()).docs; }
+        };
+        const timeSummary = (out, docs, fields) => {
+            const kinds = {};
+            let min = Infinity;
+            let max = -Infinity;
+            docs.forEach((doc) => {
+                const data = doc.data() || {};
+                fields.forEach((f) => {
+                    if (data[f] === undefined) return;
+                    const t = normalizeTimestamp(data[f], o.plausibleFromMs);
+                    kinds[`${f}:${t.kind}${t.valid ? '' : ' (invalid)'}`] = (kinds[`${f}:${t.kind}${t.valid ? '' : ' (invalid)'}`] || 0) + 1;
+                    if (t.valid) { min = Math.min(min, t.ms); max = Math.max(max, t.ms); }
+                });
+            });
+            out.time = { kinds, earliestMs: Number.isFinite(min) ? min : null, latestMs: Number.isFinite(max) ? max : null };
+        };
+        const bookingDocs = (await db.collection(COLLECTIONS.bookings).limit(sampleSize).get()).docs;
+        const eventDocs = await newest((schema.driverEvents || {}).collection || 'driverStatusEvents');
+        const locationDocs = await newest((schema.driverLocations || {}).collection || 'driverLocationSamples');
+        const driverDocs = (await db.collection(COLLECTIONS.users).where('role', '==', 'DRIVER').limit(sampleSize).get()).docs;
+        const requestFields = (schema.bookings || {}).requestTimeFields || ['timestamp', 'createdAt'];
+        return {
+            checkedAt: Date.now(),
+            bookings: describe(bookingDocs, (out, docs) => {
+                timeSummary(out, docs, requestFields);
+                out.hasPickupBarangayField = (schema.bookings || {}).pickupBarangayField
+                    ? docs.filter((d) => typeof (d.data() || {})[schema.bookings.pickupBarangayField] === 'string').length : null;
+            }),
+            driverEvents: describe(eventDocs, (out, docs) => timeSummary(out, docs, ['timestamp'])),
+            driverLocations: describe(locationDocs, (out, docs) => timeSummary(out, docs, ['timestamp'])),
+            drivers: describe(driverDocs, (out, docs) => {
+                out.withVerifiedAt = docs.filter((d) => (d.data() || {}).verifiedAt != null).length;
+                out.suspendedWithSuspendedAt = docs.filter((d) => normalizeStatus((d.data() || {}).accountStatus) === 'suspended' && (d.data() || {}).suspendedAt != null).length;
+                out.suspended = docs.filter((d) => normalizeStatus((d.data() || {}).accountStatus) === 'suspended').length;
+            })
         };
     }
 
@@ -1506,39 +1772,121 @@ const ParaFirestore = (() => {
         return readings;
     }
 
-    // The trained Driver Availability model (coefficients, areas, past-demand
-    // table, thresholds). One document per prediction, so the app and the
-    // other prediction pages read only what they need.
-    // Passenger booking demand is saved the same way in
-    // settings/passenger_demand_model.
-    const PREDICTION_MODEL_DOCS = {
-        availability: 'driver_availability_model',
-        demand: 'passenger_demand_model'
-    };
+    // Trained models: one document per prediction, so other screens read only
+    // what they need.
+    const PREDICTION_MODEL_DOCS = { availability: 'driver_availability_model', demand: 'passenger_demand_model' };
+    const PREDICTION_STATUS_DOC = 'prediction_training_status';
+    const PREDICTION_LOCK_DOC = 'prediction_training_lock';
+    const PREDICTION_LOCK_MS = 10 * 60 * 1000;
 
-    async function fetchDriverAvailabilityModel() {
-        const doc = await db.collection(COLLECTIONS.fare).doc(PREDICTION_MODEL_DOCS.availability).get();
+    function modelDocFor(kind) {
+        const doc = PREDICTION_MODEL_DOCS[kind];
+        if (!doc) throw new Error(`Unknown model "${kind}".`);
+        return doc;
+    }
+
+    async function fetchPredictionModel(kind) {
+        const doc = await db.collection(COLLECTIONS.fare).doc(modelDocFor(kind)).get();
         return doc.exists ? doc.data() : null;
     }
 
-    async function fetchPassengerDemandModel() {
-        const doc = await db.collection(COLLECTIONS.fare).doc(PREDICTION_MODEL_DOCS.demand).get();
-        return doc.exists ? doc.data() : null;
+    // The checks that must pass BEFORE anything is written, so a failed or
+    // invalid training can never replace the last valid model.
+    function assertSavableModel(kind, model) {
+        modelDocFor(kind);
+        if (!model || typeof model !== 'object') throw new Error('Refusing to save: there is no model.');
+        if (model.kind !== kind) throw new Error(`Refusing to save: this is the ${model.kind} model, not ${kind}.`);
+        // Where the training records came from: a batch that
+        // fetchPredictionTrainingData read from Firestore in this session.
+        const prov = model.provenance;
+        if (model.dataSource !== 'firestore' || !prov || prov.source !== 'firestore' || !prov.batchId || !trainingBatchIds.has(prov.batchId)) {
+            throw new Error('Refusing to save: a model must come from a training batch read from Firestore in this session; this one did not.');
+        }
+        if (!model.coverage || !Number.isFinite(model.coverage.usableDays)) throw new Error('Refusing to save: the data-coverage record is missing.');
+        if (!model.modelId || !model.windowStart || !model.windowEnd || !model.trainedAt) throw new Error('Refusing to save: model metadata is incomplete.');
+        if (!Array.isArray(model.features) || !Array.isArray(model.areas) || !model.features.length) throw new Error('Refusing to save: feature list is missing.');
+        if (!Number.isFinite(model.intercept) || !model.features.every((name) => Number.isFinite((model.coefficients || {})[name]))) {
+            throw new Error('Refusing to save: a coefficient is missing or not a finite number.');
+        }
+        if (!model.thresholds || typeof model.thresholds.available !== 'boolean') throw new Error('Refusing to save: the P33 / P67 thresholds are missing.');
+        if (!model.evaluation || typeof model.evaluation.performed !== 'boolean') throw new Error('Refusing to save: the evaluation record is missing.');
     }
 
     async function savePredictionModel(kind, model) {
+        assertSavableModel(kind, model);
         // Firestore rejects NaN/undefined and nested arrays; the model only
         // holds plain numbers, strings, arrays of those and maps.
         const clean = JSON.parse(JSON.stringify(model));
-        await db.collection(COLLECTIONS.fare).doc(PREDICTION_MODEL_DOCS[kind]).set({
+        await db.collection(COLLECTIONS.fare).doc(modelDocFor(kind)).set({
             ...clean,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
             updatedBy: auth.currentUser ? auth.currentUser.uid : ''
         });
     }
 
-    const saveDriverAvailabilityModel = (model) => savePredictionModel('availability', model);
-    const savePassengerDemandModel = (model) => savePredictionModel('demand', model);
+    // Only one browser retrains at a time. A lock that was not released
+    // (closed tab) expires after PREDICTION_LOCK_MS.
+    async function acquirePredictionLock(owner) {
+        const ref = db.collection(COLLECTIONS.fare).doc(PREDICTION_LOCK_DOC);
+        return db.runTransaction(async (tx) => {
+            const doc = await tx.get(ref);
+            const data = doc.exists ? doc.data() : null;
+            if (data && data.owner !== owner && Number(data.expiresAt) > Date.now()) return false;
+            tx.set(ref, { owner, acquiredAt: Date.now(), expiresAt: Date.now() + PREDICTION_LOCK_MS });
+            return true;
+        });
+    }
+
+    async function releasePredictionLock(owner) {
+        const ref = db.collection(COLLECTIONS.fare).doc(PREDICTION_LOCK_DOC);
+        await db.runTransaction(async (tx) => {
+            const doc = await tx.get(ref);
+            if (doc.exists && doc.data().owner === owner) tx.delete(ref);
+        });
+    }
+
+    // What the last production training attempt did, so the page can say that
+    // the model on show is older than the latest (failed) attempt.
+    async function fetchPredictionTrainingStatus() {
+        const doc = await db.collection(COLLECTIONS.fare).doc(PREDICTION_STATUS_DOC).get();
+        return doc.exists ? doc.data() : null;
+    }
+
+    async function savePredictionTrainingStatus(status) {
+        await db.collection(COLLECTIONS.fare).doc(PREDICTION_STATUS_DOC).set({
+            ...JSON.parse(JSON.stringify(status)),
+            attemptedAt: Date.now(),
+            updatedBy: auth.currentUser ? auth.currentUser.uid : ''
+        });
+    }
+
+    // Adds the seeded sample history made by tools/seed-hagonoy-history.js. Only
+    // records flagged isSeed with a SEED_ id are ever written, each with set() on
+    // its own id (nothing real is overwritten or deleted). In batches of 400.
+    async function writeSeedHistory(docs, onProgress) {
+        const targets = { users: COLLECTIONS.users, bookings: COLLECTIONS.bookings, driverStatusEvents: 'driverStatusEvents', driverLocationSamples: 'driverLocationSamples' };
+        const names = Object.keys(targets);
+        names.forEach((name) => {
+            (docs[name] || []).forEach((doc) => {
+                if (doc.isSeed !== true || !/^SEED_/.test(String(doc.id))) throw new Error(`Refusing to write: a ${name} record is not a flagged seed record.`);
+            });
+        });
+        const total = names.reduce((n, name) => n + (docs[name] || []).length, 0);
+        let done = 0;
+        const counts = {};
+        for (const name of names) {
+            const list = docs[name] || [];
+            for (let i = 0; i < list.length; i += 400) {
+                const batch = db.batch();
+                list.slice(i, i + 400).forEach((doc) => { const { id, ...rest } = doc; batch.set(db.collection(targets[name]).doc(id), rest); });
+                await batch.commit();
+                done += Math.min(400, list.length - i);
+                if (onProgress) onProgress(done, total, name);
+            }
+            counts[name] = list.length;
+        }
+        return counts;
+    }
 
     async function getDashboardCounts() {
         const [usersSnap, complaintsSnap] = await Promise.all([
@@ -1676,13 +2024,19 @@ const ParaFirestore = (() => {
         getFareSettings,
         saveFareSettings,
         fetchPredictionTrainingData,
+        isOperationalBatch,
+        inspectPredictionSchema,
+        normalizeTimestamp,
         saveTideBulletin,
         clearTideBulletin,
         fetchTideBulletin,
-        fetchDriverAvailabilityModel,
-        saveDriverAvailabilityModel,
-        fetchPassengerDemandModel,
-        savePassengerDemandModel,
+        fetchPredictionModel,
+        savePredictionModel,
+        writeSeedHistory,
+        acquirePredictionLock,
+        releasePredictionLock,
+        fetchPredictionTrainingStatus,
+        savePredictionTrainingStatus,
         getDashboardCounts,
         getDriverById,
         fetchDriverDocuments,
