@@ -1021,7 +1021,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         tbody.innerHTML = pageItems.map((booking) => `
             <tr class="row-clickable" data-booking-id="${escapeHtml(booking.id)}" title="View trip details">
                 <td><div class="book-id">${escapeHtml(booking.ref)}</div><div class="book-time">${escapeHtml(booking.relativeTime)}</div></td>
-                <td>${renderBadge(booking.status)}${earlyEndBadge(booking)}</td>
+                <td>${renderBadge(booking.status)}</td>
                 <td style="font-size:13px;">${escapeHtml(booking.dateLabel)}</td>
                 <td><div class="detail-main">${escapeHtml(booking.driverName || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(booking.plate)}</div></td>
                 <td>${escapeHtml(booking.passengerName || '—')}</td>
@@ -1043,13 +1043,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 </div>
             `;
         }
-    }
-
-    // "Ended early" under a booking's status (grey once an admin has reviewed it).
-    function earlyEndBadge(booking) {
-        if (!booking.endedEarly) return '';
-        const reviewed = Boolean(booking.earlyEndReviewedAtRaw);
-        return `<div class="detail-sub" style="margin-top:4px; font-weight:600; color:${reviewed ? 'var(--text-muted)' : '#FF9E2A'};">Ended early${reviewed ? ' · reviewed' : ''}</div>`;
     }
 
     // Booking Records: a click on a row opens the trip.
@@ -2455,7 +2448,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td style="font-size:13px;">${escapeHtml(b.dateLabel)}</td>
                 <td style="font-size:13px;">${escapeHtml(b.passengerName || '—')}</td>
                 <td style="max-width:230px; font-size:13px; line-height:1.4;">${escapeHtml(b.pickupLocation)}<div class="detail-sub">to ${escapeHtml(b.dropoffLocation)}</div></td>
-                <td>${renderBadge(b.status)}${earlyEndBadge(b)}</td>
+                <td>${renderBadge(b.status)}</td>
                 <td><div style="color:${fareColor(ParaFirestore.normalizeStatus(b.status))}; font-weight:600;">&#8369;${escapeHtml(Number(b.totalFare || 0).toFixed(2))}</div>${paymentLine(b)}</td>
             </tr>`).join('');
         return `
@@ -2659,7 +2652,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td style="font-size:13px;">${escapeHtml(b.dateLabel)}</td>
                 <td><div class="detail-main" style="font-size:13px;">${escapeHtml(b.driverName || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(b.plate)}</div></td>
                 <td style="max-width:230px; font-size:13px; line-height:1.4;">${escapeHtml(b.pickupLocation)}<div class="detail-sub">to ${escapeHtml(b.dropoffLocation)}</div></td>
-                <td>${renderBadge(b.status)}${earlyEndBadge(b)}</td>
+                <td>${renderBadge(b.status)}</td>
                 <td><div style="color:${fareColor(ParaFirestore.normalizeStatus(b.status))}; font-weight:600;">&#8369;${escapeHtml(Number(b.totalFare || 0).toFixed(2))}</div>${paymentLine(b)}</td>
             </tr>`).join('');
         return `
