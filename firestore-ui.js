@@ -3411,80 +3411,137 @@ document.addEventListener('DOMContentLoaded', async () => {
             const doc = new jsPDF({ unit: 'mm', format: 'a4' });
             const M = 15;
             const W = 210 - M * 2;
-            const BOTTOM = 280;
+            const TOP = 20; // first line on the pages after the first
+            const BOTTOM = 278;
+            const NAVY = [27, 37, 75];
+            const MUTED = [110, 120, 150];
+            const RULE = [226, 231, 242];
+            const PANEL = [244, 247, 252];
             let y = M;
 
             // jsPDF's built-in fonts only cover Latin-1 (no peso sign, no emoji).
-            const clean = (value) => String(value ?? '').replace(/[^ -~ -ÿ–—‘’“”…•\n]/g, '?');
+            const clean = (value) => String(value ?? '').replace(/[^ -~ -ÿ–—‘’“”…•\n]/g, '?');
             const ensure = (height) => {
                 if (y + height > BOTTOM) {
                     doc.addPage();
-                    y = M;
+                    y = TOP;
                 }
             };
             // `keep` = space the section's first rows need, so a heading never
             // sits alone at the bottom of a page and short sections stay together.
-            const heading = (text, keep = 16) => {
+            const heading = (text, keep = 18) => {
                 ensure(keep);
                 y += 3;
-                doc.setFillColor(240, 244, 249);
-                doc.rect(M, y, W, 7, 'F');
+                doc.setFillColor(...NAVY);
+                doc.rect(M, y - 0.4, 1.4, 5.4, 'F');
                 doc.setFont(undefined, 'bold');
                 doc.setFontSize(10);
-                doc.setTextColor(27, 37, 75);
-                doc.text(clean(text).toUpperCase(), M + 3, y + 4.8);
-                y += 11;
+                doc.setTextColor(...NAVY);
+                doc.text(clean(text).toUpperCase(), M + 4, y + 3.8);
+                doc.setDrawColor(...RULE);
+                doc.setLineWidth(0.3);
+                doc.line(M, y + 7.2, M + W, y + 7.2);
+                y += 10;
             };
+            // A label and its value, with a hairline under the row.
             const field = (label, value) => {
-                const lines = doc.splitTextToSize(clean(value === undefined || value === null || value === '' ? '—' : value), W - 50);
-                ensure(lines.length * 4.8 + 1.5);
-                doc.setFontSize(9);
+                const lines = doc.splitTextToSize(clean(value === undefined || value === null || value === '' ? '—' : value), W - 54);
+                const rowHeight = lines.length * 4.4 + 2.2;
+                ensure(rowHeight);
                 doc.setFont(undefined, 'bold');
-                doc.setTextColor(110, 120, 150);
-                doc.text(clean(label), M + 3, y);
+                doc.setFontSize(8.5);
+                doc.setTextColor(...MUTED);
+                doc.text(clean(label), M + 2, y + 3.4);
                 doc.setFont(undefined, 'normal');
-                doc.setTextColor(27, 37, 75);
-                lines.forEach((line, i) => doc.text(line, M + 50, y + i * 4.8));
-                y += lines.length * 4.8 + 1.5;
+                doc.setFontSize(9.5);
+                doc.setTextColor(...NAVY);
+                lines.forEach((line, i) => doc.text(line, M + 52, y + 3.4 + i * 4.4));
+                doc.setDrawColor(...RULE);
+                doc.setLineWidth(0.15);
+                doc.line(M, y + rowHeight - 0.3, M + W, y + rowHeight - 0.3);
+                y += rowHeight;
             };
-            const paragraph = (text, { size = 10, indent = 3 } = {}) => {
+            const paragraph = (text, { size = 10, indent = 2 } = {}) => {
                 doc.setFont(undefined, 'normal');
                 doc.setFontSize(size);
-                doc.setTextColor(27, 37, 75);
+                doc.setTextColor(...NAVY);
                 doc.splitTextToSize(clean(text || '—'), W - indent * 2).forEach((line) => {
                     ensure(5);
-                    doc.text(line, M + indent, y);
+                    doc.text(line, M + indent, y + 3.4);
                     y += 5;
                 });
                 y += 1;
+            };
+            // The passenger's own words: a tinted block with an accent bar.
+            const quote = (text) => {
+                doc.setFont(undefined, 'normal');
+                doc.setFontSize(10);
+                y += 1;
+                doc.splitTextToSize(clean(text || '—'), W - 10).forEach((line) => {
+                    ensure(5.4);
+                    doc.setFillColor(...PANEL);
+                    doc.rect(M, y, W, 5.4, 'F');
+                    doc.setFillColor(...NAVY);
+                    doc.rect(M, y, 1.2, 5.4, 'F');
+                    doc.setTextColor(...NAVY);
+                    doc.text(line, M + 5, y + 3.9);
+                    y += 5.4;
+                });
+                y += 2;
             };
             const peso = (value) => `PHP ${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             const when = (value) => (value ? ParaFirestore.formatDateTime(value) : '—');
             const statusText = complaintStatusLabel(complaint.status);
             const caseStatus = statusText ? statusText.charAt(0).toUpperCase() + statusText.slice(1) : '—';
+            const statusKey = ParaFirestore.normalizeStatus(complaint.status);
+            const statusColor = statusKey === 'resolved' ? [5, 150, 110] : statusKey === 'rejected' ? MUTED : [200, 120, 0];
 
-            // Title block
+            // Title band
+            doc.setFillColor(...NAVY);
+            doc.rect(0, 0, 210, 30, 'F');
+            doc.setTextColor(255, 255, 255);
             doc.setFont(undefined, 'bold');
-            doc.setFontSize(17);
-            doc.setTextColor(27, 37, 75);
-            doc.text('PARA - Complaint Case Report', M, y + 6);
+            doc.setFontSize(19);
+            doc.text('PARA Complaint Case Report', M, 14);
             doc.setFont(undefined, 'normal');
-            doc.setFontSize(9);
-            doc.setTextColor(110, 120, 150);
-            doc.text(clean(`Generated ${ParaFirestore.formatDateTime(new Date())} by ${window.ParaAdminName || 'PARA Admin'}`), M, y + 12);
-            y += 17;
+            doc.setFontSize(11);
+            doc.setTextColor(200, 210, 235);
+            doc.text(clean(`Case ${complaint.ref}`), M, 22.5);
+            doc.setFontSize(8.5);
+            doc.text(clean(`Generated ${ParaFirestore.formatDateTime(new Date())} by ${window.ParaAdminName || 'PARA Admin'}`), 210 - M, 22.5, { align: 'right' });
 
-            heading('Case summary');
-            field('Case reference', complaint.ref);
-            if (complaint.ref !== complaint.id) field('Record ID', complaint.id);
-            field('Complaint type', complaint.issue);
-            field('Status', caseStatus);
-            field('Date filed', when(complaint.createdAtRaw));
-            if (complaint.updatedAtRaw) field('Last updated', when(complaint.updatedAtRaw));
-            if (complaint.resolvedAtRaw) field('Closed on', when(complaint.resolvedAtRaw));
+            // Four summary boxes
+            const gap = 4;
+            const boxW = (W - gap * 3) / 4;
+            const box = (x, label, value, color) => {
+                doc.setFillColor(...PANEL);
+                doc.roundedRect(x, 38, boxW, 17, 2, 2, 'F');
+                doc.setFont(undefined, 'normal');
+                doc.setFontSize(7.5);
+                doc.setTextColor(...MUTED);
+                doc.text(label.toUpperCase(), x + 4, 44);
+                doc.setFont(undefined, 'bold');
+                doc.setFontSize(10);
+                doc.setTextColor(...(color || NAVY));
+                doc.text(doc.splitTextToSize(clean(value || '—'), boxW - 6)[0], x + 4, 51);
+            };
+            const filedShort = complaint.createdAtRaw
+                ? new Date(complaint.createdAtRaw).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                : '—';
+            [['Case reference', complaint.ref], ['Status', caseStatus, statusColor], ['Complaint type', complaint.issue], ['Date filed', filedShort]]
+                .forEach(([label, value, color], i) => box(M + i * (boxW + gap), label, value, color));
+            y = 58;
+
+            if ((complaint.ref !== complaint.id) || complaint.updatedAtRaw || complaint.resolvedAtRaw) {
+                heading('Case record', 14);
+                if (complaint.ref !== complaint.id) field('Record ID', complaint.id);
+                field('Date and time filed', when(complaint.createdAtRaw));
+                if (complaint.updatedAtRaw) field('Last updated', when(complaint.updatedAtRaw));
+                if (complaint.resolvedAtRaw) field('Closed on', when(complaint.resolvedAtRaw));
+            }
 
             heading('Description of the incident (as reported by the passenger)');
-            paragraph(complaint.description);
+            quote(complaint.description);
 
             heading('Complainant (passenger)');
             field('Name', complaint.reporter);
@@ -3537,11 +3594,56 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             heading('Other complaints against this driver');
             if (otherCases.length) {
-                otherCases.slice(0, 15).forEach((c) => paragraph(`${c.ref} - ${c.issue} - ${complaintStatusLabel(c.status)} - ${when(c.createdAtRaw)}`, { size: 9 }));
+                const widths = [40, 62, 28, 50];
+                const xs = widths.reduce((acc, w, i) => { acc.push(i ? acc[i - 1] + widths[i - 1] : M); return acc; }, []);
+                ensure(18);
+                doc.setFillColor(...PANEL);
+                doc.rect(M, y, W, 6.5, 'F');
+                doc.setFont(undefined, 'bold');
+                doc.setFontSize(8);
+                doc.setTextColor(...MUTED);
+                ['Case', 'Issue', 'Status', 'Filed'].forEach((h, i) => doc.text(h, xs[i] + 2, y + 4.5));
+                y += 6.5;
+                otherCases.slice(0, 15).forEach((c) => {
+                    ensure(7);
+                    doc.setFont(undefined, 'normal');
+                    doc.setFontSize(8.5);
+                    doc.setTextColor(...NAVY);
+                    [c.ref, c.issue, complaintStatusLabel(c.status).replace(/^./, (ch) => ch.toUpperCase()), when(c.createdAtRaw)].forEach((value, i) => {
+                        doc.text(doc.splitTextToSize(clean(value || '—'), widths[i] - 3)[0], xs[i] + 2, y + 4.6);
+                    });
+                    doc.setDrawColor(...RULE);
+                    doc.setLineWidth(0.15);
+                    doc.line(M, y + 7, M + W, y + 7);
+                    y += 7;
+                });
                 if (otherCases.length > 15) paragraph(`...and ${otherCases.length - 15} more.`, { size: 9 });
             } else {
                 paragraph('None on record.', { size: 9 });
             }
+
+            // One recorded action: when it happened on the left, what it was on the right.
+            const timeline = (timeText, text, reason) => {
+                const lines = doc.splitTextToSize(clean(text), W - 50);
+                const reasonLines = reason ? doc.splitTextToSize(clean(`Reason: "${reason}"`), W - 50) : [];
+                const rowHeight = (lines.length + reasonLines.length) * 4.6 + 3;
+                ensure(rowHeight);
+                doc.setFont(undefined, 'normal');
+                doc.setFontSize(8.5);
+                doc.setTextColor(...MUTED);
+                doc.text(clean(timeText), M + 2, y + 3.6);
+                doc.setFont(undefined, 'bold');
+                doc.setFontSize(9.5);
+                doc.setTextColor(...NAVY);
+                lines.forEach((line, i) => doc.text(line, M + 48, y + 3.6 + i * 4.6));
+                doc.setFont(undefined, 'normal');
+                doc.setTextColor(...MUTED);
+                reasonLines.forEach((line, i) => doc.text(line, M + 48, y + 3.6 + (lines.length + i) * 4.6));
+                doc.setDrawColor(...RULE);
+                doc.setLineWidth(0.15);
+                doc.line(M, y + rowHeight - 0.4, M + W, y + rowHeight - 0.4);
+                y += rowHeight;
+            };
 
             heading('TODA president recommendation and actions taken');
             const seen = new Set();
@@ -3569,14 +3671,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                         label = action.actionType === 'Warning' ? 'Issued a warning to the driver'
                             : action.actionType === 'Invalid' ? 'Marked the driver report as invalid' : action.actionType;
                     }
-                    paragraph(`${formatActionTime(action.issuedAt)} - ${who}${action.issuedByName ? ` (${action.issuedByName})` : ''}: ${label}${action.reason ? `\nReason: "${action.reason}"` : ''}`, { size: 9 });
+                    timeline(formatActionTime(action.issuedAt), `${who}${action.issuedByName ? ` (${action.issuedByName})` : ''}: ${label}`, action.reason);
                 });
             } else {
                 paragraph('Nothing recorded for this case.', { size: 9 });
             }
 
             heading('Admin resolution note');
-            paragraph(complaint.adminNotes || 'No note entered.', { size: 10 });
+            quote(complaint.adminNotes || 'No note entered.');
 
             // Sign-off block for the printed copy.
             ensure(30);
@@ -3593,7 +3695,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // bottom of the last page (on a new page if the sign-off leaves no room).
             const noticeLines = doc.splitTextToSize('This report is confidential. It contains personal information and is intended only for documentation and for reporting to the proper authorities.', W - 16);
             const noticeHeight = noticeLines.length * 4.8 + 9;
-            const noticeBottom = 282;
+            const noticeBottom = 279;
             if (y + 17 + 8 > noticeBottom - noticeHeight) doc.addPage();
             const noticeTop = noticeBottom - noticeHeight;
             doc.setFillColor(255, 255, 255);
@@ -3606,14 +3708,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             doc.text(noticeLines, M + W / 2, noticeTop + 6.4, { align: 'center' });
             doc.setLineWidth(0.2);
 
-            // Page footer
+            // Running header (after the first page) and footer on every page
             const pages = doc.getNumberOfPages();
             for (let i = 1; i <= pages; i++) {
                 doc.setPage(i);
+                doc.setFont(undefined, 'normal');
                 doc.setFontSize(8);
-                doc.setTextColor(150, 158, 180);
-                doc.text(clean(`PARA Admin - Case ${complaint.ref} - Confidential`), M, 290);
-                doc.text(`Page ${i} of ${pages}`, 210 - M, 290, { align: 'right' });
+                doc.setTextColor(...MUTED);
+                doc.setDrawColor(...RULE);
+                doc.setLineWidth(0.2);
+                if (i > 1) {
+                    doc.text(clean(`PARA Complaint Case Report · ${complaint.ref}`), M, 11);
+                    doc.line(M, 14, M + W, 14);
+                }
+                doc.line(M, 284, M + W, 284);
+                doc.text(clean(`PARA Admin · Case ${complaint.ref} · Confidential`), M, 289);
+                doc.text(`Page ${i} of ${pages}`, 210 - M, 289, { align: 'right' });
             }
 
             const safeRef = String(complaint.ref || complaint.id).replace(/[^A-Za-z0-9_-]+/g, '_');
