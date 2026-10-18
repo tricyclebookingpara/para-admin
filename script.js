@@ -977,44 +977,99 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── Reports & Analytics Exports ─────────────────────────────────
-    function escapeCsvValue(value) {
-        const str = String(value ?? '');
-        return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-    }
-
-    function downloadCsv(filename, headers, rows) {
-        const lines = [headers, ...rows].map((row) => row.map(escapeCsvValue).join(','));
-        const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-    }
-
+    // The three tables are Excel workbooks (title block, header row, sized columns,
+    // amounts as real numbers with a peso format, a totals row). The monthly report
+    // is a PDF. All four say who generated them and when.
     function bookingDate(booking) {
         return booking.createdAtRaw || new Date(booking.date || booking.createdAt || null);
     }
 
+    function exportStamp() {
+        return `Generated ${ParaFirestore.formatDateTime(new Date())} by ${window.ParaAdminName || 'PARA Admin'}`;
+    }
+
+    // "no_show" -> "No show"
+    function nicely(text) {
+        const spaced = String(text || '').replace(/_/g, ' ').trim();
+        return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : '—';
+    }
+
+    const EXPORT_FORMATS = { money: '"₱"#,##0.00', int: '#,##0', dec1: '0.0', pct: '0.0%' };
+
+    // One sheet: a title block, a blank line, the header row, the data, and an
+    // optional totals row. formats[i] says how column i's numbers are shown.
+    function exportWorkbook({ filename, sheetName, title, notes = [], headers, rows, widths, formats = [], totalRow }) {
+        if (!window.XLSX) {
+            showToast('The Excel library failed to load.', 'error');
+            return false;
+        }
+        const top = [[title], ...notes.map((note) => [note]), [exportStamp()]];
+        const headerIndex = top.length + 1;
+        const aoa = [...top, [], headers, ...rows];
+        if (totalRow) aoa.push([], totalRow);
+
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const lastCol = headers.length - 1;
+        ws['!merges'] = top.map((_, r) => ({ s: { r, c: 0 }, e: { r, c: lastCol } }));
+        ws['!cols'] = widths.map((wch) => ({ wch }));
+        ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: headerIndex, c: 0 }, e: { r: headerIndex + rows.length, c: lastCol } }) };
+
+        const formatRow = (r) => {
+            formats.forEach((kind, c) => {
+                const cell = ws[XLSX.utils.encode_cell({ r, c })];
+                if (cell && cell.t === 'n' && EXPORT_FORMATS[kind]) cell.z = EXPORT_FORMATS[kind];
+            });
+        };
+        for (let i = 0; i < rows.length; i++) formatRow(headerIndex + 1 + i);
+        if (totalRow) formatRow(headerIndex + rows.length + 2);
+
+        const wb = XLSX.utils.book_new();
+        wb.Props = { Title: title, Author: window.ParaAdminName || 'PARA Admin', CreatedDate: new Date() };
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        XLSX.writeFile(wb, filename);
+        return true;
+    }
+
+    const isoToday = () => new Date().toISOString().slice(0, 10);
+    const clock = (date) => date.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
+
     window.exportDailyRideReport = function() {
         const bounds = getPeriodBounds('Today');
-        const rows = (dashboardBookings || [])
+        const rides = (dashboardBookings || [])
             .filter((b) => {
                 const d = bookingDate(b);
                 return d && !Number.isNaN(d.getTime()) && d >= bounds.start && d <= bounds.end;
             })
-            .map((b) => [b.ref, b.dateLabel, b.status, b.driverName || '—', b.passengerName || '—', b.pickupLocation, b.dropoffLocation, (Number(b.totalFare) || 0).toFixed(2), b.paymentMethod || '—']);
+            .sort((a, b) => bookingDate(a) - bookingDate(b));
 
-        if (!rows.length) {
+        if (!rides.length) {
             showToast('No rides recorded today.', 'warning');
             return;
         }
-        downloadCsv(`daily-ride-report-${new Date().toISOString().slice(0, 10)}.csv`,
-            ['Booking Ref', 'Date', 'Status', 'Driver', 'Passenger', 'Pickup', 'Dropoff', 'Fare', 'Payment Method'], rows);
-        showToast(`Exported ${rows.length} ride(s).`, 'success');
+        const completed = rides.filter((b) => b.status === 'completed').length;
+        const cancelled = rides.filter((b) => b.status === 'cancelled').length;
+        const counted = rides.filter(isRevenueEligible);
+        const totalFare = Math.round(counted.reduce((sum, b) => sum + (Number(b.totalFare) || 0), 0) * 100) / 100;
+        const rows = rides.map((b) => [
+            b.ref, clock(bookingDate(b)), nicely(b.status), b.driverName || '—', b.plate || '—', b.passengerName || '—',
+            b.pickupLocation || '—', b.dropoffLocation || '—', Number(b.totalFare) || 0, b.paymentMethod || '—', nicely(b.paymentStatus)
+        ]);
+        const done = exportWorkbook({
+            filename: `PARA-Daily-Ride-Report-${isoToday()}.xlsx`,
+            sheetName: 'Daily Rides',
+            title: 'PARA - Daily Ride Report',
+            notes: [
+                new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }),
+                `${rides.length} ride${rides.length === 1 ? '' : 's'} · ${completed} completed · ${cancelled} cancelled`,
+                'The total counts completed rides under registered TODAs only.'
+            ],
+            headers: ['Booking Ref', 'Time', 'Status', 'Driver', 'Plate', 'Passenger', 'Pickup', 'Drop-off', 'Fare', 'Payment', 'Payment Status'],
+            rows,
+            widths: [38, 10, 12, 22, 11, 22, 38, 38, 13, 10, 14],
+            formats: [null, null, null, null, null, null, null, null, 'money'],
+            totalRow: ['Total fares (completed rides)', '', '', '', '', '', '', '', totalFare]
+        });
+        if (done) showToast(`Exported ${rides.length} ride(s).`, 'success');
     };
 
     window.exportDriverActivity = async function() {
@@ -1032,13 +1087,32 @@ document.addEventListener('DOMContentLoaded', () => {
             const bookings = (window.allBookings && window.allBookings.length)
                 ? window.allBookings
                 : await ParaFirestore.fetchAllBookings();
-            const rows = drivers.map((d) => {
+            const sorted = drivers.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+            let totalRides = 0;
+            let suspended = 0;
+            const rows = sorted.map((d) => {
                 const stats = ParaFirestore.computeDriverStats(d, bookings);
-                return [d.name, d.vehicle || '—', d.plate || '—', Number(d.rating || 0).toFixed(1), stats.completed, stats.acceptanceRate, d.accountStatus || 'active'];
+                totalRides += stats.completed;
+                const isSuspended = String(d.accountStatus || '').toLowerCase() === 'suspended';
+                if (isSuspended) suspended += 1;
+                const rating = Number(d.rating);
+                return [d.name || '—', d.todaName || '—', d.vehicle || '—', d.plate || '—', Number.isFinite(rating) && rating > 0 ? rating : '—', stats.completed, stats.acceptanceRate || '—', isSuspended ? 'Suspended' : 'Active'];
             });
-            downloadCsv(`driver-activity-${new Date().toISOString().slice(0, 10)}.csv`,
-                ['Name', 'Vehicle', 'Plate', 'Rating', 'Completed Rides', 'Acceptance Rate', 'Status'], rows);
-            showToast(`Exported ${rows.length} driver(s).`, 'success');
+            const done = exportWorkbook({
+                filename: `PARA-Driver-Activity-${isoToday()}.xlsx`,
+                sheetName: 'Driver Activity',
+                title: 'PARA - Driver Activity',
+                notes: [
+                    `${sorted.length} approved driver${sorted.length === 1 ? '' : 's'} · ${sorted.length - suspended} active · ${suspended} suspended`,
+                    'Completed rides and acceptance rate are worked out from all recorded bookings.'
+                ],
+                headers: ['Driver', 'TODA', 'Tricycle No.', 'Plate', 'Rating', 'Completed Rides', 'Acceptance Rate', 'Status'],
+                rows,
+                widths: [26, 20, 14, 12, 9, 16, 17, 12],
+                formats: [null, null, null, null, 'dec1', 'int'],
+                totalRow: ['Total completed rides', '', '', '', '', totalRides, '', '']
+            });
+            if (done) showToast(`Exported ${rows.length} driver(s).`, 'success');
         } catch (error) {
             console.error('Failed to export driver activity:', error);
             showToast('Could not export driver activity.', 'error');
@@ -1048,10 +1122,26 @@ document.addEventListener('DOMContentLoaded', () => {
     window.exportPeakHoursAnalysis = function() {
         // Follows the month picked on the Reports page, like the chart does.
         const { totals, days } = peakHourStats(dashboardBookings);
-        const rows = totals.map((count, hour) => [formatHourLabel(hour), count, (count / days).toFixed(1)]);
-        downloadCsv(`peak-hours-analysis-${new Date().toISOString().slice(0, 10)}.csv`,
-            ['Hour', 'Bookings', 'Avg per day'], rows);
-        showToast('Peak hours analysis exported.', 'success');
+        const sum = totals.reduce((a, b) => a + b, 0);
+        const peak = Math.max(...totals);
+        const peakHour = totals.indexOf(peak);
+        const month = reportsMonthBounds().label;
+        const rows = totals.map((count, hour) => [formatHourLabel(hour), count, days ? count / days : 0, sum ? count / sum : 0]);
+        const done = exportWorkbook({
+            filename: `PARA-Peak-Hours-${monthKey(reportsMonthBounds().start)}.xlsx`,
+            sheetName: 'Peak Hours',
+            title: `PARA - Peak Hours Analysis, ${month}`,
+            notes: [
+                peak ? `Peak hour: ${formatHourLabel(peakHour)} with ${(days ? peak / days : 0).toFixed(1)} bookings per day (${peak} in total).` : 'No bookings in this month.',
+                `Counted across ${days} day${days === 1 ? '' : 's'} with bookings.`
+            ],
+            headers: ['Hour', 'Bookings', 'Average per Day', 'Share of Bookings'],
+            rows,
+            widths: [14, 12, 17, 18],
+            formats: [null, 'int', 'dec1', 'pct'],
+            totalRow: ['Total', sum, days ? Math.round(sum / days * 10) / 10 : 0, sum ? 1 : 0]
+        });
+        if (done) showToast('Peak hours analysis exported.', 'success');
     };
 
     window.exportMonthlyRideReport = function() {
@@ -1070,64 +1160,151 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // jsPDF's built-in fonts don't have a glyph for ₱, so use "PHP" in the PDF only.
-        const formatCurrencyPdf = (value) => `PHP ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
+        const php = (value) => `PHP ${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const PAGE_W = 210;
+        const M = 14;
+        const W = PAGE_W - M * 2;
+        const NAVY = [27, 37, 75];
+        const MUTED = [110, 120, 150];
+        const RULE = [226, 231, 242];
+        const PANEL = [244, 247, 252];
         const monthLabel = bounds.label;
-        // Only completed rides count toward the total — same rule as the
-        // revenue figures everywhere else in the app (a cancelled booking's
-        // fare was only ever a quote, never collected).
-        const totalFare = rows.filter(isRevenueEligible).reduce((sum, b) => sum + (Number(b.totalFare) || 0), 0);
 
-        doc.setFontSize(16);
-        doc.text('PARA Monthly Ride Report', 14, 18);
-        doc.setFontSize(11);
-        doc.text(`Period: ${monthLabel}`, 14, 26);
-        doc.text(`Total rides: ${rows.length}    Total fare (completed only): ${formatCurrencyPdf(totalFare)}`, 14, 33);
-        // Service fee on top of the fare, split three ways, as recorded on each
-        // booking (older bookings estimated at the current percentages).
+        // Only completed rides under a registered TODA count toward the money — the
+        // same rule as the revenue figures everywhere else in the app.
+        const counted = rows.filter(isRevenueEligible);
+        const totalFare = counted.reduce((sum, b) => sum + (Number(b.totalFare) || 0), 0);
+        const completed = rows.filter((b) => b.status === 'completed').length;
+        const cancelled = rows.filter((b) => b.status === 'cancelled').length;
         const fee = getServiceFee();
         const fees = sumFees(rows);
-        const estimated = fees.estimatedRides ? `, ${fees.estimatedRides} older ride(s) estimated` : '';
-        doc.setFontSize(9);
-        const feeLines = doc.splitTextToSize(`Service fee (${trimPct(fee.totalPct)}%${estimated}): ${formatCurrencyPdf(fees.total)} - PARA: ${formatCurrencyPdf(fees.para)}, drivers: ${formatCurrencyPdf(fees.driver)}, TODAs: ${formatCurrencyPdf(fees.toda)}`, 182);
-        doc.text(feeLines, 14, 39);
-        doc.setFontSize(11);
 
-        const headers = ['Ref', 'Date', 'Status', 'Driver', 'Passenger', 'Fare'];
-        const colX = [14, 46, 76, 100, 138, 172];
-        // Width available to each column before wrapping to a second line —
-        // nothing gets cut off, a long reference or name just wraps within
-        // its own cell instead of overlapping the next column.
-        const colWidths = [30, 28, 22, 36, 32, 24];
-        const lineHeight = 4.5;
-        let y = 45 + (feeLines.length - 1) * 4;
-        doc.setFontSize(9);
+        // Title band
+        doc.setFillColor(...NAVY);
+        doc.rect(0, 0, PAGE_W, 30, 'F');
+        doc.setTextColor(255, 255, 255);
         doc.setFont(undefined, 'bold');
-        headers.forEach((h, i) => doc.text(h, colX[i], y));
+        doc.setFontSize(19);
+        doc.text('PARA Monthly Ride Report', M, 14);
         doc.setFont(undefined, 'normal');
-        y += 6;
+        doc.setFontSize(11);
+        doc.setTextColor(200, 210, 235);
+        doc.text(monthLabel, M, 22.5);
+        doc.setFontSize(8.5);
+        doc.text(exportStamp(), PAGE_W - M, 22.5, { align: 'right' });
 
-        rows.forEach((b) => {
-            const cells = [b.ref, b.dateLabel, b.status, b.driverName || '—', b.passengerName || '—', formatCurrencyPdf(b.totalFare)];
-            const wrappedCells = cells.map((c, i) => doc.splitTextToSize(String(c), colWidths[i]));
-            const lineCount = Math.max(1, ...wrappedCells.map((lines) => lines.length));
-            const rowHeight = lineCount * lineHeight;
+        // Two rows of summary boxes
+        const gap = 4;
+        const boxW = (W - gap * 3) / 4;
+        const box = (x, y, label, value) => {
+            doc.setFillColor(...PANEL);
+            doc.roundedRect(x, y, boxW, 17, 2, 2, 'F');
+            doc.setFont(undefined, 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(...MUTED);
+            doc.text(label.toUpperCase(), x + 4, y + 6);
+            doc.setFont(undefined, 'bold');
+            doc.setFontSize(12);
+            doc.setTextColor(...NAVY);
+            doc.text(String(value), x + 4, y + 13.2);
+        };
+        const stats1 = [['Total rides', rows.length], ['Completed', completed], ['Cancelled', cancelled], ['Total fares', php(totalFare)]];
+        const stats2 = [[`Service fee (${trimPct(fee.totalPct)}%)`, php(fees.total)], [`PARA (${trimPct(fee.paraPct)}%)`, php(fees.para)], [`Drivers (${trimPct(fee.driverPct)}%)`, php(fees.driver)], [`TODAs (${trimPct(fee.todaPct)}%)`, php(fees.toda)]];
+        stats1.forEach(([label, value], i) => box(M + i * (boxW + gap), 38, label, value));
+        stats2.forEach(([label, value], i) => box(M + i * (boxW + gap), 38 + 17 + gap, label, value));
 
-            if (y + rowHeight > 285) {
-                doc.addPage();
-                y = 20;
-            }
+        doc.setFont(undefined, 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(...MUTED);
+        const estimated = fees.estimatedRides ? ` ${fees.estimatedRides} ride(s) booked before the service fee are estimated at today's percentages.` : '';
+        const note = doc.splitTextToSize(`Fares and fees count completed rides under registered TODAs only. The service fee is charged on top of the fare.${estimated}`, W);
+        doc.text(note, M, 80);
 
-            wrappedCells.forEach((lines, i) => {
-                lines.forEach((line, lineIndex) => doc.text(line, colX[i], y + lineIndex * lineHeight));
+        // Rides table
+        const headers = ['Ref', 'Date', 'Status', 'Driver', 'Passenger', 'Fare'];
+        const widths = [36, 31, 22, 36, 33, 24];
+        const xs = widths.reduce((acc, w, i) => { acc.push(i ? acc[i - 1] + widths[i - 1] : M); return acc; }, []);
+        const BOTTOM = 276;
+        const tableHeader = (y) => {
+            doc.setFillColor(...NAVY);
+            doc.rect(M, y, W, 7.5, 'F');
+            doc.setFont(undefined, 'bold');
+            doc.setFontSize(8.5);
+            doc.setTextColor(255, 255, 255);
+            headers.forEach((h, i) => {
+                if (i === 5) doc.text(h, xs[i] + widths[i] - 2, y + 5.2, { align: 'right' });
+                else doc.text(h, xs[i] + 2, y + 5.2);
             });
+            return y + 7.5;
+        };
+        const statusColor = (status) => (status === 'completed' ? [5, 150, 110] : status === 'cancelled' ? [200, 70, 60] : MUTED);
+        const stamp = (date) => (date && !Number.isNaN(new Date(date).getTime())
+            ? new Date(date).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+            : '—');
 
-            y += rowHeight + 2;
+        let y = tableHeader(80 + note.length * 3.6 + 3);
+        rows.forEach((b, index) => {
+            const cells = [String(b.ref || '—'), stamp(bookingDate(b)), nicely(b.status), b.driverName || '—', b.passengerName || '—', php(b.totalFare)];
+            doc.setFont(undefined, 'normal');
+            doc.setFontSize(8.5);
+            const wrapped = cells.map((c, i) => doc.splitTextToSize(c, widths[i] - 4));
+            const lines = Math.max(1, ...wrapped.map((l) => l.length));
+            const rowH = lines * 4.2 + 3.4;
+            if (y + rowH > BOTTOM) {
+                doc.addPage();
+                y = tableHeader(16);
+            }
+            if (index % 2) {
+                doc.setFillColor(250, 251, 254);
+                doc.rect(M, y, W, rowH, 'F');
+            }
+            wrapped.forEach((cellLines, i) => {
+                if (i === 2) doc.setTextColor(...statusColor(b.status));
+                else doc.setTextColor(...NAVY);
+                doc.setFont(undefined, i === 5 ? 'bold' : 'normal');
+                cellLines.forEach((line, li) => {
+                    const ty = y + 4.6 + li * 4.2;
+                    if (i === 5) doc.text(line, xs[i] + widths[i] - 2, ty, { align: 'right' });
+                    else doc.text(line, xs[i] + 2, ty);
+                });
+            });
+            doc.setDrawColor(...RULE);
+            doc.setLineWidth(0.2);
+            doc.line(M, y + rowH, M + W, y + rowH);
+            y += rowH;
         });
 
-        doc.save(`monthly-ride-report-${monthKey(bounds.start)}.pdf`);
+        // Total line
+        if (y + 12 > BOTTOM) {
+            doc.addPage();
+            y = 16;
+        }
+        doc.setFont(undefined, 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(...NAVY);
+        doc.setDrawColor(...NAVY);
+        doc.setLineWidth(0.5);
+        doc.line(M, y + 3, M + W, y + 3);
+        doc.text('Total fares (completed rides)', M + 2, y + 10);
+        doc.text(php(totalFare), M + W - 2, y + 10, { align: 'right' });
+
+        // Footer on every page
+        const pages = doc.getNumberOfPages();
+        for (let i = 1; i <= pages; i++) {
+            doc.setPage(i);
+            doc.setDrawColor(...RULE);
+            doc.setLineWidth(0.2);
+            doc.line(M, 284, M + W, 284);
+            doc.setFont(undefined, 'normal');
+            doc.setFontSize(8);
+            doc.setTextColor(...MUTED);
+            doc.text(`PARA Admin · Monthly Ride Report · ${monthLabel}`, M, 289);
+            doc.text(`Page ${i} of ${pages}`, M + W, 289, { align: 'right' });
+        }
+
+        doc.save(`PARA-Monthly-Ride-Report-${monthKey(bounds.start)}.pdf`);
         showToast(`Exported ${rows.length} ride(s) to PDF.`, 'success');
     };
 
