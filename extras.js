@@ -674,11 +674,12 @@
         return { ...row, paraShare, todaShare, driverShare, serviceFee: paraShare + todaShare + driverShare };
     }
 
-    // An amount with every decimal that matters (up to 4), never rounded to centavos.
-    function pesoExact(value) {
-        return '₱' + (Number(value) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    // Shown to the centavo but cut, not rounded: ₱19,014.418 reads ₱19,014.41, so the
+    // figures are the exact ones on a calculator with the extra decimals dropped.
+    function pesoCut(value) {
+        const cut = Math.floor((Number(value) || 0) * 100 + 1e-6) / 100;
+        return '₱' + cut.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
-
     function renderLedger() {
         const fees = feeRows.filter((r) => inRange(r.createdAt)).map(exactShares);
         const sum = (list, key) => list.reduce((total, r) => total + (Number(r[key]) || 0), 0);
@@ -687,15 +688,15 @@
         // The shares are percentages of the ride fare (12 / 4 / 4 by default), not of the fee.
         const totalFare = sum(fees, 'fare');
         const pct = (part) => totalFare > 0 ? (part / totalFare * 100).toFixed(1) + '% of fares' : '—';
-        setText('ledgerFares', pesoExact(totalFare));
+        setText('ledgerFares', pesoCut(totalFare));
         setText('ledgerRidesNote', plural(fees.length, 'completed ride'));
         setText('ledgerFeePct', pct(totalFee));
-        setText('ledgerServiceFee', pesoExact(totalFee));
-        setText('ledgerPara', pesoExact(sum(fees, 'paraShare')));
+        setText('ledgerServiceFee', pesoCut(totalFee));
+        setText('ledgerPara', pesoCut(sum(fees, 'paraShare')));
         setText('ledgerParaPct', pct(sum(fees, 'paraShare')));
-        setText('ledgerToda', pesoExact(sum(fees, 'todaShare')));
+        setText('ledgerToda', pesoCut(sum(fees, 'todaShare')));
         setText('ledgerTodaPct', pct(sum(fees, 'todaShare')));
-        setText('ledgerDriver', pesoExact(sum(fees, 'driverShare')));
+        setText('ledgerDriver', pesoCut(sum(fees, 'driverShare')));
         setText('ledgerDriverPct', pct(sum(fees, 'driverShare')));
 
         // PARA owes each TODA its share (paid outside the app for now).
@@ -713,7 +714,7 @@
         if (todaBody) {
             const rows = [...byToda.entries()].sort((a, b) => b[1].todaShare - a[1].todaShare);
             todaBody.innerHTML = rows.length ? rows.map(([name, e]) => `
-                <tr><td><div class="detail-main">${esc(name)}</div></td><td class="num">${e.rides}</td><td class="num">${pesoExact(e.serviceFee)}</td><td class="num">${pesoExact(e.paraShare)}</td><td class="num"><strong>${pesoExact(e.todaShare)}</strong></td></tr>`).join('')
+                <tr><td><div class="detail-main">${esc(name)}</div></td><td class="num">${e.rides}</td><td class="num">${pesoCut(e.serviceFee)}</td><td class="num">${pesoCut(e.paraShare)}</td><td class="num"><strong>${pesoCut(e.todaShare)}</strong></td></tr>`).join('')
                 : emptyRow(5, 'No service-fee rows in this period.');
         }
         const todaFoot = document.getElementById('ledgerTodaFoot');
@@ -721,10 +722,10 @@
             const all = [...byToda.values()];
             const add = (key) => all.reduce((total, e) => total + e[key], 0);
             todaFoot.innerHTML = all.length
-                ? `<tr><td>Total</td><td class="num">${add('rides')}</td><td class="num">${pesoExact(add('serviceFee'))}</td><td class="num">${pesoExact(add('paraShare'))}</td><td class="num">${pesoExact(add('todaShare'))}</td></tr>`
+                ? `<tr><td>Total</td><td class="num">${add('rides')}</td><td class="num">${pesoCut(add('serviceFee'))}</td><td class="num">${pesoCut(add('paraShare'))}</td><td class="num">${pesoCut(add('todaShare'))}</td></tr>`
                 : '';
         }
-        setText('ledgerTodaNote', byToda.size ? `${pesoExact(sum(fees, 'todaShare'))} across ${plural(byToda.size, 'TODA')}` : '');
+        setText('ledgerTodaNote', byToda.size ? `${pesoCut(sum(fees, 'todaShare'))} across ${plural(byToda.size, 'TODA')}` : '');
 
         // What each driver owes right now (the user doc the functions keep up to date).
         const now = Date.now();
