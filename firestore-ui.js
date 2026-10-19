@@ -711,7 +711,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td><div class="pf-name">${driverAvatarHtml(driver)}<div><div class="detail-main">${escapeHtml(driver.name)}</div><div class="detail-sub">Member since ${escapeHtml(driver.memberSince)}</div></div></div></td>
                 <td><div class="detail-main">${escapeHtml(driver.vehicle || '—')}</div><div class="detail-sub">Plate: ${escapeHtml(driver.plate || '—')}${driver.motorcycleModel ? ` · ${escapeHtml(driver.motorcycleModel)}` : ''}</div></td>
                 <td style="white-space:nowrap;"><div class="rating-stars">${escapeHtml(getDriverPerformanceStars(ratingValue))} <span>${escapeHtml(driver.rating === '—' ? '—' : Number(driver.rating).toFixed(1))}</span></div><div class="detail-sub">${escapeHtml(Number(driver.totalRides || 0))} completed ${Number(driver.totalRides || 0) === 1 ? 'ride' : 'rides'} · ${escapeHtml(driver.acceptanceRate || '—')} acceptance</div></td>
-                <td>${renderBadge(isSuspended ? 'suspended' : 'active')}${driverRiskFlag(driver)}${driverLicenseFlag(driver)}${suspensionNote}${driverPresenceLine(driver)}</td>
+                <td>${renderBadge(isSuspended ? 'suspended' : 'active')}${suspensionNote}${driverRiskFlag(driver)}${driverLicenseFlag(driver)}${driverPresenceLine(driver)}</td>
                 <td style="white-space:nowrap;">
                     <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
                         <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-driver" data-id="${escapeHtml(driver.id)}" data-name="${escapeHtml(driver.name)}">Logs</button>
