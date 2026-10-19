@@ -6,7 +6,7 @@
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-    <link rel="stylesheet" href="style.css?v=96">
+    <link rel="stylesheet" href="style.css?v=97">
 </head>
 <body>
 <div class="app-background">
@@ -826,23 +826,6 @@
                 </div>
 
                 <div class="chart-card report-chart-wide">
-                    <h3>Service Fee Breakdown <span style="font-weight:500; color:var(--text-muted); font-size:12px;">- completed rides</span></h3>
-                    <p id="feeBreakdownNote" style="font-size:13px; color:var(--text-muted); margin:-6px 0 14px;">Loading...</p>
-                    <div class="fee-grid">
-                        <div class="fee-item"><div class="fee-value" id="rep-fares">-</div><div class="fee-label">Ride fares</div></div>
-                        <div class="fee-item"><div class="fee-value" id="rep-fee">-</div><div class="fee-label" id="rep-fee-label">Service fee</div></div>
-                        <div class="fee-item"><div class="fee-value" id="rep-para">-</div><div class="fee-label" id="rep-para-label">PARA</div></div>
-                        <div class="fee-item"><div class="fee-value" id="rep-driver">-</div><div class="fee-label" id="rep-driver-label">Drivers</div></div>
-                        <div class="fee-item"><div class="fee-value" id="rep-toda">-</div><div class="fee-label" id="rep-toda-label">TODAs</div></div>
-                    </div>
-                    <h4 style="margin:18px 0 8px;">TODA shares</h4>
-                    <table class="data-table compact-table">
-                        <thead><tr><th>TODA</th><th>Rides</th><th>TODA share</th></tr></thead>
-                        <tbody id="todaShareBody"><tr><td colspan="3" style="color:var(--text-muted);">Loading...</td></tr></tbody>
-                    </table>
-                </div>
-
-                <div class="chart-card report-chart-wide">
                     <h3>Peak Hours Analysis</h3>
                     <p id="peakHourSummary" style="font-size:13px; color:var(--text-muted); margin:-6px 0 12px;">&nbsp;</p>
                     <div style="position:relative; height:300px; width:100%;"><canvas id="peakHoursRidesChart"></canvas></div>
@@ -1245,9 +1228,9 @@
 <script src="firestore-service.js?v=56"></script>
 <script src="prediction.js?v=15"></script>
 <script src="forecast.js?v=20"></script>
-<script src="script.js?v=106"></script>
+<script src="script.js?v=107"></script>
 <script src="google-maps-config.js?v=1"></script>
-<script src="firestore-ui.js?v=109"></script>
+<script src="firestore-ui.js?v=110"></script>
 <script src="forecast-ui.js?v=29"></script>
 <script src="extras.js?v=27"></script>
 </body>

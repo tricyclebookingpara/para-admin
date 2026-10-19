@@ -879,35 +879,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Reports → Service Fee Breakdown for the selected month: completed ride
-    // fares, the service fee on top and its split, as recorded on each
-    // booking (estimated from the current percentages for older bookings),
-    // plus what each TODA is owed — PARA pays the TODA share out by hand.
-    function updateFeeBreakdown(bookings) {
-        const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-        const fee = getServiceFee();
-        const monthLabel = reportsMonthBounds().label;
-        // isRevenueEligible leaves out rides under a TODA that isn't registered here.
-        const registered = registeredTodas();
-        const completed = bookingsInReportsMonth(bookings).filter(isRevenueEligible);
-        const fares = completed.reduce((sum, b) => sum + (Number(b.totalFare) || 0), 0);
-        const totals = sumFees(completed);
-        set('rep-fares', formatCurrency(fares));
-        set('rep-fee', formatCurrency(totals.total));
-        set('rep-para', formatCurrency(totals.para));
-        set('rep-driver', formatCurrency(totals.driver));
-        set('rep-toda', formatCurrency(totals.toda));
-        set('rep-fee-label', `Service fee (${trimPct(fee.totalPct)}%)`);
-        set('rep-para-label', `PARA (${trimPct(fee.paraPct)}%)`);
-        set('rep-driver-label', `Drivers (${trimPct(fee.driverPct)}%)`);
-        set('rep-toda-label', `TODAs (${trimPct(fee.todaPct)}%)`);
-        const estimatedNote = totals.estimatedRides
-            ? ` ${totals.estimatedRides} ride(s) booked before the service fee are estimated at today's percentages.`
-            : '';
-        set('feeBreakdownNote', `${monthLabel} · the service fee recorded on each completed ride, on top of its fare.${estimatedNote}`);
-        renderTodaShares(completed, registered);
-    }
-
     // The TODAs that have a president account on this site, by name ignoring
     // capital letters; null until those accounts have loaded.
     function todaKey(name) {
@@ -927,34 +898,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return registered;
     }
 
-    // TODA share per TODA for the month. Only rides that are paid count (a
-    // GCash ride is paid once the passenger pays), matching the president
-    // app's "TODA share this month" (fee_ledger).
-    function renderTodaShares(completed, registered) {
-        const body = document.getElementById('todaShareBody');
-        if (!body) return;
-        if (!registered) {
-            body.innerHTML = '<tr><td colspan="3" style="color:var(--text-muted);">Loading...</td></tr>';
-            return;
-        }
-        const byToda = new Map();
-        completed.filter((b) => b.paymentStatus === 'paid').forEach((b) => {
-            const name = registered.get(todaKey(b.driverTodaName));
-            const row = byToda.get(name) || { rides: 0, share: 0 };
-            row.rides += 1;
-            row.share += bookingFee(b).toda;
-            byToda.set(name, row);
-        });
-        const rows = [...byToda.entries()].sort((a, b) => b[1].share - a[1].share);
-        body.innerHTML = rows.length
-            ? rows.map(([name, row]) => `<tr><td>${escapeHtml(name)}</td><td>${row.rides}</td><td style="font-weight:600;">${escapeHtml(formatCurrency(row.share))}</td></tr>`).join('')
-            : '<tr><td colspan="3" style="color:var(--text-muted);">No paid rides for a registered TODA this month.</td></tr>';
-    }
-    window.refreshReportsFees = () => updateFeeBreakdown(dashboardBookings);
-
     function updateReportsStats(bookings) {
         updatePaymentComparison(bookings);
-        updateFeeBreakdown(bookings);
 
         // Peak hour of the selected month lives in the Peak Hours Analysis
         // card's subtitle instead of its own stat card.

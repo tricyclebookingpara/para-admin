@@ -1911,7 +1911,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             // The dashboard and reports estimate earnings from the SAVED percentages.
             window.serviceFeeSettings = { paraPct: fare.serviceFeeParaPct, driverPct: fare.serviceFeeDriverPct, todaPct: fare.serviceFeeTodaPct };
             if (typeof window.updateDashboardDateCards === 'function') window.updateDashboardDateCards(window.currentDashboardDateFilter || 'Today');
-            if (typeof window.refreshReportsFees === 'function') window.refreshReportsFees();
             const lastUpdatedEl = document.getElementById('fareLastUpdated');
             if (lastUpdatedEl) {
                 lastUpdatedEl.textContent = fare.updatedAtRaw
