@@ -116,6 +116,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         return String(status || '').replace(/_/g, ' ');
     }
 
+    // Safety and high-severity complaints stand out in the table and the case.
+    function complaintSeverityBadge(severity) {
+        if (severity === 'SAFETY') return ' <span class="status-badge declined" style="margin-left:6px;">SAFETY</span>';
+        if (severity === 'HIGH') return ' <span class="status-badge processing" style="margin-left:6px;">HIGH</span>';
+        return '';
+    }
+
     function complaintBadge(status) {
         return ParaFirestore.normalizeStatus(status) === 'rejected' ? renderBadge('rejected', 'DISMISSED') : renderBadge(status);
     }
@@ -770,29 +777,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderPassengerTable(window.allPassengers || []);
     };
 
-    // Passenger docs don't carry totalRides/cancelledRides (confirmed against
-    // the live schema — nothing writes those fields yet), so compute them
-    // live from the bookings already loaded for the rest of the dashboard
-    // instead of showing a permanent 0. This is a stopgap: the real fix is a
-    // backend Cloud Function maintaining these counters the way driver stats
-    // already are, so this can be removed once that exists.
-    function computePassengerRideStats(passengerId) {
-        const bookings = window.allBookings || window.dashboardBookings || [];
-        let completed = 0;
-        let cancelled = 0;
-        bookings.forEach((booking) => {
-            if (booking.passengerId !== passengerId) return;
-            const status = ParaFirestore.normalizeStatus(booking.status);
-            if (status === 'completed') completed += 1;
-            else if (status === 'cancelled' || status === 'canceled') cancelled += 1;
-        });
-        // Total Rides = every booking attempt (completed + cancelled), so Cancel
-        // Rate is a real, comparable 0-100% figure — not cancellations-per-
-        // completed-ride, which isn't bounded and isn't what "cancel rate" means.
-        const totalRides = completed + cancelled;
-        const cancelRate = totalRides > 0 ? ((cancelled / totalRides) * 100).toFixed(1) + '%' : '0.0%';
-        return { totalRides, cancelled, cancelRate };
-    }
 
     function renderPassengerTable(passengers) {
         refreshPassengerDetails();
@@ -804,7 +788,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const statusFilter = window.passengerMgmtStatusFilter || 'all';
         // Newest sign-up first (those with no sign-up date go last).
         const joined = (p) => (p.memberSinceRaw ? new Date(p.memberSinceRaw).getTime() || 0 : 0);
-        const all = (statusFilter === 'all' ? passengers : passengers.filter((p) => String(p.status).toLowerCase() === statusFilter))
+        const matchesFilter = (p) => statusFilter === 'all'
+            || (statusFilter === 'needs review' ? p.cancelReviewFlag : String(p.status).toLowerCase() === statusFilter);
+        const all = passengers.filter(matchesFilter)
             .filter((p) => matchesListSearch([p.name, p.phone, p.email]))
             .slice()
             .sort((a, b) => joined(b) - joined(a));
@@ -821,8 +807,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const pageItems = all.slice(pageStart, pageStart + PASSENGERS_PAGE_SIZE);
 
         tbody.innerHTML = pageItems.map((passengerRecord) => {
-            const rideStats = computePassengerRideStats(passengerRecord.id);
-            const passenger = { ...passengerRecord, ...rideStats };
+            // totalRides / cancelled / cancelRate are the counters the app's
+            // countRideOutcome function keeps on the passenger's user doc.
+            const passenger = passengerRecord;
             const isSuspended = passenger.status === 'suspended';
             const isFlagged = passenger.status === 'flagged';
             const cancelStyle = parseFloat(passenger.cancelRate) >= 10
@@ -840,6 +827,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const reasonText = passenger.suspensionReason ? ` — ${passenger.suspensionReason}` : '';
                 suspensionNote = `<div class="detail-sub" style="margin-top:4px;">${escapeHtml(untilText + reasonText)}</div>`;
             }
+            const reviewNote = passenger.cancelReviewFlag
+                ? `<div style="margin-top:4px;">${renderBadge('flagged', 'REVIEW: FREQUENT CANCELS')}</div>`
+                : '';
+            const pauseNote = !isSuspended && passenger.bookingBlockedUntil > Date.now()
+                ? `<div class="detail-sub" style="margin-top:4px;">Booking paused until ${escapeHtml(ParaFirestore.formatDateTime(new Date(passenger.bookingBlockedUntil)))}</div>`
+                : '';
 
             return `<tr class="row-clickable" data-passenger-id="${escapeHtml(passenger.id)}" title="View passenger details">
                 <td><div class="detail-main">${escapeHtml(passenger.name)}</div><div class="detail-sub">Member since ${escapeHtml(passenger.memberSince)}</div></td>
@@ -847,7 +840,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td>${escapeHtml(passenger.totalRides)}</td>
                 <td>${escapeHtml(passenger.cancelled)}</td>
                 <td style="${cancelStyle}">${escapeHtml(passenger.cancelRate)}</td>
-                <td>${renderBadge(statusKey)}${suspensionNote}</td>
+                <td>${renderBadge(statusKey)}${suspensionNote}${reviewNote}${pauseNote}</td>
                 <td style="white-space:nowrap;">
                     <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
                         <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-passenger" data-id="${escapeHtml(passenger.id)}" data-name="${escapeHtml(passenger.name)}">Logs</button>
@@ -1118,6 +1111,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         return [when, where].filter(Boolean).join(' · ');
     }
 
+    // Who cancelled, when in the ride, why, and whether it counts against them
+    // (cancelFault, set by the app's countRideOutcome function).
+    function renderCancelBanner(booking) {
+        const who = booking.cancelledBy === 'DRIVER' ? 'the driver' : booking.cancelledBy === 'PASSENGER' ? 'the passenger' : '';
+        if (!who) {
+            return '<div class="vf-dup muted"><strong>Cancelled.</strong> This ride was cancelled before the app recorded who cancelled it.</div>';
+        }
+        if (booking.cancelRequestResponse === 'ACCEPTED') {
+            return `<div class="vf-dup muted"><strong>Cancelled by agreement.</strong> ${escapeHtml(who.charAt(0).toUpperCase() + who.slice(1))} asked to cancel and the other side agreed in the app, so it counts against nobody.</div>`;
+        }
+        const STAGES = { PENDING: 'before a driver accepted', ASSIGNED: 'before a driver accepted', ACCEPTED: 'after the driver accepted', ARRIVED: 'after the driver arrived' };
+        const stage = STAGES[String(booking.cancelledFromStatus).toUpperCase()] ? ' ' + STAGES[String(booking.cancelledFromStatus).toUpperCase()] : '';
+        const counts = booking.cancelFault === 'PASSENGER' ? 'It counts against the passenger.'
+            : booking.cancelFault === 'DRIVER' ? 'It counts against the driver.'
+            : 'It counts against nobody (a free cancel, or the driver was late).';
+        const declined = booking.cancelRequestResponse === 'DECLINED'
+            ? ' They asked the other side to agree first, but it was declined or went unanswered, then cancelled anyway.' : '';
+        const reason = booking.cancelReason ? ` Reason: “${escapeHtml(booking.cancelReason)}”.` : '';
+        const tone = booking.cancelFault ? 'warn' : 'muted';
+        return `<div class="vf-dup ${tone}"><strong>Cancelled by ${escapeHtml(who)}${stage}.</strong> ${counts}${declined}${reason}</div>`;
+    }
+
     function renderTripBanners(booking) {
         const out = [];
         const status = ParaFirestore.normalizeStatus(booking.status);
@@ -1129,6 +1144,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 out.push(`<div class="vf-dup warn"><strong>Ended early.</strong> The driver ended this ride ${escapeHtml(away)} from the destination. Most are harmless (the passenger asked to get off) — look for patterns or a complaint about this ride.</div>`);
             }
         }
+        if (booking.dropoffResponse === 'DISPUTED') {
+            const when = booking.dropoffRespondedAtRaw ? ` (${ParaFirestore.formatDateTime(booking.dropoffRespondedAtRaw)})` : '';
+            out.push(`<div class="vf-dup warn"><strong>Passenger says they were not dropped off where they wanted${escapeHtml(when)}.</strong> Compare the drop-off pin with the destination and check for a complaint about this ride.</div>`);
+        } else if (booking.dropoffResponse === 'CONFIRMED') {
+            out.push('<div class="vf-dup muted"><strong>Passenger confirmed the drop-off.</strong></div>');
+        } else if (status === 'completed') {
+            out.push('<div class="vf-dup muted">The passenger has not answered the drop-off check.</div>');
+        }
+        if (status === 'cancelled') out.push(renderCancelBanner(booking));
         if (status === 'no_show') {
             const away = distanceM(booking.arrivedLatLng, booking.pickupLatLng);
             const at = tripClockTime(booking.arrivedAtRaw);
@@ -1440,11 +1464,46 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (btn) window.openTripModal(btn.dataset.caseTrip);
     });
 
+    // A case opened from a trip, a driver or a passenger window: closing the case
+    // brings that window back instead of leaving the admin with nothing open.
+    let caseOrigin = null; // { id, seen }
+
+    function returnToCaseOrigin() {
+        const origin = caseOrigin;
+        caseOrigin = null;
+        const el = origin && document.getElementById(origin.id);
+        if (!el) return;
+        el.classList.add('active');
+        if (origin.id === 'tripModal') refreshTripModal();
+    }
+
+    function openCaseFrom(originId, complaintId) {
+        const box = document.getElementById('complaintViewModal');
+        const origin = document.getElementById(originId);
+        // Opened from the case itself (its View trip button): the case is already
+        // underneath, so just swap the windows as before.
+        const fromCase = box && box.classList.contains('active');
+        if (origin) origin.classList.remove('active');
+        caseOrigin = fromCase ? null : { id: originId, seen: false };
+        Promise.resolve(window.openComplaintModal(complaintId)).finally(() => {
+            // It never opened (nothing found): don't leave the admin with no window.
+            if (caseOrigin && !caseOrigin.seen && !(box && box.classList.contains('active'))) returnToCaseOrigin();
+        });
+    }
+
+    (function watchCaseClose() {
+        const box = document.getElementById('complaintViewModal');
+        if (!box) return;
+        new MutationObserver(() => {
+            if (!caseOrigin) return;
+            if (box.classList.contains('active')) { caseOrigin.seen = true; return; }
+            if (caseOrigin.seen) returnToCaseOrigin();
+        }).observe(box, { attributes: true, attributeFilter: ['class'] });
+    })();
+
     document.getElementById('tripModal')?.addEventListener('click', (e) => {
         const caseBtn = e.target.closest('[data-trip-case]');
-        if (!caseBtn) return;
-        closeModal('tripModal');
-        window.openComplaintModal(caseBtn.dataset.tripCase);
+        if (caseBtn) openCaseFrom('tripModal', caseBtn.dataset.tripCase);
     });
 
     window.renderRecentActivity = function(bookings) {
@@ -1596,7 +1655,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const sortedComplaints = [...(complaints || [])].sort((a, b) => {
             const timeA = a.createdAtRaw && a.createdAtRaw.getTime ? a.createdAtRaw.getTime() : (a.createdAt instanceof Date ? a.createdAt.getTime() : 0);
             const timeB = b.createdAtRaw && b.createdAtRaw.getTime ? b.createdAtRaw.getTime() : (b.createdAt instanceof Date ? b.createdAt.getTime() : 0);
-            return (isOpen(b) - isOpen(a)) || timeB - timeA;
+            // Safety complaints first among the open ones.
+            const urgent = (c) => (isOpen(c) && c.severity === 'SAFETY' ? 1 : 0);
+            return (isOpen(b) - isOpen(a)) || (urgent(b) - urgent(a)) || timeB - timeA;
         });
 
         const paginationEl = document.getElementById('complaintPagination');
@@ -1616,7 +1677,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             <tr>
                 <td><div class="book-id">${escapeHtml(complaint.ref)}</div><div class="book-time">Reporter: ${escapeHtml(complaint.reporter)}</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.reported)} ${riskChipHtml(riskOf(complaint.driverId))}</div><div class="detail-sub">Trip: ${escapeHtml(complaint.tripRef)}</div></td>
-                <td><div class="detail-main">${escapeHtml(complaint.issue)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
+                <td><div class="detail-main">${escapeHtml(complaint.issue)}${complaintSeverityBadge(complaint.severity)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
                 <td>${complaintBadge(complaint.status)}${openRecommendationLabel(complaint)}${wasSuspendedByAdmin(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#EE5D50; font-weight:600;">Driver suspended</div>' : ''}${wasWarnedByAdmin(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#E08A00; font-weight:600;">Warning issued</div>' : ''}</td>
                 <td><button class="action-btn" data-action="view-complaint" data-id="${escapeHtml(complaint.id)}">View Case</button></td>
             </tr>
@@ -2365,6 +2426,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         return `<div class="dd-empty">${escapeHtml(message)}</div>`;
     }
 
+    // Rides the driver cancelled out of the ones they accepted (the app's own
+    // counters). Under 10 accepted rides is too few to judge, so it says N/A.
+    function driverCancelSummary(driver) {
+        const accepted = Number(driver.acceptedRides) || 0;
+        const cancelled = Number(driver.driverCancelledRides) || 0;
+        if (accepted < 10) return `N/A (${accepted} accepted so far)`;
+        return `${((cancelled / accepted) * 100).toFixed(1)}% (${cancelled} of ${accepted})`;
+    }
+
     // Trips this driver ended more than 300 m from the destination in the last
     // 30 days — repeated ones are worth a look (and a TODA recommendation).
     function earlyDropoffSummary(driver) {
@@ -2421,6 +2491,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ${ddRow('Verification', renderBadge(driver.verificationStatus), { html: true })}
                     ${ddRow('Member since', driver.memberSince)}
                     ${ddRow('Ended early (30 days)', earlyDropoffSummary(driver))}
+                    ${ddRow('Cancelled after accepting', driverCancelSummary(driver))}
                 </div>
                 <div class="dd-card">
                     <div class="dd-card-title">Vehicle</div>
@@ -2524,8 +2595,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             + (vehicle ? `<span>${escapeHtml(vehicle)}</span>` : '');
         document.getElementById('dd-bookings-count').textContent = `(${bookingsForDriver(ddDriver).length})`;
         document.getElementById('dd-complaints-count').textContent = `(${complaintsForDriver(ddDriver).length})`;
+        const ratingCount = typeof window.driverRatingCount === 'function' ? window.driverRatingCount(ddDriver.id) : 0;
+        document.getElementById('dd-ratings-count').textContent = `(${ratingCount})`;
         body.innerHTML = ddTab === 'bookings' ? ddBookingsHtml(ddDriver)
             : ddTab === 'complaints' ? ddComplaintsHtml(ddDriver)
+            : ddTab === 'ratings' ? (typeof window.driverRatingsHtml === 'function' ? window.driverRatingsHtml(ddDriver.id) : ddEmpty('Ratings are not available.'))
             : ddInfoHtml(ddDriver);
     }
 
@@ -2539,6 +2613,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         ddDriver = fresh;
         renderDriverDetails();
     }
+
+    // New ratings or names arriving (extras.js) redraw the tab if it is open.
+    document.addEventListener('para:ratings-updated', () => {
+        if (ddTab === 'ratings') refreshDriverDetails();
+    });
 
     window.openDriverDetailsModal = function(driverId) {
         const driver = (window.driverManagementDrivers || []).find((d) => d.id === driverId);
@@ -2580,10 +2659,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
             const caseBtn = e.target.closest('[data-dd-case]');
-            if (caseBtn) {
-                modal.classList.remove('active');
-                window.openComplaintModal(caseBtn.dataset.ddCase);
-            }
+            if (caseBtn) openCaseFrom('driverDetailsModal', caseBtn.dataset.ddCase);
         });
     })();
 
@@ -2612,7 +2688,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function pdInfoHtml(passenger) {
-        const stats = computePassengerRideStats(passenger.id);
+        const stats = passenger;
         const bookings = bookingsForPassenger(passenger);
         const completed = bookings.filter((b) => ParaFirestore.normalizeStatus(b.status) === 'completed');
         const spent = completed.reduce((sum, b) => sum + (Number(b.totalFare) || 0), 0);
@@ -2622,8 +2698,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             const until = passenger.suspendedUntilRaw ? `until ${ParaFirestore.formatDateTime(passenger.suspendedUntilRaw)}` : 'indefinitely';
             suspension = `<div class="dd-notice"><strong>Suspended ${escapeHtml(until)}.</strong>${passenger.suspensionReason ? ` ${escapeHtml(passenger.suspensionReason)}` : ''}</div>`;
         }
+        let cooldown = '';
+        if (passenger.cancelReviewFlag) {
+            cooldown += `<div class="dd-notice warn"><strong>Review: frequent cancels.</strong> Booking was paused ${escapeHtml(passenger.cooldownCount30d)} times in the last 30 days for late cancellations or missed pickups. Suspend the passenger if needed, or clear the flag once reviewed. <button class="action-btn" data-pd-action="clear-review" style="margin-left:8px;">Clear flag</button></div>`;
+        }
+        if (!isSuspended && passenger.bookingBlockedUntil > Date.now()) {
+            cooldown += `<div class="dd-notice warn"><strong>Booking paused until ${escapeHtml(ParaFirestore.formatDateTime(new Date(passenger.bookingBlockedUntil)))}.</strong> Set automatically after repeated late cancellations or missed pickups. <button class="action-btn" data-pd-action="lift-pause" style="margin-left:8px;">Lift pause</button></div>`;
+        }
         return `
             ${suspension}
+            ${cooldown}
             <div class="dd-stats">
                 ${ddStat(stats.totalRides, 'Total rides')}
                 ${ddStat(stats.cancelled, 'Cancelled')}
@@ -2644,6 +2728,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ${ddRow('Total spent', `₱${spent.toFixed(2)}`)}
                     ${ddRow('Last completed ride', completed.length ? completed[0].dateLabel : '')}
                     ${ddRow('Complaints filed', complaintsForPassenger(passenger).length)}
+                    ${ddRow('Reports by drivers', passenger.reportCount)}
                 </div>
             </div>`;
     }
@@ -2773,8 +2858,33 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             const caseBtn = e.target.closest('[data-dd-case]');
             if (caseBtn) {
-                modal.classList.remove('active');
-                window.openComplaintModal(caseBtn.dataset.ddCase);
+                openCaseFrom('passengerDetailsModal', caseBtn.dataset.ddCase);
+                return;
+            }
+            const actionBtn = e.target.closest('[data-pd-action]');
+            if (actionBtn && pdPassenger) {
+                const passenger = pdPassenger;
+                const clearing = actionBtn.dataset.pdAction === 'clear-review';
+                showConfirmModal(
+                    clearing ? 'Clear the review flag?' : 'Lift the booking pause?',
+                    clearing
+                        ? `${passenger.name || 'The passenger'} is marked as reviewed. The app flags them again after 3 more booking pauses within 30 days.`
+                        : `${passenger.name || 'The passenger'} can book again right away.`,
+                    clearing ? 'Clear Flag' : 'Lift Pause',
+                    '#1A73E8',
+                    async () => {
+                        try {
+                            if (clearing) await ParaFirestore.clearCancelReviewFlag(passenger.id);
+                            else await ParaFirestore.liftBookingPause(passenger.id);
+                            ParaFirestore.logPassengerAction(passenger.id, passenger.name, clearing ? 'Cancel Review Cleared' : 'Booking Pause Lifted', '')
+                                .catch((error) => console.error('Failed to log passenger action:', error));
+                            window.showToast(clearing ? 'Review flag cleared.' : 'Booking pause lifted.', 'success');
+                        } catch (error) {
+                            window.showToast('Could not update the passenger.', 'error');
+                            console.error(error);
+                        }
+                    }
+                );
             }
         });
     })();
@@ -2921,7 +3031,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ? `<span>Trip ${escapeHtml(trip.ref)}${trip.endedEarly ? ' · <strong style="color:#FF9E2A;">ended early</strong>' : ''}${ParaFirestore.normalizeStatus(trip.status) === 'no_show' ? ' · <strong style="color:#EE5D50;">no-show</strong>' : ''}</span><button class="action-btn" data-case-trip="${escapeHtml(trip.id)}" style="background:var(--bg-light);color:var(--text-main);">View trip</button>`
                     : '';
             }
-            document.getElementById('c-issue').value = data.issue || '';
+            document.getElementById('c-issue').value = (data.issue || '') + (data.severity && data.severity !== 'NORMAL' ? ` (${data.severity} severity)` : '');
             document.getElementById('c-desc').value = data.description || '';
 
             const notesEl = document.getElementById('complaint-admin-notes');
@@ -3954,7 +4064,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     const SEARCH_REDRAW = {
         'view-driver-management': () => renderDriverManagementTable(window.driverManagementDrivers || []),
         'view-passenger-management': () => { passengerTablePage = 1; renderPassengerTable(window.allPassengers || []); },
-        'view-complaints': () => { complaintTablePage = 1; renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter)); },
+        // The Complaints page has two tabs; the box searches whichever one is open.
+        'view-complaints': () => {
+            if (document.getElementById('appealsPanel')?.style.display !== 'none') {
+                if (typeof window.setAppealSearch === 'function') window.setAppealSearch(listSearchTerm);
+                return;
+            }
+            if (document.getElementById('reportsPanel')?.style.display !== 'none') {
+                if (typeof window.setReportSearch === 'function') window.setReportSearch(listSearchTerm);
+                return;
+            }
+            complaintTablePage = 1;
+            renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
+        },
         'view-bookings': () => { bookingTablePage = 1; renderBookingTable(window.allBookings || []); }
     };
 
@@ -3963,6 +4085,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!listSearchTerm) return;
         listSearchTerm = '';
         Object.values(SEARCH_REDRAW).forEach((redraw) => redraw());
+        if (typeof window.setAppealSearch === 'function') window.setAppealSearch('');
+        if (typeof window.setReportSearch === 'function') window.setReportSearch('');
     };
 
     if (globalSearchInput) {

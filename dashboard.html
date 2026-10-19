@@ -6,7 +6,7 @@
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-    <link rel="stylesheet" href="style.css?v=80">
+    <link rel="stylesheet" href="style.css?v=96">
 </head>
 <body>
 <div class="app-background">
@@ -49,8 +49,17 @@
                         <span>Complaints</span>
                         <span class="nav-badge">3</span>
                     </a>
+
+                    <a href="#flood-hazards" class="nav-link" data-view="flood-hazards">
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+                        <span>Flood Hazards</span>
+                    </a>
+                    <a href="#ledgers" class="nav-link" data-view="ledgers">
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
+                        <span>Fees &amp; Commission</span>
+                    </a>
                     <a href="#pricing" class="nav-link" data-view="pricing">
-                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 21V3h5.5a4.5 4.5 0 0 1 0 9H7"/><line x1="4" y1="7" x2="17" y2="7"/><line x1="4" y1="11" x2="17" y2="11"/></svg>
                         <span>Fare Management</span>
                     </a>
                     <a href="#bookings" class="nav-link" data-view="bookings">
@@ -479,6 +488,7 @@
                         <button class="dd-tab active" data-tab="info">Information</button>
                         <button class="dd-tab" data-tab="bookings">Bookings <span id="dd-bookings-count"></span></button>
                         <button class="dd-tab" data-tab="complaints">Complaints <span id="dd-complaints-count"></span></button>
+                        <button class="dd-tab" data-tab="ratings">Ratings <span id="dd-ratings-count"></span></button>
                     </div>
                     <div class="modal-body dd-body" id="dd-body"></div>
                 </div>
@@ -516,6 +526,7 @@
                                     <div class="dropdown-item" onclick="setPassengerManagementStatus('All')"><span class="item-text">All</span></div>
                                     <div class="dropdown-item" onclick="setPassengerManagementStatus('Active')"><span class="item-text">Active</span></div>
                                     <div class="dropdown-item" onclick="setPassengerManagementStatus('Suspended')"><span class="item-text">Suspended</span></div>
+                                    <div class="dropdown-item" onclick="setPassengerManagementStatus('Needs Review')"><span class="item-text">Needs Review</span></div>
                             </div>
                             </div>
                         </div>
@@ -536,7 +547,7 @@
             <div class="view-section" id="view-complaints">
                 <div class="page-header">
                     <h1>Complaints Management</h1>
-                    <div class="header-controls">
+                    <div class="header-controls" id="complaintHeaderControls">
                         <div class="dropdown-wrapper">
                             <button class="filter-btn" id="complaintStatusBtn">Status <span class="filter-val">All</span> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
                             <div class="dropdown-menu" id="complaintStatusDropdown">
@@ -552,6 +563,13 @@
                     </div>
                 </div>
 
+                <div class="vf-tabs" id="complaintTabs">
+                    <button class="vf-tab active" data-tab="cases">Complaints</button>
+                    <button class="vf-tab" data-tab="appeals">Appeals <span class="vf-count" id="appealsCount">0</span></button>
+                    <button class="vf-tab" data-tab="reports">Passenger Reports <span class="vf-count" id="reportsCount">0</span></button>
+                </div>
+
+                <div id="complaintsPanel">
                 <div class="stats-bar">
                     <div class="stats-bar-item">
                         <div class="sbi-icon" style="background:rgba(255,158,42,0.1);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF9E2A" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
@@ -576,6 +594,33 @@
                     </table>
                 </div>
                 <div id="complaintPagination" style="display:flex; align-items:center; justify-content:space-between; margin-top:14px; font-size:13px; color:var(--text-muted);"></div>
+                </div>
+
+                <div id="appealsPanel" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:14px;">
+                        <div class="detail-sub">Drivers can appeal a warning or an approved suspension. Drivers, passengers and TODA presidents can appeal an account suspension. Granting an appeal reverses the decision automatically.</div>
+                        <select class="form-input" style="width:auto; min-width:150px; flex-shrink:0;" onchange="setAppealFilter(this.value)"><option value="PENDING">Pending</option><option value="UPHELD">Denied</option><option value="OVERTURNED">Granted</option><option value="ALL">All</option></select>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead><tr><th>Appellant</th><th>Decision appealed</th><th>Statement</th><th>Filed</th><th>Status</th><th>Actions</th></tr></thead>
+                            <tbody id="appealsBody"><tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="reportsPanel" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:14px;">
+                        <div class="detail-sub">Reports drivers filed about passengers after a completed ride. Passengers cannot see these. Safety reports are listed first.</div>
+                        <select class="form-input" style="width:auto; min-width:150px; flex-shrink:0;" onchange="setReportFilter(this.value)"><option value="PENDING">Pending</option><option value="RESOLVED">Resolved</option><option value="REJECTED">Dismissed</option><option value="ALL">All</option></select>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead><tr><th>Passenger</th><th>Report</th><th>Reported by</th><th>Filed</th><th>Status</th><th>Actions</th></tr></thead>
+                            <tbody id="passengerReportsBody"><tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
 
             <!-- ══ COMPLAINT MODAL ════════════════════════════════════ -->
@@ -1038,6 +1083,152 @@
                     </div>
                 </div>
             </div>
+            <!-- ══ FLOOD HAZARDS ═══════════════════════════════════════ -->
+            <div class="view-section" id="view-flood-hazards">
+                <div class="page-header"><h1>Flood Hazards</h1></div>
+                <div class="stats-bar">
+                    <div class="stats-bar-item"><div><div class="sbi-label">Flood-prone areas</div><div class="sbi-value" id="floodZoneCount">0</div></div></div>
+                    <div class="stats-bar-item"><div><div class="sbi-label">Active road reports (3 h)</div><div class="sbi-value" id="floodActiveCount">0</div></div></div>
+                    <div class="stats-bar-item"><div><div class="sbi-label">Latest reports loaded</div><div class="sbi-value" id="floodReportCount">0</div></div></div>
+                </div>
+                <div class="vf-block-title" style="margin:6px 0 10px;">Flood-prone areas (drawn by TODA presidents)</div>
+                <div class="table-container">
+                    <table class="data-table compact-table">
+                        <thead><tr><th>Area</th><th>TODA</th><th>Outline</th><th>First corner</th><th>Updated</th><th>Actions</th></tr></thead>
+                        <tbody id="floodZonesBody"><tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr></tbody>
+                    </table>
+                </div>
+                <div class="vf-block-title" style="margin:24px 0 10px;">Flooded-road reports (drivers and passengers)</div>
+                <div class="detail-sub" style="margin-bottom:10px;">The app only uses a report for 3 hours. Delete one that is false so routes stop avoiding that road; older ones are kept here as a record.</div>
+                <div class="table-container">
+                    <table class="data-table compact-table">
+                        <thead><tr><th>Depth</th><th>Location</th><th>Reported by</th><th>Sent</th><th>State</th><th>Actions</th></tr></thead>
+                        <tbody id="floodReportsBody"><tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ══ FEES & COMMISSION ═══════════════════════════════════ -->
+            <div class="view-section" id="view-ledgers">
+                <div class="page-header">
+                    <div>
+                        <h1>Fees &amp; Commission</h1>
+                        <div class="led-sub">Service fees on paid rides, how they are split, and the commission drivers owe on cash rides.</div>
+                    </div>
+                    <div class="led-range">
+                        <input type="date" id="ledgerFrom" onchange="applyLedgerRange()" aria-label="From date">
+                        <span>to</span>
+                        <input type="date" id="ledgerTo" onchange="applyLedgerRange()" aria-label="To date">
+                        <button class="action-btn" onclick="clearLedgerRange()">All time</button>
+                    </div>
+                </div>
+
+                <div class="led-kpis">
+                    <div class="led-kpi" style="--accent:#7551FF;">
+                        <div class="led-kpi-label"><i></i>Total ride fares</div>
+                        <div class="led-kpi-value" id="ledgerFares">₱0.00</div>
+                        <div class="led-kpi-sub" id="ledgerRidesNote">0 completed rides</div>
+                    </div>                    <div class="led-kpi" style="--accent:#1B254B;">
+                        <div class="led-kpi-label"><i></i>Service fees</div>
+                        <div class="led-kpi-value" id="ledgerServiceFee">₱0.00</div>
+                        <div class="led-kpi-sub" id="ledgerFeePct">—</div>
+                    </div>
+                    <div class="led-kpi" style="--accent:#1A73E8;">
+                        <div class="led-kpi-label"><i></i>PARA share</div>
+                        <div class="led-kpi-value" id="ledgerPara">₱0.00</div>
+                        <div class="led-kpi-sub" id="ledgerParaPct">—</div>
+                    </div>
+                    <div class="led-kpi" style="--accent:#FF9E2A;">
+                        <div class="led-kpi-label"><i></i>TODA share</div>
+                        <div class="led-kpi-value" id="ledgerToda">₱0.00</div>
+                        <div class="led-kpi-sub" id="ledgerTodaPct">—</div>
+                    </div>
+                    <div class="led-kpi" style="--accent:#05CD99;">
+                        <div class="led-kpi-label"><i></i>Driver share</div>
+                        <div class="led-kpi-value" id="ledgerDriver">₱0.00</div>
+                        <div class="led-kpi-sub" id="ledgerDriverPct">—</div>
+                    </div>
+
+                </div>
+
+                <div class="led-card">
+                    <div class="led-card-head">
+                        <div>
+                            <div class="led-card-title">TODA share to pay out</div>
+                            <div class="led-card-desc">What PARA owes each TODA for rides in this period.</div>
+                        </div>
+                        <div class="led-card-total" id="ledgerTodaNote"></div>
+                    </div>
+                    <div class="led-table"><table class="data-table compact-table">
+                        <thead><tr><th>TODA</th><th class="num">Rides</th><th class="num">Service fees</th><th class="num">PARA share</th><th class="num">TODA share</th></tr></thead>
+                        <tbody id="ledgerTodaBody"><tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr></tbody>
+                        <tfoot id="ledgerTodaFoot"></tfoot>
+                    </table></div>
+                </div>
+                <div class="led-grid">
+                    <div class="led-card">
+                        <div class="led-card-head">
+                            <div>
+                                <div class="led-card-title">Commission owed by drivers</div>
+                                <div class="led-card-desc" id="ledgerOwedDesc">Commission from cash rides.</div>
+                            </div>
+                            <div class="led-card-total" id="ledgerOwedNote"></div>
+                        </div>
+                        <div class="led-seg">
+                            <button class="active" data-owed-filter="ALL" onclick="setOwedFilter('ALL')">All <span id="ledgerOwedAllTab">0</span></button>
+                            <button data-owed-filter="PENDING" onclick="setOwedFilter('PENDING')">Pending <span id="ledgerOwedPendingTab">0</span></button>
+                            <button data-owed-filter="OVERDUE" onclick="setOwedFilter('OVERDUE')">Overdue <span id="ledgerOwedOverdueTab">0</span></button>
+                        </div>
+                        <div class="led-table"><table class="data-table compact-table">
+                            <thead><tr><th>Driver</th><th class="num">Owes now</th><th>Due by</th><th>Status</th></tr></thead>
+                            <tbody id="ledgerOwedBody"><tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr></tbody>
+                        </table></div>
+                        <div class="led-pager" id="ledgerOwedPager" style="display:none;"></div>
+                    </div>
+                    <div class="led-card">
+                        <div class="led-card-head">
+                            <div>
+                                <div class="led-card-title">GCash commission payments</div>
+                                <div class="led-card-desc">Payments drivers make through GCash to clear their balance.</div>
+                            </div>
+                            <div class="led-card-total" id="ledgerPaymentsNote"></div>
+                        </div>
+                        <div class="led-seg">
+                            <button class="active" data-gcash-filter="ALL" onclick="setGcashFilter('ALL')">All <span id="ledgerGcashAllTab">0</span></button>
+                            <button data-gcash-filter="PAID" onclick="setGcashFilter('PAID')">Paid <span id="ledgerGcashPaidTab">0</span></button>
+                            <button data-gcash-filter="PENDING" onclick="setGcashFilter('PENDING')">Pending <span id="ledgerGcashPendingTab">0</span></button>
+                            <button data-gcash-filter="OTHER" onclick="setGcashFilter('OTHER')">Not paid <span id="ledgerGcashOtherTab">0</span></button>
+                        </div>
+                        <div class="led-table"><table class="data-table compact-table">
+                            <thead><tr><th>Driver</th><th class="num">Amount</th><th>Started</th><th>Status</th></tr></thead>
+                            <tbody id="ledgerPaymentsBody"><tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr></tbody>
+                        </table></div>
+                        <div class="led-pager" id="ledgerPaymentsPager" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <div class="led-card" style="margin-top:20px;">
+                    <div class="led-card-head" style="border-bottom:none;">
+                        <div>
+                            <div class="led-card-title">Settlement period</div>
+                            <div class="led-card-desc">How many days a driver has to pay their cash-ride commission by GCash. It counts from their first unpaid cash ride. Once it passes, they are taken offline and can't go online until they pay. Checked every day at midnight.</div>
+                        </div>
+                        <div class="led-setting">
+                            <input type="number" id="settlementDaysInput" class="form-input" min="1" max="30" step="1" value="1" onkeydown="if(event.key==='Enter')saveSettlementDays()">
+                            <span>day(s)</span>
+                            <button class="primary-btn" onclick="saveSettlementDays()">Save</button>
+                        </div>
+                    </div>
+                </div>            </div>
+
+            <!-- Shared detail modal for the views above -->
+            <div class="modal-overlay" id="xModal">
+                <div class="modal-content" style="max-width:640px;">
+                    <div class="modal-header"><h2 id="xModalTitle">Details</h2><button class="close-btn" onclick="closeXModal()" aria-label="Close">&times;</button></div>
+                    <div class="modal-body" id="xModalBody"></div>
+                    <div class="modal-footer" id="xModalFooter"></div>
+                </div>
+            </div>
         </section>
     </main>
 </div>
@@ -1051,12 +1242,13 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="firebase-init.js"></script>
-<script src="firestore-service.js?v=54"></script>
-<script src="prediction.js?v=14"></script>
+<script src="firestore-service.js?v=56"></script>
+<script src="prediction.js?v=15"></script>
 <script src="forecast.js?v=20"></script>
-<script src="script.js?v=102"></script>
+<script src="script.js?v=106"></script>
 <script src="google-maps-config.js?v=1"></script>
-<script src="firestore-ui.js?v=102"></script>
+<script src="firestore-ui.js?v=109"></script>
 <script src="forecast-ui.js?v=29"></script>
+<script src="extras.js?v=27"></script>
 </body>
 </html>

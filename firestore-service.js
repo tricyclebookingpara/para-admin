@@ -194,6 +194,11 @@ const ParaFirestore = (() => {
             // position ping — a driver whose app was killed keeps their last
             // status, so presence is judged by how fresh that ping is.
             driverStatus: String(data.driverStatus || 'OFFLINE').toUpperCase(),
+            // Kept by the app's countRideOutcome function: rides the driver accepted
+            // and the ones they cancelled themselves (not counting cancels by
+            // agreement or ones the passenger asked for). Start at 0 from that release.
+            acceptedRides: Number(data.driverAcceptedRides) || 0,
+            driverCancelledRides: Number(data.driverCancelledRides) || 0,
             lastLocationAt: Number(data.currentLatLngUpdatedAt) || 0,
             rating: Number.isFinite(rawRating) && rawRating > 0 ? rawRating.toFixed(1) : '—',
             memberSince: formatDateTime(getField(data, 'createdAt', 'created_at', 'memberSince')),
@@ -290,7 +295,18 @@ const ParaFirestore = (() => {
             // admin can take one back (reverseNoShow) and the booking is kept in
             // reversedNoShows so the same one can't be reversed twice.
             noShowCount: Number(data.noShowCount) || 0,
-            reversedNoShows: Array.isArray(data.reversedNoShows) ? data.reversedNoShows : []
+            // Reports drivers filed about this passenger (kept by a Cloud Function).
+            reportCount: Number(data.reportCount) || 0,
+            reversedNoShows: Array.isArray(data.reversedNoShows) ? data.reversedNoShows : [],
+            // Booking cooldown, kept by the app's countRideOutcome function: 3
+            // late cancels / no-shows in 24 h pause booking (30 min, 2 h, 24 h).
+            // 3 pauses in 30 days set cancelReviewFlag for the admin to review.
+            bookingBlockedUntil: Number(data.bookingBlockedUntil) || 0,
+            cooldownCount30d: Array.isArray(data.cooldownAts)
+                ? data.cooldownAts.filter((t) => Date.now() - Number(t) < 30 * 24 * 60 * 60 * 1000).length
+                : 0,
+            cancelReviewFlag: data.cancelReviewFlag === true,
+            cancelReviewFlaggedAt: Number(data.cancelReviewFlaggedAt) || 0
         };
     }
 
@@ -348,6 +364,15 @@ const ParaFirestore = (() => {
             // Set by the app when a shared-ride join request times out / is
             // turned away — those end as DECLINED but aren't a driver declining.
             joinRequestExpired: data.joinRequestExpired === true,
+            // Who cancelled ('PASSENGER' / 'DRIVER'; blank on bookings cancelled before
+            // the app recorded it), from what status, why, and who it counts against
+            // ('cancelFault', written by the countRideOutcome function; blank = nobody).
+            // cancelRequest.response is 'ACCEPTED' when both sides agreed to cancel.
+            cancelledBy: String(data.cancelledBy || '').toUpperCase(),
+            cancelledFromStatus: data.cancelledFromStatus || '',
+            cancelReason: data.cancelReason || '',
+            cancelFault: String(data.cancelFault || '').toUpperCase(),
+            cancelRequestResponse: data.cancelRequest ? String(data.cancelRequest.response || '').toUpperCase() : '',
             driverTodaName: getField(data, 'driverTodaName'),
             // Where the driver was when they tapped Arrived / Start ride / End
             // ride, and the pins the passenger set. GPS can't be verified by
@@ -360,7 +385,11 @@ const ParaFirestore = (() => {
             // The driver ended the ride more than 300 m from the destination.
             endedEarly: data.endedEarly === true,
             earlyEndReviewedAtRaw: toDate(data.earlyEndReviewedAt),
-            earlyEndReviewNote: data.earlyEndReviewNote || ''
+            earlyEndReviewNote: data.earlyEndReviewNote || '',
+            // The passenger's Yes / No after the ride: 'CONFIRMED', 'DISPUTED', or
+            // '' when they never answered.
+            dropoffResponse: (data.dropoffConfirmation && data.dropoffConfirmation.response) || '',
+            dropoffRespondedAtRaw: data.dropoffConfirmation ? toDate(data.dropoffConfirmation.at) : null
         };
     }
 
@@ -421,6 +450,20 @@ const ParaFirestore = (() => {
         };
     }
 
+    // How serious a complaint is. Newer complaints store it; older ones are
+    // worked out from the type, with the same table the app uses
+    // (ComplaintCategory.severityOf).
+    const COMPLAINT_SEVERITY_BY_TYPE = {
+        'reckless driving': 'SAFETY', 'unsafe driving': 'SAFETY', 'harassment or threat': 'SAFETY',
+        'overcharging': 'HIGH', 'took a longer route': 'HIGH'
+    };
+
+    function complaintSeverity(data, complaintType) {
+        const stored = String(data.severity || '').toUpperCase();
+        if (['SAFETY', 'HIGH', 'NORMAL'].includes(stored)) return stored;
+        return COMPLAINT_SEVERITY_BY_TYPE[String(complaintType || '').trim().toLowerCase()] || 'NORMAL';
+    }
+
     function mapComplaintDoc(doc) {
         const data = doc.data() || {};
         const status = normalizeStatus(getField(data, 'status', 'complaintStatus', 'state')) || 'pending';
@@ -459,6 +502,8 @@ const ParaFirestore = (() => {
             issue: complaintType,
             description: getField(data, 'description', 'details', 'desc', 'message') || '—',
             complaintType,
+            severity: complaintSeverity(data, complaintType),
+            todaName: data.todaName || '',
             adminNotes: getField(data, 'resolutionNote', 'adminNotes', 'admin_notes', 'notes') || '',
             driverId,
             passengerId,
@@ -1959,6 +2004,17 @@ const ParaFirestore = (() => {
         });
     }
 
+    // Frequent-cancel review (see mapPassengerDoc): the admin reviewed the
+    // passenger and clears the flag; the app re-flags after 3 more pauses.
+    async function clearCancelReviewFlag(passengerId) {
+        await db.collection(COLLECTIONS.users).doc(passengerId).update({ cancelReviewFlag: false });
+    }
+
+    // Ends a booking cooldown early.
+    async function liftBookingPause(passengerId) {
+        await db.collection(COLLECTIONS.users).doc(passengerId).update({ bookingBlockedUntil: 0 });
+    }
+
     async function getDriverById(driverId) {
         const doc = await db.collection(COLLECTIONS.users).doc(driverId).get();
         if (!doc.exists || !isDriverRole(doc.data())) return null;
@@ -1987,6 +2043,8 @@ const ParaFirestore = (() => {
         rejectProfilePhoto,
         markEarlyEndReviewed,
         reverseNoShow,
+        clearCancelReviewFlag,
+        liftBookingPause,
         updateDriverAccountStatus,
         requestDriverInfo,
         logDriverAction,

@@ -91,7 +91,49 @@ document.addEventListener('DOMContentLoaded', () => {
         'bookings': 'Search bookings by ID, driver, passenger or place…'
     };
 
+    // The Complaints page has three tabs: the complaints themselves, appeals against
+    // warnings and suspensions, and reports drivers filed about passengers.
+    let complaintTab = 'cases';
+    const COMPLAINT_PANELS = { cases: 'complaintsPanel', appeals: 'appealsPanel', reports: 'reportsPanel' };
+    const COMPLAINT_TAB_PLACEHOLDERS = {
+        cases: 'Search complaints by case, driver, passenger or issue…',
+        appeals: 'Search appeals by name, TODA, statement or status…',
+        reports: 'Search passenger reports by passenger, driver, category or status…'
+    };
+
+    function applyComplaintTab() {
+        document.querySelectorAll('#complaintTabs .vf-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === complaintTab));
+        const cases = complaintTab === 'cases';
+        Object.entries(COMPLAINT_PANELS).forEach(([tab, id]) => {
+            const panel = document.getElementById(id);
+            if (panel) panel.style.display = tab === complaintTab ? '' : 'none';
+        });
+        const controls = document.getElementById('complaintHeaderControls');
+        // Hidden but still taking up its space, so the title does not move between tabs.
+        if (controls) controls.style.visibility = cases ? '' : 'hidden';
+        // The search box stays on both tabs; its hint says what it searches.
+        const box = document.getElementById('globalSearchInput');
+        if (box && document.getElementById('view-complaints')?.classList.contains('active')) {
+            box.placeholder = COMPLAINT_TAB_PLACEHOLDERS[complaintTab];
+        }
+    }
+
+    document.getElementById('complaintTabs')?.addEventListener('click', (e) => {
+        const tab = e.target.closest('.vf-tab');
+        if (!tab) return;
+        complaintTab = tab.dataset.tab;
+        const box = document.getElementById('globalSearchInput');
+        if (box) box.value = '';
+        if (typeof window.resetListSearch === 'function') window.resetListSearch();
+        applyComplaintTab();
+    });
+
     function switchView(viewId) {
+        // #appeals and #passenger-reports (old links) open those tabs of the Complaints page.
+        if (viewId === 'appeals' || viewId === 'passenger-reports') {
+            complaintTab = viewId === 'appeals' ? 'appeals' : 'reports';
+            viewId = 'complaints';
+        }
         navLinks.forEach(link => link.classList.toggle('active', link.dataset.view === viewId));
         views.forEach(view => view.classList.toggle('active', view.id === 'view-' + viewId));
         const search = document.getElementById('topbarSearch');
@@ -128,6 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (parentToggle) parentToggle.classList.toggle('active', isChildActive);
             if (isChildActive) group.classList.add('expanded');
         });
+        applyComplaintTab();
     }
 
     document.body.addEventListener('click', (e) => {
@@ -147,7 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const initialHash = window.location.hash.replace('#', '');
-    if (initialHash && document.getElementById('view-' + initialHash)) {
+    if (initialHash && (initialHash === 'appeals' || initialHash === 'passenger-reports' || document.getElementById('view-' + initialHash))) {
         switchView(initialHash);
     } else {
         switchView('dashboard');

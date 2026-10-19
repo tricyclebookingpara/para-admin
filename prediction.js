@@ -184,8 +184,10 @@
             // say whether it is the driver or the passenger account, so it is on
             // both lists. The matching second account (the other role) is still
             // to be identified.
-            excludeDriverIds: ['1czMxsHB4pZX5DczUYckzaPWUg13'],
-            excludePassengerIds: ['1czMxsHB4pZX5DczUYckzaPWUg13'],
+            // tester_d01..10 / tester_p01..10: the tester accounts made by the app
+            // repo's seed/testers.mjs (2026-10-19).
+            excludeDriverIds: ['1czMxsHB4pZX5DczUYckzaPWUg13', ...Array.from({ length: 10 }, (_, i) => `tester_d${String(i + 1).padStart(2, '0')}`)],
+            excludePassengerIds: ['1czMxsHB4pZX5DczUYckzaPWUg13', ...Array.from({ length: 10 }, (_, i) => `tester_p${String(i + 1).padStart(2, '0')}`)],
             assumptions: [
                 'An ONLINE or OFFLINE event is written on every change of a driver availability (not fully confirmed: the app source shows that logging out or being forced offline writes no event, so a driver can stay "online" in the log; the freshness of the location ping is used to cover this).',
                 'Confirmed from the mobile app source (2026-10-16): the booking `timestamp` is the request-creation time in milliseconds; the `area` of events and samples is a precision-7 geohash; location samples are written about every 5 minutes while a driver is online. Not yet verified against live documents beyond the schema check.'
