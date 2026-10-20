@@ -116,7 +116,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         return String(status || '').replace(/_/g, ' ');
     }
 
-    // Safety and high-severity complaints stand out in the table and the case.
+    // High and medium severity stand out in the table and the case (LOW stays quiet).
+    function complaintSeverityBadge(severity) {
+        if (severity === 'HIGH') return '<span class="status-badge declined">HIGH</span>';
+        if (severity === 'MEDIUM') return '<span class="status-badge processing">MEDIUM</span>';
+        return '';
+    }
     function complaintBadge(status) {
         return ParaFirestore.normalizeStatus(status) === 'rejected' ? renderBadge('rejected', 'DISMISSED') : renderBadge(status);
     }
@@ -160,7 +165,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function riskExplainHtml() {
         return `<details class="risk-explain"><summary>How is this calculated?</summary>
             <ul>
-                <li><strong>Complaints (45%)</strong> — each counts 1 when filed, half as much every 30 days, and stops after 90 days. Complaints that were dismissed never count. A total of 3 or more gives the full 45 points.</li>
+                <li><strong>Complaints (45%)</strong> — each counts 1 when filed, half as much every 30 days, and stops after 90 days. One still waiting for a decision counts half until you review it; resolving it makes it count fully. Complaints that were dismissed never count. A total of 3 or more gives the full 45 points.</li>
                 <li><strong>Rating (25%)</strong> — adjusted so a driver with few ratings isn’t judged on one bad trip. 4.0★ or better adds nothing; 2.5★ or lower adds the full 25.</li>
                 <li><strong>Past offences (15%)</strong> — warnings from the last 180 days plus suspensions you approved (a suspension and the president recommendation it carried out count once). 3 or more gives the full 15.</li>
                 <li><strong>Cancellations (15%)</strong> — rides the driver cancelled after accepting, out of those accepted in the last 30 days. Needs at least 10 accepted rides. 5% or less adds nothing; 25% or more adds the full 15.</li>
@@ -772,6 +777,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
 
+    // Reports drivers filed about a passenger: the last 30 days and the total, and the
+    // advisory "repeatedly reported" flag (extras.js keeps the data and the rule).
+    function passengerReportStats(passenger) {
+        return typeof window.getPassengerReportStats === 'function'
+            ? window.getPassengerReportStats(passenger.id)
+            : { recent: 0, total: Number(passenger.reportCount) || 0, flagged: false };
+    }
+
     function renderPassengerTable(passengers) {
         refreshPassengerDetails();
         const tbody = document.querySelector('#view-passenger-management .data-table tbody');
@@ -824,6 +837,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             const reviewNote = passenger.cancelReviewFlag
                 ? `<div style="margin-top:4px;">${renderBadge('flagged', 'REVIEW: FREQUENT CANCELS')}</div>`
                 : '';
+            // Advisory flag from the reports drivers filed about them in the last 30 days.
+            const flagStats = passengerReportStats(passenger);
+            const reportFlagNote = flagStats.flagged
+                ? `<div style="margin-top:4px;">${renderBadge('rejected', flagStats.reason === 'high' ? 'HIGH-SEVERITY REPORT' : 'REPEATEDLY REPORTED')}</div>`
+                : '';
             const pauseNote = !isSuspended && passenger.bookingBlockedUntil > Date.now()
                 ? `<div class="detail-sub" style="margin-top:4px;">Booking paused until ${escapeHtml(ParaFirestore.formatDateTime(new Date(passenger.bookingBlockedUntil)))}</div>`
                 : '';
@@ -834,7 +852,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <td>${escapeHtml(passenger.totalRides)}</td>
                 <td>${escapeHtml(passenger.cancelled)}</td>
                 <td style="${cancelStyle}">${escapeHtml(passenger.cancelRate)}</td>
-                <td>${renderBadge(statusKey)}${suspensionNote}${reviewNote}${pauseNote}</td>
+                <td>${renderBadge(statusKey)}${suspensionNote}${reviewNote}${reportFlagNote}${pauseNote}</td>
                 <td style="white-space:nowrap;">
                     <div style="display:flex; gap:6px; flex-wrap:nowrap; justify-content:center;">
                         <button class="action-btn" style="background:var(--bg-light);color:var(--text-main);" data-action="history-passenger" data-id="${escapeHtml(passenger.id)}" data-name="${escapeHtml(passenger.name)}">Logs</button>
@@ -1079,7 +1097,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     let tripBookingId = null;
     let tripMap = null;
     let tripMapKey = '';
-    let tripReviewKey = '';
 
     function tripBooking() {
         return (window.allBookings || []).find((b) => b.id === tripBookingId) || null;
@@ -1132,11 +1149,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const status = ParaFirestore.normalizeStatus(booking.status);
         if (booking.endedEarly) {
             const away = fmtDistance(distanceM(booking.completedLatLng, booking.destinationLatLng));
-            if (booking.earlyEndReviewedAtRaw) {
-                out.push(`<div class="vf-dup muted"><strong>Ended early — reviewed ${escapeHtml(ParaFirestore.formatDateTime(booking.earlyEndReviewedAtRaw))}.</strong> The ride ended ${escapeHtml(away)} from the destination.${booking.earlyEndReviewNote ? ` Note: “${escapeHtml(booking.earlyEndReviewNote)}”` : ''}</div>`);
-            } else {
-                out.push(`<div class="vf-dup warn"><strong>Ended early.</strong> The driver ended this ride ${escapeHtml(away)} from the destination. Most are harmless (the passenger asked to get off) — look for patterns or a complaint about this ride.</div>`);
-            }
+            out.push(`<div class="vf-dup warn"><strong>Ended early.</strong> The driver ended this ride ${escapeHtml(away)} from the destination. Most are harmless (the passenger asked to get off) — look for patterns or a complaint about this ride.</div>`);
         }
         if (booking.dropoffResponse === 'DISPUTED') {
             const when = booking.dropoffRespondedAtRaw ? ` (${ParaFirestore.formatDateTime(booking.dropoffRespondedAtRaw)})` : '';
@@ -1214,18 +1227,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <td><button class="action-btn" data-trip-case="${escapeHtml(c.id)}">View Case</button></td>
                 </tr>`).join('')}</tbody>
             </table></div>`;
-    }
-
-    // The note box is only rebuilt when the review state changes, so what the
-    // admin is typing survives the live refresh.
-    function renderTripReview(booking) {
-        const box = document.getElementById('trip-review');
-        const key = `${booking.id}|${booking.endedEarly}|${Boolean(booking.earlyEndReviewedAtRaw)}`;
-        if (!box || key === tripReviewKey) return;
-        tripReviewKey = key;
-        box.innerHTML = booking.endedEarly && !booking.earlyEndReviewedAtRaw
-            ? `<div class="form-group" style="margin-top:20px;"><label>Review note (optional)</label><textarea id="trip-review-note" class="form-input" rows="2" placeholder="e.g. Passenger confirmed they asked to get off at the market."></textarea></div>`
-            : '';
     }
 
     // The trip map is Google Maps, like the app. The key is in google-maps-config.js
@@ -1370,15 +1371,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         const status = ParaFirestore.normalizeStatus(booking.status);
         document.getElementById('trip-title').textContent = `Trip ${booking.ref}`;
         document.getElementById('trip-meta').innerHTML = renderBadge(booking.status)
-            + (booking.endedEarly ? renderBadge(booking.earlyEndReviewedAtRaw ? 'resolved' : 'pending', booking.earlyEndReviewedAtRaw ? 'ENDED EARLY · REVIEWED' : 'ENDED EARLY') : '')
+            + (booking.endedEarly ? renderBadge('pending', 'ENDED EARLY') : '')
             + (booking.createdAtRaw ? `<span>${escapeHtml(ParaFirestore.formatDateTime(booking.createdAtRaw))}</span>` : '');
         document.getElementById('trip-banners').innerHTML = renderTripBanners(booking);
         document.getElementById('trip-cards').innerHTML = renderTripCards(booking);
         document.getElementById('trip-complaints').innerHTML = renderTripComplaints(booking);
-        renderTripReview(booking);
 
-        const reviewBtn = document.getElementById('tripReviewBtn');
-        if (reviewBtn) reviewBtn.style.display = booking.endedEarly && !booking.earlyEndReviewedAtRaw ? '' : 'none';
 
         const reverseBtn = document.getElementById('tripReverseBtn');
         if (reverseBtn) {
@@ -1394,7 +1392,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         // Nothing to do on this trip -> no empty footer bar.
         const footer = document.getElementById('trip-footer');
-        if (footer) footer.style.display = (reviewBtn && reviewBtn.style.display !== 'none') || (reverseBtn && reverseBtn.style.display !== 'none') ? '' : 'none';
+        if (footer) footer.style.display = reverseBtn && reverseBtn.style.display !== 'none' ? '' : 'none';
     }
 
     // Called whenever bookings, passengers or complaints refresh.
@@ -1411,24 +1409,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         tripBookingId = bookingId;
         if (!tripBooking()) return;
         tripMapKey = '';
-        tripReviewKey = '';
         renderTripModal();
         document.getElementById('tripModal').classList.add('active');
         renderTripMap(tripBooking());
-    };
-
-    window.markTripReviewed = async function() {
-        const booking = tripBooking();
-        if (!booking) return;
-        const note = (document.getElementById('trip-review-note')?.value || '').trim();
-        try {
-            await ParaFirestore.markEarlyEndReviewed(booking.id, note);
-            closeModal('tripModal');
-            window.showToast('Trip marked as reviewed.', 'success');
-        } catch (error) {
-            window.showToast('Could not mark the trip as reviewed.', 'error');
-            console.error(error);
-        }
     };
 
     window.reverseNoShowFromTrip = function() {
@@ -1643,6 +1626,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.addEventListener('para:reports-updated', () => {
         updateComplaintStats();
         renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
+        renderPassengerTable(window.allPassengers || []);
         refreshPassengerDetails();
     });
 
@@ -1671,8 +1655,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const sortedComplaints = [...(complaints || [])].sort((a, b) => {
             const timeA = a.createdAtRaw && a.createdAtRaw.getTime ? a.createdAtRaw.getTime() : (a.createdAt instanceof Date ? a.createdAt.getTime() : 0);
             const timeB = b.createdAtRaw && b.createdAtRaw.getTime ? b.createdAtRaw.getTime() : (b.createdAt instanceof Date ? b.createdAt.getTime() : 0);
-            // Safety complaints first among the open ones.
-            const urgent = (c) => (isOpen(c) && c.severity === 'SAFETY' ? 1 : 0);
+            // High-severity complaints first among the open ones.
+            const urgent = (c) => (isOpen(c) && c.severity === 'HIGH' ? 1 : 0);
             return (isOpen(b) - isOpen(a)) || (urgent(b) - urgent(a)) || timeB - timeA;
         });
 
@@ -1693,14 +1677,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             <tr>
                 <td><div class="book-id">${escapeHtml(complaint.ref)}</div><div class="book-time">Reporter: ${escapeHtml(complaint.reporter)}</div><div class="case-kind">Driver's report</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.reported)}</div><div class="detail-sub">Trip: ${escapeHtml(complaint.tripRef)}</div></td>
-                <td><div class="detail-main">${escapeHtml(complaint.issue)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
+                <td><div class="detail-main issue-line"><span>${escapeHtml(complaint.issue)}</span>${complaintSeverityBadge(complaint.severity)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
                 <td>${complaintBadge(complaint.status)}</td>
                 <td><button class="action-btn" data-action="view-complaint" data-kind="report" data-id="${escapeHtml(complaint.id)}">View Case</button></td>
             </tr>` : `
             <tr>
                 <td><div class="book-id">${escapeHtml(complaint.ref)}</div><div class="book-time">Reporter: ${escapeHtml(complaint.reporter)}</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.reported)} ${riskChipHtml(riskOf(complaint.driverId))}</div><div class="detail-sub">Trip: ${escapeHtml(complaint.tripRef)}</div></td>
-                <td><div class="detail-main">${escapeHtml(complaint.issue)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
+                <td><div class="detail-main issue-line"><span>${escapeHtml(complaint.issue)}</span>${complaintSeverityBadge(complaint.severity)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
                 <td>${complaintBadge(complaint.status)}${openRecommendationLabel(complaint)}${wasSuspendedByAdmin(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#EE5D50; font-weight:600;">Driver suspended</div>' : ''}${wasWarnedByAdmin(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#E08A00; font-weight:600;">Warning issued</div>' : ''}</td>
                 <td><button class="action-btn" data-action="view-complaint" data-id="${escapeHtml(complaint.id)}">View Case</button></td>
             </tr>
@@ -1933,10 +1917,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             setValue('fare-fee-para', fare.serviceFeeParaPct);
             setValue('fare-fee-driver', fare.serviceFeeDriverPct);
             setValue('fare-fee-toda', fare.serviceFeeTodaPct);
-            setValue('fare-tide-from', fare.tideSurchargeFromFt);
-            setValue('fare-tide-fee', fare.tideSurchargeFee);
-            setValue('fare-tide-high', fare.tideSurchargeHighFt);
-            setValue('fare-tide-high-fee', fare.tideSurchargeHighFee);
+
             // The dashboard and reports estimate earnings from the SAVED percentages.
             window.serviceFeeSettings = { paraPct: fare.serviceFeeParaPct, driverPct: fare.serviceFeeDriverPct, todaPct: fare.serviceFeeTodaPct };
             if (typeof window.updateDashboardDateCards === 'function') window.updateDashboardDateCards(window.currentDashboardDateFilter || 'Today');
@@ -2454,24 +2435,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         return `<div class="dd-empty">${escapeHtml(message)}</div>`;
     }
 
-    // Rides the driver cancelled out of the ones they accepted (the app's own
-    // counters). Under 10 accepted rides is too few to judge, so it says N/A.
-    function driverCancelSummary(driver) {
-        const accepted = Number(driver.acceptedRides) || 0;
-        const cancelled = Number(driver.driverCancelledRides) || 0;
-        if (accepted < 10) return `N/A (${accepted} accepted so far)`;
-        return `${((cancelled / accepted) * 100).toFixed(1)}% (${cancelled} of ${accepted})`;
+    // The date of the driver's latest completed ride, from the bookings already loaded.
+    function lastCompletedRide(driver) {
+        const done = bookingsForDriver(driver).find((b) => ParaFirestore.normalizeStatus(b.status) === 'completed');
+        return done ? (done.dateLabel || '') : 'None yet';
     }
 
-    // Trips this driver ended more than 300 m from the destination in the last
-    // 30 days — repeated ones are worth a look (and a TODA recommendation).
-    function earlyDropoffSummary(driver) {
-        const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
-        const trips = (window.allBookings || []).filter((b) => b.driverId === driver.id && b.endedEarly
-            && timeOf(b.completedAtRaw || b.createdAtRaw) >= since);
-        if (!trips.length) return '0';
-        const waiting = trips.filter((b) => !b.earlyEndReviewedAtRaw).length;
-        return waiting ? `${trips.length} (${waiting} to review)` : String(trips.length);
+    // Complaints filed against the driver: how many are still waiting for a decision.
+    function complaintsSummary(driver) {
+        const list = complaintsForDriver(driver);
+        if (!list.length) return 'None';
+        const open = list.filter((c) => ['pending', 'reviewing'].includes(c.status)).length;
+        return `${list.length} total${open ? ` · ${open} open` : ''}`;
+    }
+
+    // Completed rides this calendar month, from the bookings already loaded.
+    function ridesThisMonth(driver) {
+        const now = new Date();
+        const count = bookingsForDriver(driver).filter((b) => {
+            const made = b.createdAtRaw ? new Date(b.createdAtRaw) : null;
+            return ParaFirestore.normalizeStatus(b.status) === 'completed' && made
+                && made.getFullYear() === now.getFullYear() && made.getMonth() === now.getMonth();
+        }).length;
+        return String(count);
     }
 
     // "05/12/26" plus a red / amber chip when the license has expired or is about to.
@@ -2518,8 +2504,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ${ddRow('Email', driver.email)}
                     ${ddRow('Verification', renderBadge(driver.verificationStatus), { html: true })}
                     ${ddRow('Member since', driver.memberSince)}
-                    ${ddRow('Ended early (30 days)', earlyDropoffSummary(driver))}
-                    ${ddRow('Cancelled after accepting', driverCancelSummary(driver))}
                 </div>
                 <div class="dd-card">
                     <div class="dd-card-title">Vehicle</div>
@@ -2527,20 +2511,35 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ${ddRow('Motorcycle model', driver.motorcycleModel)}
                     ${ddRow('Plate number', driver.plate)}
                     ${ddRow('Registration date', driver.vehicleRegistrationDate)}
-                    ${driver.tricycleImageUrl
-                        ? `<a class="dd-thumb" href="${escapeHtml(driver.tricycleImageUrl)}" target="_blank" rel="noopener" title="Open the tricycle photo"><img src="${escapeHtml(driver.tricycleImageUrl)}" alt="Tricycle photo" loading="lazy"></a>`
-                        : ddRow('Tricycle photo', 'Not added yet')}
-                    ${driver.tricyclePermitImageUrl
-                        ? `<a class="dd-thumb" href="${escapeHtml(driver.tricyclePermitImageUrl)}" target="_blank" rel="noopener" title="Open the tricycle permit"><img src="${escapeHtml(driver.tricyclePermitImageUrl)}" alt="Tricycle permit" loading="lazy"></a>`
-                        : ddRow('Tricycle permit', 'Not uploaded yet')}
                 </div>
-                <div class="dd-card wide">
+                <div class="dd-card">
                     <div class="dd-card-title">License &amp; identification</div>
                     ${ddRow('License number', driver.license)}
                     ${ddRow('License expiry', licenseExpiryRowHtml(driver), { html: true })}
                     ${ddRow('Government ID', driver.governmentId)}
                 </div>
+                <div class="dd-card">
+                    <div class="dd-card-title">Activity</div>
+                    ${ddRow('Last completed ride', lastCompletedRide(driver))}
+                    ${ddRow('Complaints', complaintsSummary(driver))}
+                    ${ddRow('Rides this month', ridesThisMonth(driver))}
+                </div>
+                <div class="dd-card wide">
+                    <div class="dd-card-title">Vehicle photos</div>
+                    <div class="dd-photos">
+                        ${ddPhotoHtml(driver.tricycleImageUrl, 'Tricycle photo', 'Not added yet')}
+                        ${ddPhotoHtml(driver.tricyclePermitImageUrl, 'Tricycle permit', 'Not uploaded yet')}
+                    </div>
+                </div>
             </div>`;
+    }
+
+    // One photo tile: the picture (it opens full size) with its caption, or a dashed
+    // box saying why there is none.
+    function ddPhotoHtml(url, caption, missing) {
+        return url
+            ? `<a class="dd-photo" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="Open the ${escapeHtml(caption.toLowerCase())}"><img src="${escapeHtml(url)}" alt="${escapeHtml(caption)}" loading="lazy"><span>${escapeHtml(caption)}</span></a>`
+            : `<div class="dd-photo"><div class="dd-photo-empty">${escapeHtml(missing)}</div><span>${escapeHtml(caption)}</span></div>`;
     }
 
     function ddBookingsHtml(driver) {
@@ -2733,8 +2732,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!isSuspended && passenger.bookingBlockedUntil > Date.now()) {
             cooldown += `<div class="dd-notice warn"><strong>Booking paused until ${escapeHtml(ParaFirestore.formatDateTime(new Date(passenger.bookingBlockedUntil)))}.</strong> Set automatically after repeated late cancellations or missed pickups. <button class="action-btn" data-pd-action="lift-pause" style="margin-left:8px;">Lift pause</button></div>`;
         }
+        const flagStats = passengerReportStats(passenger);
+        const reportFlag = flagStats.flagged
+            ? '<div class="dd-notice warn"><strong>' + (flagStats.reason === 'high' ? 'High-severity report.' : 'Repeatedly reported.') + '</strong> ' + (flagStats.reason === 'high' ? 'A driver filed a high-severity report about this passenger in the last 30 days.' : 'Drivers filed ' + flagStats.recent + ' reports about this passenger in the last 30 days.') + ' This is only a flag: review their reports in the Complaints tab and suspend them if needed. Dismissing a false report takes it out of the count.</div>'
+            : '';
         return `
             ${suspension}
+            ${reportFlag}
             ${cooldown}
             <div class="dd-stats">
                 ${ddStat(stats.totalRides, 'Total rides')}
@@ -2756,7 +2760,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ${ddRow('Total spent', `₱${spent.toFixed(2)}`)}
                     ${ddRow('Last completed ride', completed.length ? completed[0].dateLabel : '')}
                     ${ddRow('Complaints filed', complaintsForPassenger(passenger).length)}
-                    ${ddRow('Reports by drivers', passenger.reportCount)}
+                    ${ddRow('Reports by drivers', `${passengerReportStats(passenger).recent} in last 30 days · ${passengerReportStats(passenger).total} total`)}
                 </div>
             </div>`;
     }
@@ -2822,7 +2826,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const rows = list.map((c) => c.kind === 'report' ? `
             <tr>
                 <td><div class="book-id">${escapeHtml(c.ref)}</div><div class="book-time">${escapeHtml(ParaFirestore.formatDateTime(c.createdAtRaw))}</div><div class="case-kind">Driver's report</div></td>
-                <td><div class="detail-main">${escapeHtml(c.issue)}</div><div class="detail-sub">${escapeHtml(c.description)}</div></td>
+                <td><div class="detail-main issue-line"><span>${escapeHtml(c.issue)}</span>${complaintSeverityBadge(c.severity)}</div><div class="detail-sub">${escapeHtml(c.description)}</div></td>
                 <td>${escapeHtml(c.reporter)}<div class="detail-sub">Reported by driver</div></td>
                 <td>${complaintBadge(c.status)}</td>
                 <td><button class="action-btn" data-dd-report="${escapeHtml(c.id)}">View Case</button></td>
@@ -3086,7 +3090,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ? `<span>Trip ${escapeHtml(trip.ref)}${trip.endedEarly ? ' · <strong style="color:#FF9E2A;">ended early</strong>' : ''}${ParaFirestore.normalizeStatus(trip.status) === 'no_show' ? ' · <strong style="color:#EE5D50;">no-show</strong>' : ''}</span><button class="action-btn" data-case-trip="${escapeHtml(trip.id)}" style="background:var(--bg-light);color:var(--text-main);">View trip</button>`
                     : '';
             }
-            document.getElementById('c-issue').value = (data.issue || '') + (data.severity && data.severity !== 'NORMAL' ? ` (${data.severity} severity)` : '');
+            document.getElementById('c-issue').value = (data.issue || '') + (data.severity && data.severity !== 'LOW' ? ` (${data.severity} severity)` : '');
             document.getElementById('c-desc').value = data.description || '';
 
             const notesEl = document.getElementById('complaint-admin-notes');
@@ -3339,11 +3343,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             perKmRate: Number(document.getElementById('fare-perkm').value),
             serviceFeeParaPct: Number(document.getElementById('fare-fee-para').value),
             serviceFeeDriverPct: Number(document.getElementById('fare-fee-driver').value),
-            serviceFeeTodaPct: Number(document.getElementById('fare-fee-toda').value),
-            tideSurchargeFromFt: Number(document.getElementById('fare-tide-from').value),
-            tideSurchargeHighFt: Number(document.getElementById('fare-tide-high').value),
-            tideSurchargeFee: Number(document.getElementById('fare-tide-fee').value),
-            tideSurchargeHighFee: Number(document.getElementById('fare-tide-high-fee').value)
+            serviceFeeTodaPct: Number(document.getElementById('fare-fee-toda').value)
         };
 
         const invalidField = Object.entries(settings).find(([, value]) => !Number.isFinite(value) || value < 0);
@@ -3356,14 +3356,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.showToast('The service fee shares can’t add up to more than 100%.', 'warning');
             return;
         }
-        if (settings.tideSurchargeHighFt <= settings.tideSurchargeFromFt) {
-            window.showToast('The higher tide level must be above the first one.', 'warning');
-            return;
-        }
 
         showConfirmModal(
             'Save fare settings?',
-            `Saves ₱${settings.minimumFare} minimum fare (first ${settings.includedDistanceKm} km included) and ₱${settings.perKmRate} per km after that, plus a ${Number(feeTotal.toFixed(2))}% service fee on top of the fare (PARA ${settings.serviceFeeParaPct}%, driver ${settings.serviceFeeDriverPct}%, TODA ${settings.serviceFeeTodaPct}%), and a tide surcharge of ₱${settings.tideSurchargeFee} from ${settings.tideSurchargeFromFt} ft up to ${settings.tideSurchargeHighFt} ft and ₱${settings.tideSurchargeHighFee} at ${settings.tideSurchargeHighFt} ft and above. The mobile app reads the fare and service fee live: they apply to bookings made after this (each booking keeps the numbers it was made with). The tide surcharge only takes effect once the app is updated to read it. Nobody is notified.`,
+            `Saves ₱${settings.minimumFare} minimum fare (first ${settings.includedDistanceKm} km included) and ₱${settings.perKmRate} per km after that, plus a ${Number(feeTotal.toFixed(2))}% service fee on top of the fare (PARA ${settings.serviceFeeParaPct}%, driver ${settings.serviceFeeDriverPct}%, TODA ${settings.serviceFeeTodaPct}%). The mobile app reads the fare and service fee live: they apply to bookings made after this (each booking keeps the numbers it was made with). Nobody is notified.`,
             'Save Changes',
             '#1A73E8',
             async () => {
@@ -3746,7 +3742,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 field('Driver location at Arrived', awayText(booking.arrivedLatLng, booking.pickupLatLng, 'pickup'));
                 field('Driver location at drop-off', awayText(booking.completedLatLng, booking.destinationLatLng, 'destination'));
                 if (booking.endedEarly) {
-                    field('Ended early', `Yes${booking.earlyEndReviewedAtRaw ? ` - reviewed ${when(booking.earlyEndReviewedAtRaw)}` : ' - not yet reviewed'}${booking.earlyEndReviewNote ? ` - ${booking.earlyEndReviewNote}` : ''}`);
+                    field('Ended early', 'Yes');
                 }
                 field('Fare', peso(booking.totalFare));
                 field('Payment', [booking.paymentMethod, booking.paymentStatus && String(booking.paymentStatus).toUpperCase()].filter(Boolean).join(' - '));

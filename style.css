@@ -969,8 +969,6 @@ body {
 .pf-avatar-md { width: 46px; height: 46px; font-size: 16px; }
 .pf-name { display: flex; align-items: center; gap: 12px; }
 .vf-photo-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.dd-thumb { display: block; margin: 4px 0 12px; }
-.dd-thumb img { width: 100%; max-height: 150px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border-color); }
 
 /* Review Driver Application window */
 .vf-modal { max-width: 760px; }
@@ -1383,16 +1381,6 @@ textarea.form-input { resize: vertical; }
 .fp-person { padding-bottom: 6px; border-bottom: 1px solid var(--table-border); margin-bottom: 16px; }
 .fp-person .fp-person-total { margin-top: 4px; padding-top: 10px; border-top: 1px dashed var(--border-color); color: var(--text-main); font-weight: 700; }
 .fp-person .fp-person-total span:last-child { font-size: 18px; color: var(--primary); }
-.tide-tiers { border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
-.tide-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; min-height: 52px; padding: 8px 14px; font-size: 14px; font-weight: 600; color: var(--text-main); }
-.tide-row + .tide-row { border-top: 1px solid var(--border-color); }
-.tide-head { min-height: 0; padding: 9px 14px; background: var(--bg-light); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
-.tide-row-none { color: var(--text-muted); font-weight: 500; }
-.tide-levels, .tide-money { display: inline-flex; align-items: center; gap: 6px; }
-.tide-dash { color: var(--text-muted); }
-.tide-tiers .tide-input { width: 58px; padding: 8px 4px; text-align: center; font-weight: 600; }
-.fp-tide { margin-bottom: 14px; }
-.fp-tide-label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
 .fp-scenarios { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .fp-card { background: var(--bg-light); border-radius: 14px; padding: 16px; }
 .fp-card-title { font-size: 15px; font-weight: 700; color: var(--text-main); }
@@ -1811,3 +1799,20 @@ textarea.form-input { resize: vertical; }
 .ph-stats { gap: 12px; }
 .ph-stat { flex: 1 1 0; min-width: 64px; }
 .ph-open { margin-left: 8px; flex-shrink: 0; }
+.ph-flag { margin-bottom: 12px; padding: 8px 12px; border-radius: 10px; background: rgba(238, 93, 80, 0.1); color: #C23B2E; font-size: 13px; font-weight: 600; }
+/* Issue title with its severity label: beside it, or under it flush left, never indented. */
+.issue-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+/* Passenger history: the button sits in the heading row, the figures share the full width in equal columns. */
+.ph-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.ph-head label { margin-bottom: 0; }
+.ph-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 14px 12px; align-items: start; }
+.ph-stat { min-width: 0; }
+.ph-stat span { white-space: nowrap; font-size: 10.5px; letter-spacing: 0.3px; }
+/* Driver profile, Information tab: cards in even pairs, the photos side by side in their own card. */
+.dd-cards { align-items: stretch; }
+.dd-photos { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 8px 0 14px; }
+.dd-photo { display: flex; flex-direction: column; gap: 6px; text-decoration: none; }
+.dd-photo span { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.dd-photo img { width: 100%; height: 200px; object-fit: contain; background: var(--bg-light); border-radius: 10px; border: 1px solid var(--border-color); }
+.dd-photo-empty { display: flex; align-items: center; justify-content: center; height: 200px; border: 1px dashed var(--border-color); border-radius: 10px; font-size: 13px; color: var(--text-muted); }
+@media (max-width: 720px) { .dd-photos { grid-template-columns: 1fr; } }

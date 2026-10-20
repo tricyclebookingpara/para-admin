@@ -386,6 +386,26 @@
         });
     };
 
+    // How a passenger stands on reports (the app team's guide): the reports of the last
+    // 30 days that were not dismissed, and the total ever filed (users.reportCount).
+    // Flagged "repeatedly reported" with 3 or more recent reports, or at least 1
+    // high-severity report among them. Advisory only: nothing restricts the passenger by itself, and
+    // dismissing a report takes it out of the count straight away.
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+    window.getPassengerReportStats = function (passengerId) {
+        const list = passengerReports.filter((r) => r.passengerId === passengerId);
+        const recent = list.filter((r) => r.status !== 'REJECTED' && Date.now() - r.createdAt <= THIRTY_DAYS_MS);
+        const person = people.get(passengerId);
+        return {
+            recent: recent.length,
+            total: Math.max(person ? person.reportCount : 0, list.length),
+            flagged: recent.length >= 3 || recent.some((r) => r.severity === 'HIGH'),
+            // Why it is flagged: 3 or more recent reports, or a single high-severity one.
+            reason: recent.length >= 3 ? 'repeated' : recent.some((r) => r.severity === 'HIGH') ? 'high' : ''
+        };
+    };
+
     function notifyReports() {
         document.dispatchEvent(new CustomEvent('para:reports-updated'));
     }
@@ -402,7 +422,7 @@
         const booking = (window.allBookings || []).find((b) => b.id === r.bookingId);
         const ref = booking ? booking.ref : r.bookingId;
         const about = passengerReports.filter((x) => x.passengerId === r.passengerId);
-        const total = Math.max(person ? person.reportCount : 0, about.length);
+        const reportStats = window.getPassengerReportStats(r.passengerId);
         const accountNow = person && person.accountStatus ? person.accountStatus.charAt(0).toUpperCase() + person.accountStatus.slice(1) : 'Active';
         const suspended = person && String(person.accountStatus).toLowerCase() === 'suspended';
         const others = about.filter((x) => x.id !== r.id).sort((a, b) => b.createdAt - a.createdAt);
@@ -417,16 +437,19 @@
         // counters), and what was already done to them.
         const stats = (window.allPassengers || []).find((x) => x.id === r.passengerId);
         const rate = stats ? parseFloat(stats.cancelRate) || 0 : 0;
-        const tile = (value, label, tone) => `<div class="ph-stat"><strong${tone ? ` class="${tone}"` : ''}>${value}</strong><span>${label}</span></div>`;
+        const tile = (value, label, tone, hint) => `<div class="ph-stat"${hint ? ` title="${hint}"` : ''}><strong${tone ? ` class="${tone}"` : ''}>${value}</strong><span>${label}</span></div>`;
+        const openBtn = person ? `<button type="button" class="action-btn" data-x-passenger="${esc(r.passengerId)}">Open passenger</button>` : '';
         const history = `
             <div class="ph-box">
+                ${reportStats.flagged ? '<div class="ph-flag">' + (reportStats.reason === 'high' ? 'Flagged: a high-severity report in the last 30 days' : 'Repeatedly reported: ' + reportStats.recent + ' reports in the last 30 days') + '</div>' : ''}
                 <div class="ph-stats">
-                    ${tile(total, 'Report' + (total === 1 ? '' : 's'), total >= 3 ? 'bad' : '')}
+                    ${tile(reportStats.recent, 'Recent reports', reportStats.flagged ? 'bad' : '', 'Reports filed about this passenger in the last 30 days, not counting dismissed ones')}
+                    ${tile(reportStats.total, 'All reports', '', 'Every report ever filed about this passenger')}
                     ${stats ? tile(esc(stats.totalRides), 'Rides', '') : ''}
                     ${stats ? tile(esc(stats.cancelRate), 'Cancel rate', rate >= 10 ? 'bad' : rate >= 5 ? 'warn' : '') : ''}
                     ${stats ? tile(esc(stats.noShowCount), 'No-shows', stats.noShowCount >= 3 ? 'bad' : '') : ''}
                     ${suspended ? tile('Suspended', 'Account', 'bad') : ''}
-                    ${person ? `<button type="button" class="action-btn ph-open" data-x-passenger="${esc(r.passengerId)}">Open passenger</button>` : ''}
+
                 </div>
                 <div id="phActions" data-passenger="${esc(r.passengerId)}"></div>
                 ${others.length ? `<div class="ph-title">Other reports about them</div>${otherRows}${others.length > 4 ? `<div class="ph-more">and ${others.length - 4} more in their Complaints tab</div>` : ''}` : ''}
@@ -438,9 +461,9 @@
                 <div class="case-party"><div class="case-label">Status</div><div class="case-value">${reportStatusBadge(r.status)}</div><div class="case-sub">Filed ${esc(fmtDate(r.createdAt))}</div></div>
             </div>
             <div class="case-trip-line"><span>Trip ${esc(ref)}</span>${booking ? `<button type="button" class="action-btn" data-x-trip="${esc(r.bookingId)}" style="background:var(--bg-light);color:var(--text-main);">View trip</button>` : ''}</div>
-            <div class="form-group"><label>Issue Type</label><input type="text" class="form-input" readonly value="${esc(r.category)}" style="background:var(--bg-light); border-color:transparent;"></div>
+            <div class="form-group"><label>Issue Type</label><input type="text" class="form-input" readonly value="${esc(r.category + (r.severity && r.severity !== 'LOW' ? ' (' + r.severity + ' severity)' : ''))}" style="background:var(--bg-light); border-color:transparent;"></div>
             <div class="form-group"><label>Full Description</label><textarea class="form-input" rows="4" readonly style="background:var(--bg-light); border-color:transparent; resize:none;">${esc(r.description)}</textarea></div>
-            <div class="form-group"><label>Passenger History</label>${history}</div>
+            <div class="form-group"><div class="ph-head"><label>Passenger History</label>${openBtn}</div>${history}</div>
             <hr style="border:none; border-top:1px solid var(--border-color); margin:20px 0;">
             <h3 style="font-size:15px; font-weight:700; margin-bottom:14px;">Take Action</h3>
             <div class="form-group"><label>Resolution Note</label>
@@ -572,6 +595,24 @@
             }, bodyHtml);
         }
     }
+    // Severity follows from the category (the app's table). The scale is HIGH / MEDIUM /
+    // LOW since 2026-10-20 (it was SAFETY / HIGH / NORMAL, and old HIGH meant the middle
+    // level); reports written before that aren't migrated, so a known category is read
+    // from this table and only an unknown one falls back to what is stored.
+    const REPORT_SEVERITY_BY_CATEGORY = {
+        'abusive or threatening': 'HIGH', 'harassment': 'HIGH',
+        'refused to pay / short payment': 'MEDIUM', 'damaged vehicle': 'MEDIUM', 'intoxicated or disruptive': 'MEDIUM',
+        'fake or prank booking': 'LOW', 'other': 'LOW'
+    };
+
+    function reportSeverity(d) {
+        const known = REPORT_SEVERITY_BY_CATEGORY[String(d.category || '').trim().toLowerCase()];
+        if (known) return known;
+        const stored = String(d.severity || '').toUpperCase();
+        if (['HIGH', 'MEDIUM', 'LOW'].includes(stored)) return stored;
+        return stored === 'SAFETY' ? 'HIGH' : 'LOW';
+    }
+
     db.collection('passenger_reports').onSnapshot((snapshot) => {
         passengerReports = snapshot.docs.map((doc) => {
             const d = doc.data() || {};
@@ -582,7 +623,7 @@
                 passengerId: d.passengerId || '',
                 todaName: d.todaName || '',
                 category: d.category || 'Report',
-                severity: d.severity || 'NORMAL',
+                severity: reportSeverity(d),
                 description: d.description || '',
                 status: String(d.status || 'PENDING').toUpperCase(),
                 createdAt: toMs(d.createdAt),

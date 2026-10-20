@@ -1342,30 +1342,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (el('prev-fee-para')) el('prev-fee-para').textContent = peso(share(paraPct));
         if (el('prev-fee-driver')) el('prev-fee-driver').textContent = peso(share(driverPct));
         if (el('prev-fee-toda')) el('prev-fee-toda').textContent = peso(share(todaPct));
-        // Tide surcharge: a flat amount on top of what each rider pays.
-        // Below the first level: nothing. From it up to below the higher level: the
-        // first fee. At the higher level and above: the second fee.
-        const amount = (id) => Math.max(0, parseFloat(document.getElementById(id)?.value) || 0);
-        const tideFrom = amount('fare-tide-from');
-        const tideHigh = amount('fare-tide-high');
-        const tideLevel = parseFloat(el('prev-tide')?.value);
-        const tideFee = !Number.isFinite(tideLevel) ? 0
-            : tideLevel >= tideHigh ? amount('fare-tide-high-fee')
-            : tideLevel >= tideFrom ? amount('fare-tide-fee') : 0;
-        if (el('tide-lbl-from')) el('tide-lbl-from').textContent = trimPct(tideFrom);
-        if (el('tide-lbl-high')) el('tide-lbl-high').textContent = trimPct(tideHigh);
-        ['prev-tide-row', 'prev-shared-tide-row'].forEach((id) => { if (el(id)) el(id).style.display = tideFee > 0 ? '' : 'none'; });
-        if (el('prev-tide-fee')) el('prev-tide-fee').textContent = peso(tideFee);
-        if (el('prev-shared-tide-fee')) el('prev-shared-tide-fee').textContent = peso(tideFee);
-        if (el('prev-pay')) el('prev-pay').textContent = peso(solo + share(totalPct) + tideFee);
+        if (el('prev-pay')) el('prev-pay').textContent = peso(solo + share(totalPct));
         if (el('prev-shared-pct')) el('prev-shared-pct').textContent = trimPct(totalPct);
         if (el('prev-shared-fee')) el('prev-shared-fee').textContent = peso(person * totalPct / 100);
-        if (el('prev-shared-pay')) el('prev-shared-pay').textContent = peso(person * (1 + totalPct / 100) + tideFee);
+        if (el('prev-shared-pay')) el('prev-shared-pay').textContent = peso(person * (1 + totalPct / 100));
     }
 
     window.updateFarePreview = updateFarePreview;
 
-    ['fare-min', 'fare-included', 'fare-perkm', 'fare-fee-para', 'fare-fee-driver', 'fare-fee-toda', 'fare-tide-from', 'fare-tide-high', 'fare-tide-fee', 'fare-tide-high-fee', 'prev-tide'].forEach(id => {
+    ['fare-min', 'fare-included', 'fare-perkm', 'fare-fee-para', 'fare-fee-driver', 'fare-fee-toda'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('input', updateFarePreview);
     });

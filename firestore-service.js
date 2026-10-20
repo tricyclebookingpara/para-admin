@@ -194,11 +194,6 @@ const ParaFirestore = (() => {
             // position ping — a driver whose app was killed keeps their last
             // status, so presence is judged by how fresh that ping is.
             driverStatus: String(data.driverStatus || 'OFFLINE').toUpperCase(),
-            // Kept by the app's countRideOutcome function: rides the driver accepted
-            // and the ones they cancelled themselves (not counting cancels by
-            // agreement or ones the passenger asked for). Start at 0 from that release.
-            acceptedRides: Number(data.driverAcceptedRides) || 0,
-            driverCancelledRides: Number(data.driverCancelledRides) || 0,
             lastLocationAt: Number(data.currentLatLngUpdatedAt) || 0,
             rating: Number.isFinite(rawRating) && rawRating > 0 ? rawRating.toFixed(1) : '—',
             memberSince: formatDateTime(getField(data, 'createdAt', 'created_at', 'memberSince')),
@@ -384,8 +379,6 @@ const ParaFirestore = (() => {
             completedLatLng: toLatLng(data.completedLatLng),
             // The driver ended the ride more than 300 m from the destination.
             endedEarly: data.endedEarly === true,
-            earlyEndReviewedAtRaw: toDate(data.earlyEndReviewedAt),
-            earlyEndReviewNote: data.earlyEndReviewNote || '',
             // The passenger's Yes / No after the ride: 'CONFIRMED', 'DISPUTED', or
             // '' when they never answered.
             dropoffResponse: (data.dropoffConfirmation && data.dropoffConfirmation.response) || '',
@@ -453,15 +446,25 @@ const ParaFirestore = (() => {
     // How serious a complaint is. Newer complaints store it; older ones are
     // worked out from the type, with the same table the app uses
     // (ComplaintCategory.severityOf).
+    //
+    // The scale is HIGH / MEDIUM / LOW (renamed on 2026-10-20 from SAFETY / HIGH / NORMAL,
+    // the app team's severity-rename guide). HIGH used to be the middle level and now
+    // is the top one, and documents written before the rename haven't been migrated.
+    // The severity follows from the type, so a known type is read from this table and
+    // old documents still show the right level; only an unknown type falls back to
+    // what is stored.
     const COMPLAINT_SEVERITY_BY_TYPE = {
-        'reckless driving': 'SAFETY', 'unsafe driving': 'SAFETY', 'harassment or threat': 'SAFETY',
-        'overcharging': 'HIGH', 'took a longer route': 'HIGH'
+        'reckless driving': 'HIGH', 'unsafe driving': 'HIGH', 'harassment or threat': 'HIGH',
+        'overcharging': 'MEDIUM', 'took a longer route': 'MEDIUM',
+        'rude behavior': 'LOW', 'vehicle condition': 'LOW', 'other': 'LOW'
     };
 
     function complaintSeverity(data, complaintType) {
+        const known = COMPLAINT_SEVERITY_BY_TYPE[String(complaintType || '').trim().toLowerCase()];
+        if (known) return known;
         const stored = String(data.severity || '').toUpperCase();
-        if (['SAFETY', 'HIGH', 'NORMAL'].includes(stored)) return stored;
-        return COMPLAINT_SEVERITY_BY_TYPE[String(complaintType || '').trim().toLowerCase()] || 'NORMAL';
+        if (['HIGH', 'MEDIUM', 'LOW'].includes(stored)) return stored;
+        return stored === 'SAFETY' ? 'HIGH' : 'LOW';
     }
 
     function mapComplaintDoc(doc) {
@@ -1316,15 +1319,6 @@ const ParaFirestore = (() => {
         ['serviceFeeTodaPct', 'TODA service fee']
     ];
 
-    // Tide surcharge: a flat amount added to a ride when the tide is high. Heights
-    // are in feet, the unit of the LGU tide bulletin (tide_bulletin readings carry
-    // both feet and meters). From tideSurchargeFromFt up to (not including)
-    // tideSurchargeHighFt the surcharge is tideSurchargeFee; at tideSurchargeHighFt
-    // and above it is tideSurchargeHighFee; below tideSurchargeFromFt there is none.
-    // Like the other numbers here, the app has to read and
-    // apply them — the admin site only stores them.
-    const TIDE_SURCHARGE_DEFAULTS = { tideSurchargeFromFt: 3.6, tideSurchargeHighFt: 4.3, tideSurchargeFee: 5, tideSurchargeHighFee: 10 };
-
     async function getFareSettings() {
         const doc = await db.collection(COLLECTIONS.fare).doc('fare').get();
         const data = doc.exists ? (doc.data() || {}) : {};
@@ -1339,10 +1333,7 @@ const ParaFirestore = (() => {
             serviceFeeParaPct: read(data.serviceFeeParaPct, SERVICE_FEE_DEFAULTS.serviceFeeParaPct),
             serviceFeeDriverPct: read(data.serviceFeeDriverPct, SERVICE_FEE_DEFAULTS.serviceFeeDriverPct),
             serviceFeeTodaPct: read(data.serviceFeeTodaPct, SERVICE_FEE_DEFAULTS.serviceFeeTodaPct),
-            tideSurchargeFromFt: read(data.tideSurchargeFromFt, TIDE_SURCHARGE_DEFAULTS.tideSurchargeFromFt),
-            tideSurchargeHighFt: read(data.tideSurchargeHighFt, TIDE_SURCHARGE_DEFAULTS.tideSurchargeHighFt),
-            tideSurchargeFee: read(data.tideSurchargeFee, TIDE_SURCHARGE_DEFAULTS.tideSurchargeFee),
-            tideSurchargeHighFee: read(data.tideSurchargeHighFee, TIDE_SURCHARGE_DEFAULTS.tideSurchargeHighFee),
+
             updatedAtRaw: toDate(getField(data, 'updatedAt', 'updated_at'))
         };
     }
@@ -1373,14 +1364,7 @@ const ParaFirestore = (() => {
         if (feeTotal > 100) {
             throw new Error('The service fee shares can’t add up to more than 100%.');
         }
-        for (const key of Object.keys(TIDE_SURCHARGE_DEFAULTS)) {
-            if (!Number.isFinite(settings[key]) || settings[key] < 0) {
-                throw new Error('The tide levels and surcharges must be numbers of 0 or more.');
-            }
-        }
-        if (settings.tideSurchargeHighFt <= settings.tideSurchargeFromFt) {
-            throw new Error('The higher tide level must be above the lower one.');
-        }
+
     }
 
     // fare_history keeps every change (settings/fare only ever holds the
@@ -1405,11 +1389,7 @@ const ParaFirestore = (() => {
             perKmRate: settings.perKmRate,
             serviceFeeParaPct: settings.serviceFeeParaPct,
             serviceFeeDriverPct: settings.serviceFeeDriverPct,
-            serviceFeeTodaPct: settings.serviceFeeTodaPct,
-            tideSurchargeFromFt: settings.tideSurchargeFromFt,
-            tideSurchargeHighFt: settings.tideSurchargeHighFt,
-            tideSurchargeFee: settings.tideSurchargeFee,
-            tideSurchargeHighFee: settings.tideSurchargeHighFee
+            serviceFeeTodaPct: settings.serviceFeeTodaPct
         };
 
         // Replace the document (not merge) so the old base-fare / service-fee
@@ -1977,12 +1957,6 @@ const ParaFirestore = (() => {
     // A trip the driver ended more than 300 m from the destination is flagged by
     // the app (endedEarly). Most are harmless — the passenger asked to get off —
     // so reviewing it just records that an admin looked, with an optional note.
-    async function markEarlyEndReviewed(bookingId, note = '') {
-        await db.collection(COLLECTIONS.bookings).doc(bookingId).update({
-            earlyEndReviewedAt: Date.now(),
-            earlyEndReviewNote: note
-        });
-    }
 
     // Takes back one no-show: the passenger's count goes down by 1, never below 0,
     // and the booking is remembered in reversedNoShows so the same no-show can't
@@ -2041,7 +2015,6 @@ const ParaFirestore = (() => {
         updateDriverVerification,
         approveProfilePhoto,
         rejectProfilePhoto,
-        markEarlyEndReviewed,
         reverseNoShow,
         clearCancelReviewFlag,
         liftBookingPause,
