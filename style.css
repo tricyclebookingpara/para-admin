@@ -1785,3 +1785,29 @@ textarea.form-input { resize: vertical; }
 .ap-alert.danger { background: rgba(238, 93, 80, 0.1); color: #C23B2E; }
 .ap-card a { color: var(--primary); font-weight: 600; text-decoration: none; }
 .ap-card a:hover { text-decoration: underline; }
+.case-kind { margin-top: 4px; font-size: 11px; font-weight: 600; color: var(--text-muted); }
+
+/* Passenger history in a report window */
+.ph-box { background: var(--bg-light); border-radius: 12px; padding: 14px 16px; }
+.ph-stats { display: flex; align-items: center; gap: 22px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); }
+.ph-stat { display: flex; flex-direction: column; gap: 2px; }
+.ph-stat strong { font-size: 17px; font-weight: 700; color: var(--text-main); line-height: 1.2; }
+.ph-stat strong.bad { color: #EE5D50; }
+.ph-stat span { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
+.ph-open { margin-left: auto; }
+.ph-title { margin: 12px 0 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
+.ph-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: none; background: var(--white); border-radius: 10px; padding: 9px 12px; margin-bottom: 6px; font: inherit; font-size: 13px; cursor: pointer; }
+.ph-row:hover { box-shadow: 0 0 0 1px var(--primary); }
+.ph-date { color: var(--text-muted); white-space: nowrap; }
+.ph-cat { flex: 1; min-width: 0; font-weight: 600; color: var(--text-main); }
+.ph-more, .ph-none { font-size: 13px; color: var(--text-muted); }
+.ph-stats { flex-wrap: wrap; row-gap: 12px; }
+.ph-stat strong.warn { color: #E08A00; }
+.ph-row.static { cursor: default; }
+.ph-row.static:hover { box-shadow: none; }
+.ph-stats { border-bottom: none; padding-bottom: 0; }
+.ph-title { margin: 12px 0 6px; padding-top: 12px; border-top: 1px solid var(--border-color); }
+/* Passenger history: the figures share the row evenly, the button sits right after them. */
+.ph-stats { gap: 12px; }
+.ph-stat { flex: 1 1 0; min-width: 64px; }
+.ph-open { margin-left: 8px; flex-shrink: 0; }

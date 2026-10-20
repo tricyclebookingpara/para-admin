@@ -111,8 +111,9 @@
     const modalBody = document.getElementById('xModalBody');
     const modalFooter = document.getElementById('xModalFooter');
 
-    function openModal(title, bodyHtml, footerHtml) {
-        modalTitle.textContent = title;
+    function openModal(title, bodyHtml, footerHtml, titleHtml) {
+        if (titleHtml) modalTitle.innerHTML = titleHtml;
+        else modalTitle.textContent = title;
         modalBody.innerHTML = bodyHtml;
         modalFooter.innerHTML = footerHtml || '';
         modalFooter.style.display = footerHtml ? '' : 'none'; // the X at the top right closes it
@@ -353,14 +354,7 @@
 
     // ── Passenger reports ────────────────────────────────────────────
     let passengerReports = [];
-    let reportFilter = 'PENDING';
-    let reportSearch = ''; // typed in the top-bar search box on the Passenger Reports tab
 
-    function severityBadge(severity) {
-        if (severity === 'SAFETY') return badge('declined', 'SAFETY');
-        if (severity === 'HIGH') return badge('processing', 'HIGH');
-        return '';
-    }
 
     function reportStatusBadge(status) {
         if (status === 'RESOLVED') return badge('approved', 'RESOLVED');
@@ -368,105 +362,150 @@
         return badge('processing', 'PENDING');
     }
 
-    const SEVERITY_ORDER = { SAFETY: 0, HIGH: 1, NORMAL: 2 };
+    // The passenger reports as rows of the Complaints case list (firestore-ui.js asks
+    // for them): same fields a complaint row uses, plus kind 'report'.
+    window.getPassengerReportCases = function () {
+        return passengerReports.map((r) => {
+            const booking = (window.allBookings || []).find((b) => b.id === r.bookingId);
+            const ref = booking ? booking.ref : r.bookingId;
+            return {
+                kind: 'report',
+                id: r.id,
+                ref,
+                tripRef: ref,
+                reporter: personName(r.driverId),
+                reported: personName(r.passengerId),
+                driverId: r.driverId,
+                passengerId: r.passengerId,
+                issue: r.category,
+                description: r.description,
+                severity: r.severity,
+                status: r.status === 'RESOLVED' ? 'resolved' : r.status === 'REJECTED' ? 'rejected' : 'pending',
+                createdAtRaw: new Date(r.createdAt)
+            };
+        });
+    };
 
-    function renderPassengerReports() {
-        const tbody = document.getElementById('passengerReportsBody');
-        if (!tbody) return;
-        const matches = (r) => !reportSearch || [personName(r.passengerId), personName(r.driverId), r.todaName, r.category, r.description, r.severity, r.status === 'REJECTED' ? 'dismissed' : r.status]
-            .some((value) => String(value || '').toLowerCase().includes(reportSearch));
-        const list = passengerReports
-            .filter((r) => reportFilter === 'ALL' || r.status === reportFilter)
-            .filter(matches)
-            .sort((a, b) => ((a.status === 'PENDING' ? 0 : 1) - (b.status === 'PENDING' ? 0 : 1))
-                || ((SEVERITY_ORDER[a.severity] ?? 2) - (SEVERITY_ORDER[b.severity] ?? 2))
-                || b.createdAt - a.createdAt);
-        if (!list.length) {
-            tbody.innerHTML = emptyRow(6, reportSearch ? 'No passenger reports match your search.' : reportFilter === 'PENDING' ? 'No passenger reports waiting.' : 'No passenger reports found.');
-            return;
-        }
-        tbody.innerHTML = list.map((r) => {
-            const person = people.get(r.passengerId);
-            const total = person ? person.reportCount : 0;
-            const hot = person && (total >= 3 || passengerReports.some((x) => x.passengerId === r.passengerId && x.severity === 'SAFETY'));
-            return `
-            <tr>
-                <td><div class="detail-main">${esc(personName(r.passengerId))}</div><div class="detail-sub" style="${hot ? 'color:#EE5D50; font-weight:600;' : ''}">${total} report${total === 1 ? '' : 's'} in total</div></td>
-                <td><div class="detail-main">${esc(r.category)} ${severityBadge(r.severity)}</div><div class="detail-sub" style="max-width:300px;">${esc((r.description || '').slice(0, 120))}${(r.description || '').length > 120 ? '…' : ''}</div></td>
-                <td>${esc(personName(r.driverId))}<div class="detail-sub">${esc(r.todaName)}</div></td>
-                <td>${esc(fmtDate(r.createdAt))}</td>
-                <td>${reportStatusBadge(r.status)}</td>
-                <td><button class="action-btn" data-x="view-report" data-id="${esc(r.id)}">${r.status === 'PENDING' ? 'Review' : 'View'}</button></td>
-            </tr>`;
-        }).join('');
+    function notifyReports() {
+        document.dispatchEvent(new CustomEvent('para:reports-updated'));
     }
-
-    // The ride's reference, opening the trip window when the booking is loaded.
-    function rideLink(bookingId) {
-        const booking = (window.allBookings || []).find((b) => b.id === bookingId);
-        if (!booking) return esc(bookingId);
-        return `<a href="#" data-x-trip="${esc(bookingId)}">${esc(booking.ref)}</a>`;
-    }
-
+    // The passenger report window has the same layout as a complaint case window:
+    // Case: <ref>, Reporter / Party Involved / Status, the trip line, the issue and
+    // description, then Take Action with a note and the same four decision buttons.
     function openReport(id) {
         const r = passengerReports.find((x) => x.id === id);
         if (!r) return;
-        const open = r.status === 'PENDING';
+        // Anything that is not resolved or dismissed is still waiting for the admin.
+        const open = r.status !== 'RESOLVED' && r.status !== 'REJECTED';
         reopenCurrent = () => openReport(id);
         const person = people.get(r.passengerId);
-        const name = personName(r.passengerId);
-        const total = person ? person.reportCount : 0;
-        const safetyCount = passengerReports.filter((x) => x.passengerId === r.passengerId && x.severity === 'SAFETY').length;
-        const hot = total >= 3 || safetyCount > 0;
+        const booking = (window.allBookings || []).find((b) => b.id === r.bookingId);
+        const ref = booking ? booking.ref : r.bookingId;
+        const about = passengerReports.filter((x) => x.passengerId === r.passengerId);
+        const total = Math.max(person ? person.reportCount : 0, about.length);
         const accountNow = person && person.accountStatus ? person.accountStatus.charAt(0).toUpperCase() + person.accountStatus.slice(1) : 'Active';
         const suspended = person && String(person.accountStatus).toLowerCase() === 'suspended';
-        const body = `
-            <div class="ap-head">
-                <div class="ap-avatar">${esc(initialsOf(name))}</div>
-                <div class="ap-who"><div class="ap-name">${esc(name)}</div><div class="ap-sub">Passenger · Filed ${esc(fmtDate(r.createdAt))}</div></div>
-                <div>${reportStatusBadge(r.status)}</div>
-            </div>
-            ${r.severity === 'SAFETY' && open ? '<div class="ap-alert danger" style="margin-top:16px;">Safety report. Look at this one first.</div>' : ''}
-            <div class="ap-section">
-                <div class="ap-title">The report</div>
-                <div class="ap-card">
-                    ${row('Category', esc(r.category) + ' ' + severityBadge(r.severity))}
-                    ${row('Reported by', esc(personName(r.driverId)) + (r.todaName ? ' · ' + esc(r.todaName) : ''))}
-                    ${row('Ride', rideLink(r.bookingId))}
+        const others = about.filter((x) => x.id !== r.id).sort((a, b) => b.createdAt - a.createdAt);
+        const otherRows = others.slice(0, 4).map((o) => `
+            <button type="button" class="ph-row" data-x-report="${esc(o.id)}">
+                <span class="ph-date">${esc(fmtDate(o.createdAt))}</span>
+                <span class="ph-cat">${esc(o.category)}</span>
+                ${reportStatusBadge(o.status)}
+            </button>`).join('');
+        // What helps decide between a dismissal, a warning and a suspension: how many
+        // reports there are, how the passenger behaves on rides (the app's own
+        // counters), and what was already done to them.
+        const stats = (window.allPassengers || []).find((x) => x.id === r.passengerId);
+        const rate = stats ? parseFloat(stats.cancelRate) || 0 : 0;
+        const tile = (value, label, tone) => `<div class="ph-stat"><strong${tone ? ` class="${tone}"` : ''}>${value}</strong><span>${label}</span></div>`;
+        const history = `
+            <div class="ph-box">
+                <div class="ph-stats">
+                    ${tile(total, 'Report' + (total === 1 ? '' : 's'), total >= 3 ? 'bad' : '')}
+                    ${stats ? tile(esc(stats.totalRides), 'Rides', '') : ''}
+                    ${stats ? tile(esc(stats.cancelRate), 'Cancel rate', rate >= 10 ? 'bad' : rate >= 5 ? 'warn' : '') : ''}
+                    ${stats ? tile(esc(stats.noShowCount), 'No-shows', stats.noShowCount >= 3 ? 'bad' : '') : ''}
+                    ${suspended ? tile('Suspended', 'Account', 'bad') : ''}
+                    ${person ? `<button type="button" class="action-btn ph-open" data-x-passenger="${esc(r.passengerId)}">Open passenger</button>` : ''}
                 </div>
-            </div>
-            <div class="ap-section">
-                <div class="ap-title">What the driver wrote</div>
-                <blockquote class="ap-quote">${esc(r.description) || 'The driver did not write anything.'}</blockquote>
-            </div>
-            <div class="ap-section">
-                <div class="ap-title">About this passenger</div>
-                <div class="ap-card">
-                    ${row('Reports in total', `<span style="${hot ? 'color:#EE5D50;' : ''}">${total}</span>`)}
-                    ${row('Safety reports', `<span style="${safetyCount ? 'color:#EE5D50;' : ''}">${safetyCount}</span>`)}
-                    ${row('Account', esc(accountNow))}
-                    ${person ? row('Passenger', `<button type="button" class="action-btn" data-x-passenger="${esc(r.passengerId)}">Open passenger</button>`) : ''}
-                </div>
-            </div>
-            <div class="ap-section">
-                <div class="ap-title">${open ? 'Your note (optional)' : 'Your decision' + (r.resolvedAt ? ' · ' + esc(fmtDate(r.resolvedAt)) : '')}</div>
-                ${open
-                    ? `<textarea id="xReportNote" class="form-input" rows="3" maxlength="400" placeholder="What was decided and why."></textarea>
-                       <div class="detail-sub" style="margin-top:8px;">The passenger is never told who reported them. To act on a report, suspend the account${suspended ? ' (already suspended)' : ' from Open passenger'}; they can then appeal.</div>`
-                    : `<blockquote class="ap-quote ${r.status === 'RESOLVED' ? 'granted' : 'denied'}">${esc(r.adminNote) || 'No note was written.'}</blockquote>`}
+                <div id="phActions" data-passenger="${esc(r.passengerId)}"></div>
+                ${others.length ? `<div class="ph-title">Other reports about them</div>${otherRows}${others.length > 4 ? `<div class="ph-more">and ${others.length - 4} more in their Complaints tab</div>` : ''}` : ''}
             </div>`;
+        const body = `
+            <div class="case-parties">
+                <div class="case-party"><div class="case-label">Reporter</div><div class="case-value">${esc(personName(r.driverId))}</div><div class="case-sub">Driver${r.todaName ? ' · ' + esc(r.todaName) : ''}</div></div>
+                <div class="case-party"><div class="case-label">Party Involved</div><div class="case-value">${esc(personName(r.passengerId))}</div><div class="case-sub">Passenger</div></div>
+                <div class="case-party"><div class="case-label">Status</div><div class="case-value">${reportStatusBadge(r.status)}</div><div class="case-sub">Filed ${esc(fmtDate(r.createdAt))}</div></div>
+            </div>
+            <div class="case-trip-line"><span>Trip ${esc(ref)}</span>${booking ? `<button type="button" class="action-btn" data-x-trip="${esc(r.bookingId)}" style="background:var(--bg-light);color:var(--text-main);">View trip</button>` : ''}</div>
+            <div class="form-group"><label>Issue Type</label><input type="text" class="form-input" readonly value="${esc(r.category)}" style="background:var(--bg-light); border-color:transparent;"></div>
+            <div class="form-group"><label>Full Description</label><textarea class="form-input" rows="4" readonly style="background:var(--bg-light); border-color:transparent; resize:none;">${esc(r.description)}</textarea></div>
+            <div class="form-group"><label>Passenger History</label>${history}</div>
+            <hr style="border:none; border-top:1px solid var(--border-color); margin:20px 0;">
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:14px;">Take Action</h3>
+            <div class="form-group"><label>Resolution Note</label>
+                <textarea id="xReportNote" class="form-input" rows="3" maxlength="400" ${open ? '' : 'disabled'} placeholder="Type your resolution or notes here…">${esc(r.adminNote)}</textarea>
+                <div class="detail-sub" style="margin-top:4px;">${suspended ? 'This passenger is already suspended. ' : ''}Sent to the driver who reported it, and to the passenger too when you issue a warning or suspension. The passenger is never told who reported them.</div></div>`;
         const footer = open
-            ? `<button class="btn" style="background:var(--primary);color:white;" data-x="decide-report" data-id="${esc(r.id)}" data-status="REJECTED">Dismiss report</button>
-               <button class="btn" style="background:#05CD99;color:white;" data-x="decide-report" data-id="${esc(r.id)}" data-status="RESOLVED">Mark resolved</button>`
-            : '';
-        openModal('Passenger report', body, footer);
+            ? `<div style="display:flex; flex-wrap:wrap; justify-content:center; gap:10px; width:100%;">
+                   <button class="btn" style="background:var(--primary);color:white;" data-x="report-dismiss" data-id="${esc(r.id)}" title="Close the report as unfounded">Dismiss</button>
+                   <button class="btn" style="background:#FF9E2A;color:white;" data-x="report-warn" data-id="${esc(r.id)}">Issue Warning</button>
+                   <button class="btn" style="background:#EE5D50;color:white;" data-x="report-suspend" data-id="${esc(r.id)}">Suspend Account</button>
+                   <button class="btn" style="background:#05CD99;color:white;" data-x="report-resolve" data-id="${esc(r.id)}">Mark Resolved</button>
+               </div>`
+            : '<span style="display:block; width:100%; text-align:center; font-size:13px; color:var(--text-muted);">This case has already been reviewed.</span>';
+        openModal('Case', body, footer, `Case: <span style="color:var(--primary);">${esc(ref)}</span>`);
+        loadPastActions(r.passengerId);
     }
-    async function decideReport(id, status) {
-        const noteEl = document.getElementById('xReportNote');
-        const note = noteEl ? noteEl.value.trim() : '';
+
+    // Earlier warnings and suspensions on the passenger's record (passenger_actions).
+    function loadPastActions(passengerId) {
+        if (typeof ParaFirestore.fetchPassengerActions !== 'function') return;
+        ParaFirestore.fetchPassengerActions(passengerId).then((actions) => {
+            const box = document.getElementById('phActions');
+            if (!box || box.dataset.passenger !== passengerId) return;
+            const past = actions.filter((a) => a.actionType === 'Warning' || a.actionType === 'Suspension').slice(0, 4);
+            if (!past.length) return;
+            box.innerHTML = '<div class="ph-title">Earlier actions</div>' + past.map((a) => `
+                <div class="ph-row static">
+                    <span class="ph-date">${esc(fmtDate(a.issuedAt))}</span>
+                    <span class="ph-cat">${esc(a.actionType)}${a.reason ? ' · ' + esc(a.reason) : ''}</span>
+                </div>`).join('');
+        }).catch((error) => console.error('Could not load the passenger record:', error));
+    }
+
+    // The four decisions, like a complaint case: dismiss (unfounded), resolve (handled),
+    // warn or suspend the passenger. Each one closes the report; a warning or
+    // suspension also goes on the passenger's record and notifies them (without
+    // saying who reported them). The driver who reported is told how it ended.
+    async function runReportAction(id, status, note, actionType, days) {
+        const r = passengerReports.find((x) => x.id === id);
+        if (!r) return;
         try {
             await db.collection('passenger_reports').doc(id).update({ status, adminNote: note, resolvedAt: Date.now() });
-            toast(status === 'RESOLVED' ? 'Report marked resolved.' : 'Report dismissed.', 'success');
+            const name = personName(r.passengerId);
+            if (actionType === 'Suspension') {
+                await ParaFirestore.updatePassengerStatus(r.passengerId, 'suspended', days || '3', note);
+            }
+            if (actionType) {
+                ParaFirestore.logPassengerAction(r.passengerId, name, actionType, note)
+                    .catch((error) => console.error('Failed to log passenger action:', error));
+                const title = actionType === 'Warning' ? 'Account Warning' : 'Account Suspended';
+                const text = note || (actionType === 'Warning'
+                    ? 'You have received a warning from PARA admin about your behavior on a recent ride.'
+                    : 'Your account has been suspended by PARA admin.');
+                ParaFirestore.sendDirectNotification(r.passengerId, title, text, r.bookingId)
+                    .catch((error) => console.error('Failed to notify the passenger:', error));
+            }
+            if (r.driverId) {
+                const outcome = status === 'RESOLVED'
+                    ? 'Your report about a passenger has been resolved by PARA admin.'
+                    : 'Your report about a passenger was reviewed and closed without action.';
+                ParaFirestore.sendDirectNotification(r.driverId, 'Report update', note ? `${outcome}\n\nNote: ${note}` : outcome, r.bookingId)
+                    .catch((error) => console.error('Failed to notify the driver:', error));
+            }
+            const messages = { Warning: 'Warning issued and sent to the passenger.', Suspension: 'Passenger suspended and notified.' };
+            toast(messages[actionType] || (status === 'REJECTED' ? 'Report dismissed.' : 'Report marked as resolved.'), actionType === 'Suspension' ? 'error' : actionType === 'Warning' ? 'warning' : 'success');
             closeModal();
         } catch (error) {
             console.error('Failed to update passenger report:', error);
@@ -474,6 +513,65 @@
         }
     }
 
+    const reportNote = () => {
+        const el = document.getElementById('xReportNote');
+        return el ? el.value.trim() : '';
+    };
+
+    function confirmReportDecision(kind, id) {
+        const r = passengerReports.find((x) => x.id === id);
+        if (!r) return;
+        const name = personName(r.passengerId);
+        if (kind === 'dismiss') {
+            showConfirmModal('Dismiss this report?', 'The report will be closed as unfounded, with no action on the passenger. The driver who filed it is told it was closed without action.', 'Dismiss', '#6B7A99',
+                () => runReportAction(id, 'REJECTED', reportNote(), null));
+        } else if (kind === 'resolve') {
+            showConfirmModal('Mark this report as resolved?', 'The report will be closed as handled, with no warning or suspension. The driver who filed it is notified.', 'Mark Resolved', '#05CD99',
+                () => runReportAction(id, 'RESOLVED', reportNote(), null));
+        } else if (kind === 'warn') {
+            // The message is what the passenger is told, so it can't be left blank. It
+            // starts from whatever is already typed in the Resolution Note.
+            const draft = reportNote();
+            const bodyHtml = `
+                <div style="text-align:left; margin-bottom:12px; color:var(--text-muted);">They will receive a notification with this message, and the warning will be recorded on their account.</div>
+                <div style="text-align:left;">
+                    <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Message to the passenger <span style="color:#EE5D50;">*</span></label>
+                    <textarea id="reportWarnMessage" class="form-input" rows="4" style="width:100%; resize:vertical;" placeholder="e.g. Please treat drivers respectfully and pay the fare shown in the app. Another report may lead to a suspension."></textarea>
+                    <div class="detail-sub" style="margin-top:6px;">Also saved as this case's resolution note.</div>
+                </div>`;
+            showConfirmModal(`Warn ${name}?`, '', 'Issue Warning', '#FF9E2A', () => {
+                const message = (document.getElementById('reportWarnMessage') || {}).value || '';
+                if (message.trim()) runReportAction(id, 'RESOLVED', message.trim(), 'Warning');
+            }, bodyHtml);
+            const messageEl = document.getElementById('reportWarnMessage');
+            const confirmBtn = document.getElementById('confirmActionBtn');
+            if (messageEl && confirmBtn) {
+                messageEl.value = draft;
+                const sync = () => { confirmBtn.disabled = !messageEl.value.trim(); };
+                messageEl.addEventListener('input', sync);
+                sync();
+                messageEl.focus();
+            }
+        } else if (kind === 'suspend') {
+            const bodyHtml = `
+                <div style="text-align:left; margin-bottom:12px; color:var(--text-muted);">This passenger account will be suspended and notified. They can appeal the suspension.</div>
+                <div style="text-align:left;">
+                    <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:600; color:var(--text-muted);">Suspend for</label>
+                    <select id="reportSuspendDays" class="form-input" style="width:100%; min-height:42px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px; background:#fff;">
+                        <option value="1">1 day</option>
+                        <option value="3" selected>3 days</option>
+                        <option value="7">7 days</option>
+                        <option value="14">14 days</option>
+                        <option value="30">30 days</option>
+                        <option value="permanent">Indefinitely (until manually reactivated)</option>
+                    </select>
+                </div>`;
+            showConfirmModal(`Suspend ${name}?`, 'This passenger account will be suspended.', 'Suspend', '#EE5D50', () => {
+                const days = (document.getElementById('reportSuspendDays') || {}).value || '3';
+                runReportAction(id, 'RESOLVED', reportNote(), 'Suspension', days);
+            }, bodyHtml);
+        }
+    }
     db.collection('passenger_reports').onSnapshot((snapshot) => {
         passengerReports = snapshot.docs.map((doc) => {
             const d = doc.data() || {};
@@ -486,35 +584,21 @@
                 category: d.category || 'Report',
                 severity: d.severity || 'NORMAL',
                 description: d.description || '',
-                status: d.status || 'PENDING',
+                status: String(d.status || 'PENDING').toUpperCase(),
                 createdAt: toMs(d.createdAt),
                 adminNote: d.adminNote || '',
                 resolvedAt: toMs(d.resolvedAt)
             };
         });
-        // The pending count shows on the Passenger Reports tab of the Complaints page.
-        const reportsCount = document.getElementById('reportsCount');
-        if (reportsCount) reportsCount.textContent = passengerReports.filter((r) => r.status === 'PENDING').length;
-        renderPassengerReports();
-    }, (error) => {
-        console.error('Could not load passenger reports:', error);
-        const tbody = document.getElementById('passengerReportsBody');
-        if (tbody) tbody.innerHTML = emptyRow(6, 'Could not load passenger reports.');
-    });
-    peopleListeners.push(renderPassengerReports);
+        notifyReports();
+    }, (error) => console.error('Could not load passenger reports:', error));
+    peopleListeners.push(notifyReports);
 
-    // Called by the top-bar search box while the Passenger Reports tab is open.
-    window.setReportSearch = function (term) {
-        reportSearch = String(term || '').trim().toLowerCase();
-        renderPassengerReports();
-    };
-
-    window.setReportFilter = function (value) {
-        reportFilter = value;
-        const label = document.getElementById('reportFilterLabel');
-        if (label) label.textContent = value === 'ALL' ? 'All' : value.charAt(0) + value.slice(1).toLowerCase();
-        renderPassengerReports();
-    };
+    // The report window, opened from a row of the Complaints case list or from a
+    // passenger's Complaints tab.
+    window.openPassengerReport = openReport;
+    // A window that takes over (firestore-ui.js) must not have this one come back too.
+    window.clearReportReturn = function () { returnTo = null; };
 
     // ── Flood hazards ────────────────────────────────────────────────
     let floodZones = [];
@@ -1094,10 +1178,13 @@
     peopleListeners.push(notifyRatings);
     // ── Wiring ───────────────────────────────────────────────────────
     bindClicks(document.getElementById('appealsBody'), { 'view-appeal': (ds) => openAppeal(ds.id) });
-    bindClicks(document.getElementById('passengerReportsBody'), { 'view-report': (ds) => openReport(ds.id) });
+
     bindClicks(modalFooter, {
         'decide': (ds) => decideAppeal(ds.id, ds.status),
-        'decide-report': (ds) => decideReport(ds.id, ds.status)
+        'report-dismiss': (ds) => confirmReportDecision('dismiss', ds.id),
+        'report-warn': (ds) => confirmReportDecision('warn', ds.id),
+        'report-suspend': (ds) => confirmReportDecision('suspend', ds.id),
+        'report-resolve': (ds) => confirmReportDecision('resolve', ds.id)
     });
     watchForReturn('complaintViewModal');
     watchForReturn('tripModal');
@@ -1108,6 +1195,11 @@
         const caseBtn = e.target.closest('[data-x-case]');
         if (caseBtn && typeof window.openComplaintModal === 'function') {
             openOver('complaintViewModal', () => window.openComplaintModal(caseBtn.dataset.xCase));
+            return;
+        }
+        const otherReport = e.target.closest('[data-x-report]');
+        if (otherReport) {
+            openReport(otherReport.dataset.xReport);
             return;
         }
         const passengerBtn = e.target.closest('[data-x-passenger]');

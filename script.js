@@ -87,18 +87,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const SEARCH_PLACEHOLDERS = {
         'driver-management': 'Search drivers by name, plate or phone…',
         'passenger-management': 'Search passengers by name, phone or email…',
-        'complaints': 'Search complaints by case, driver, passenger or issue…',
+        'complaints': 'Search complaints and reports by case, driver, passenger or issue…',
         'bookings': 'Search bookings by ID, driver, passenger or place…'
     };
 
-    // The Complaints page has three tabs: the complaints themselves, appeals against
-    // warnings and suspensions, and reports drivers filed about passengers.
+    // The Complaints page has two tabs: the cases (complaints about drivers and
+    // reports drivers filed about passengers, in one list) and appeals against
+    // warnings and suspensions.
     let complaintTab = 'cases';
-    const COMPLAINT_PANELS = { cases: 'complaintsPanel', appeals: 'appealsPanel', reports: 'reportsPanel' };
+    const COMPLAINT_PANELS = { cases: 'complaintsPanel', appeals: 'appealsPanel' };
     const COMPLAINT_TAB_PLACEHOLDERS = {
-        cases: 'Search complaints by case, driver, passenger or issue…',
-        appeals: 'Search appeals by name, TODA, statement or status…',
-        reports: 'Search passenger reports by passenger, driver, category or status…'
+        cases: 'Search complaints and reports by case, driver, passenger or issue…',
+        appeals: 'Search appeals by name, TODA, statement or status…'
     };
 
     function applyComplaintTab() {
@@ -129,9 +129,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function switchView(viewId) {
-        // #appeals and #passenger-reports (old links) open those tabs of the Complaints page.
+        // #appeals and #passenger-reports (old links) open the Complaints page.
         if (viewId === 'appeals' || viewId === 'passenger-reports') {
-            complaintTab = viewId === 'appeals' ? 'appeals' : 'reports';
+            complaintTab = viewId === 'appeals' ? 'appeals' : 'cases';
             viewId = 'complaints';
         }
         navLinks.forEach(link => link.classList.toggle('active', link.dataset.view === viewId));

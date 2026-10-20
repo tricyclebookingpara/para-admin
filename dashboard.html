@@ -6,7 +6,7 @@
     <title>PARA Admin Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-    <link rel="stylesheet" href="style.css?v=97">
+    <link rel="stylesheet" href="style.css?v=103">
 </head>
 <body>
 <div class="app-background">
@@ -566,7 +566,6 @@
                 <div class="vf-tabs" id="complaintTabs">
                     <button class="vf-tab active" data-tab="cases">Complaints</button>
                     <button class="vf-tab" data-tab="appeals">Appeals <span class="vf-count" id="appealsCount">0</span></button>
-                    <button class="vf-tab" data-tab="reports">Passenger Reports <span class="vf-count" id="reportsCount">0</span></button>
                 </div>
 
                 <div id="complaintsPanel">
@@ -605,19 +604,6 @@
                         <table class="data-table">
                             <thead><tr><th>Appellant</th><th>Decision appealed</th><th>Statement</th><th>Filed</th><th>Status</th><th>Actions</th></tr></thead>
                             <tbody id="appealsBody"><tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr></tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div id="reportsPanel" style="display:none;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:14px;">
-                        <div class="detail-sub">Reports drivers filed about passengers after a completed ride. Passengers cannot see these. Safety reports are listed first.</div>
-                        <select class="form-input" style="width:auto; min-width:150px; flex-shrink:0;" onchange="setReportFilter(this.value)"><option value="PENDING">Pending</option><option value="RESOLVED">Resolved</option><option value="REJECTED">Dismissed</option><option value="ALL">All</option></select>
-                    </div>
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead><tr><th>Passenger</th><th>Report</th><th>Reported by</th><th>Filed</th><th>Status</th><th>Actions</th></tr></thead>
-                            <tbody id="passengerReportsBody"><tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:28px;">Loading…</td></tr></tbody>
                         </table>
                     </div>
                 </div>
@@ -1206,7 +1192,7 @@
 
             <!-- Shared detail modal for the views above -->
             <div class="modal-overlay" id="xModal">
-                <div class="modal-content" style="max-width:640px;">
+                <div class="modal-content" style="max-width:680px;">
                     <div class="modal-header"><h2 id="xModalTitle">Details</h2><button class="close-btn" onclick="closeXModal()" aria-label="Close">&times;</button></div>
                     <div class="modal-body" id="xModalBody"></div>
                     <div class="modal-footer" id="xModalFooter"></div>
@@ -1228,10 +1214,10 @@
 <script src="firestore-service.js?v=56"></script>
 <script src="prediction.js?v=15"></script>
 <script src="forecast.js?v=20"></script>
-<script src="script.js?v=107"></script>
+<script src="script.js?v=108"></script>
 <script src="google-maps-config.js?v=1"></script>
-<script src="firestore-ui.js?v=111"></script>
+<script src="firestore-ui.js?v=115"></script>
 <script src="forecast-ui.js?v=29"></script>
-<script src="extras.js?v=29"></script>
+<script src="extras.js?v=35"></script>
 </body>
 </html>

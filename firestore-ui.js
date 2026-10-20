@@ -117,12 +117,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Safety and high-severity complaints stand out in the table and the case.
-    function complaintSeverityBadge(severity) {
-        if (severity === 'SAFETY') return ' <span class="status-badge declined" style="margin-left:6px;">SAFETY</span>';
-        if (severity === 'HIGH') return ' <span class="status-badge processing" style="margin-left:6px;">HIGH</span>';
-        return '';
-    }
-
     function complaintBadge(status) {
         return ParaFirestore.normalizeStatus(status) === 'rejected' ? renderBadge('rejected', 'DISMISSED') : renderBadge(status);
     }
@@ -1464,9 +1458,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (btn) window.openTripModal(btn.dataset.caseTrip);
     });
 
-    // A case opened from a trip, a driver or a passenger window: closing the case
-    // brings that window back instead of leaving the admin with nothing open.
-    let caseOrigin = null; // { id, seen }
+    // A case or report opened from a trip, a driver or a passenger window: closing
+    // it brings that window back instead of leaving the admin with nothing open.
+    let caseOrigin = null; // { id, target, seen }
 
     function returnToCaseOrigin() {
         const origin = caseOrigin;
@@ -1477,30 +1471,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (origin.id === 'tripModal') refreshTripModal();
     }
 
-    function openCaseFrom(originId, complaintId) {
-        const box = document.getElementById('complaintViewModal');
+    function openFrom(originId, targetId, open) {
+        const target = document.getElementById(targetId);
         const origin = document.getElementById(originId);
-        // Opened from the case itself (its View trip button): the case is already
-        // underneath, so just swap the windows as before.
-        const fromCase = box && box.classList.contains('active');
+        // Opened from the target itself (a case's View trip button, then View Case):
+        // the case is already underneath, so just swap the windows as before.
+        const fromTarget = target && target.classList.contains('active');
+        // The report window may have opened this one; it must not come back too.
+        if (typeof window.clearReportReturn === 'function') window.clearReportReturn();
         if (origin) origin.classList.remove('active');
-        caseOrigin = fromCase ? null : { id: originId, seen: false };
-        Promise.resolve(window.openComplaintModal(complaintId)).finally(() => {
+        caseOrigin = fromTarget ? null : { id: originId, target: targetId, seen: false };
+        Promise.resolve(open()).finally(() => {
             // It never opened (nothing found): don't leave the admin with no window.
-            if (caseOrigin && !caseOrigin.seen && !(box && box.classList.contains('active'))) returnToCaseOrigin();
+            if (caseOrigin && !caseOrigin.seen && !(target && target.classList.contains('active'))) returnToCaseOrigin();
         });
     }
 
-    (function watchCaseClose() {
-        const box = document.getElementById('complaintViewModal');
+    function openCaseFrom(originId, complaintId) {
+        openFrom(originId, 'complaintViewModal', () => window.openComplaintModal(complaintId));
+    }
+
+    ['complaintViewModal', 'xModal'].forEach((targetId) => {
+        const box = document.getElementById(targetId);
         if (!box) return;
         new MutationObserver(() => {
-            if (!caseOrigin) return;
+            if (!caseOrigin || caseOrigin.target !== targetId) return;
             if (box.classList.contains('active')) { caseOrigin.seen = true; return; }
             if (caseOrigin.seen) returnToCaseOrigin();
         }).observe(box, { attributes: true, attributeFilter: ['class'] });
-    })();
-
+    });
     document.getElementById('tripModal')?.addEventListener('click', (e) => {
         const caseBtn = e.target.closest('[data-trip-case]');
         if (caseBtn) openCaseFrom('tripModal', caseBtn.dataset.tripCase);
@@ -1561,13 +1560,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // The Status filter, then whatever is typed in the top-bar search box (case
     // number, passenger, driver, issue, description or trip).
+    // The case list holds complaints about drivers and the reports drivers filed
+    // about passengers (kind 'report', supplied by extras.js).
+    function allCases() {
+        const reports = typeof window.getPassengerReportCases === 'function' ? window.getPassengerReportCases() : [];
+        return allComplaints.concat(reports);
+    }
+
     function getComplaintsForFilter(filterKey) {
         const key = (filterKey || 'all').toLowerCase();
-        let list = allComplaints;
-        if (key === 'pending') list = allComplaints.filter((c) => ['pending', 'reviewing'].includes(c.status));
-        else if (key === 'warned') list = allComplaints.filter(wasWarnedByAdmin);
-        else if (key === 'resolved') list = allComplaints.filter((c) => c.status === 'resolved');
-        else if (key === 'dismissed') list = allComplaints.filter((c) => c.status === 'rejected');
+        const cases = allCases();
+        let list = cases;
+        if (key === 'pending') list = cases.filter((c) => ['pending', 'reviewing'].includes(c.status));
+        else if (key === 'warned') list = cases.filter((c) => c.kind !== 'report' && wasWarnedByAdmin(c));
+        else if (key === 'resolved') list = cases.filter((c) => c.status === 'resolved');
+        else if (key === 'dismissed') list = cases.filter((c) => c.status === 'rejected');
         return listSearchTerm
             ? list.filter((c) => matchesListSearch([c.ref, c.id, c.reporter, c.reported, c.issue, c.description, c.tripRef]))
             : list;
@@ -1583,7 +1590,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function updateComplaintStats() {
-        if (!allComplaints.length) {
+        const cases = allCases();
+        if (!cases.length) {
             document.getElementById('complaints-under-review').textContent = '0';
             document.getElementById('complaints-resolved').textContent = '0';
             document.getElementById('complaints-total-month').textContent = '0';
@@ -1593,9 +1601,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const now = new Date();
         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-        const underReview = allComplaints.filter((c) => ['pending', 'reviewing'].includes(c.status)).length;
-        const resolved = allComplaints.filter((c) => c.status === 'resolved').length;
-        const thisMonth = allComplaints.filter((c) => {
+        const underReview = cases.filter((c) => ['pending', 'reviewing'].includes(c.status)).length;
+        const resolved = cases.filter((c) => c.status === 'resolved').length;
+        const thisMonth = cases.filter((c) => {
             const createdAt = c.createdAtRaw || c.createdAt || new Date(c.createdAt);
             if (!(createdAt instanceof Date) || Number.isNaN(createdAt.getTime())) return false;
             return createdAt >= monthStart;
@@ -1630,6 +1638,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         box.innerHTML = riskBodyHtml(risk, suspensionRecommendationsFor(complaint).some((a) => a.actionType === 'Suspension'));
     }
 
+    // A new, changed or removed passenger report (extras.js) redraws the case list
+    // and the passenger window.
+    document.addEventListener('para:reports-updated', () => {
+        updateComplaintStats();
+        renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
+        refreshPassengerDetails();
+    });
+
     window.setComplaintFilter = function(statusKey) {
         const normalizedKey = (statusKey || 'all').toLowerCase();
         window.complaintMgmtStatusFilter = normalizedKey;
@@ -1662,7 +1678,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const paginationEl = document.getElementById('complaintPagination');
         if (!sortedComplaints.length) {
-            tbody.innerHTML = emptyRow(5, listSearchTerm ? 'No complaints match your search.' : 'No complaints found in Firestore.');
+            tbody.innerHTML = emptyRow(5, listSearchTerm ? 'No complaints or reports match your search.' : 'No complaints or reports found.');
             if (paginationEl) paginationEl.innerHTML = '';
             return;
         }
@@ -1673,11 +1689,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         const pageStart = (complaintTablePage - 1) * COMPLAINTS_PAGE_SIZE;
         const pageItems = sortedComplaints.slice(pageStart, pageStart + COMPLAINTS_PAGE_SIZE);
 
-        tbody.innerHTML = pageItems.map((complaint) => `
+        tbody.innerHTML = pageItems.map((complaint) => complaint.kind === 'report' ? `
+            <tr>
+                <td><div class="book-id">${escapeHtml(complaint.ref)}</div><div class="book-time">Reporter: ${escapeHtml(complaint.reporter)}</div><div class="case-kind">Driver's report</div></td>
+                <td><div class="detail-main">${escapeHtml(complaint.reported)}</div><div class="detail-sub">Trip: ${escapeHtml(complaint.tripRef)}</div></td>
+                <td><div class="detail-main">${escapeHtml(complaint.issue)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
+                <td>${complaintBadge(complaint.status)}</td>
+                <td><button class="action-btn" data-action="view-complaint" data-kind="report" data-id="${escapeHtml(complaint.id)}">View Case</button></td>
+            </tr>` : `
             <tr>
                 <td><div class="book-id">${escapeHtml(complaint.ref)}</div><div class="book-time">Reporter: ${escapeHtml(complaint.reporter)}</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.reported)} ${riskChipHtml(riskOf(complaint.driverId))}</div><div class="detail-sub">Trip: ${escapeHtml(complaint.tripRef)}</div></td>
-                <td><div class="detail-main">${escapeHtml(complaint.issue)}${complaintSeverityBadge(complaint.severity)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
+                <td><div class="detail-main">${escapeHtml(complaint.issue)}</div><div class="detail-sub">${escapeHtml(complaint.description)}</div></td>
                 <td>${complaintBadge(complaint.status)}${openRecommendationLabel(complaint)}${wasSuspendedByAdmin(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#EE5D50; font-weight:600;">Driver suspended</div>' : ''}${wasWarnedByAdmin(complaint) ? '<div class="detail-sub" style="margin-top:6px; color:#E08A00; font-weight:600;">Warning issued</div>' : ''}</td>
                 <td><button class="action-btn" data-action="view-complaint" data-id="${escapeHtml(complaint.id)}">View Case</button></td>
             </tr>
@@ -1696,7 +1719,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         bindRowActions(tbody, {
-            'view-complaint': (ds) => window.openComplaintModal(ds.id)
+            'view-complaint': (ds) => {
+                if (ds.kind === 'report') {
+                    if (typeof window.openPassengerReport === 'function') window.openPassengerReport(ds.id);
+                } else {
+                    window.openComplaintModal(ds.id);
+                }
+            }
         });
     }
 
@@ -2772,20 +2801,42 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>`;
     }
 
+    // The reports drivers filed about this passenger, as case rows (extras.js).
+    function reportsAboutPassenger(passenger) {
+        const reports = typeof window.getPassengerReportCases === 'function' ? window.getPassengerReportCases() : [];
+        return reports.filter((r) => r.passengerId === passenger.id);
+    }
+
+    // Their complaints history: complaints they filed and reports drivers filed about them.
+    function passengerCaseHistory(passenger) {
+        return complaintsForPassenger(passenger).concat(reportsAboutPassenger(passenger)).sort((a, b) => {
+            const ta = a.createdAtRaw ? new Date(a.createdAtRaw).getTime() || 0 : 0;
+            const tb = b.createdAtRaw ? new Date(b.createdAtRaw).getTime() || 0 : 0;
+            return tb - ta;
+        });
+    }
+
     function pdComplaintsHtml(passenger) {
-        const list = complaintsForPassenger(passenger);
-        if (!list.length) return ddEmpty('This passenger hasn’t filed any complaints.');
-        const rows = list.map((c) => `
+        const list = passengerCaseHistory(passenger);
+        if (!list.length) return ddEmpty('No complaints filed by or reports filed about this passenger.');
+        const rows = list.map((c) => c.kind === 'report' ? `
+            <tr>
+                <td><div class="book-id">${escapeHtml(c.ref)}</div><div class="book-time">${escapeHtml(ParaFirestore.formatDateTime(c.createdAtRaw))}</div><div class="case-kind">Driver's report</div></td>
+                <td><div class="detail-main">${escapeHtml(c.issue)}</div><div class="detail-sub">${escapeHtml(c.description)}</div></td>
+                <td>${escapeHtml(c.reporter)}<div class="detail-sub">Reported by driver</div></td>
+                <td>${complaintBadge(c.status)}</td>
+                <td><button class="action-btn" data-dd-report="${escapeHtml(c.id)}">View Case</button></td>
+            </tr>` : `
             <tr>
                 <td><div class="book-id">${escapeHtml(c.ref)}</div><div class="book-time">${escapeHtml(ParaFirestore.formatDateTime(c.createdAtRaw))}</div></td>
                 <td><div class="detail-main">${escapeHtml(c.issue)}</div><div class="detail-sub">${escapeHtml(c.description)}</div></td>
-                <td>${escapeHtml(c.reported)}${c.tripRef ? `<div class="detail-sub">Trip: ${escapeHtml(c.tripRef)}</div>` : ''}</td>
+                <td>${escapeHtml(c.reported)}${c.tripRef ? `<div class="detail-sub">Trip: ${escapeHtml(c.tripRef)}</div>` : ''}<div class="detail-sub">Filed by the passenger</div></td>
                 <td>${complaintBadge(c.status)}</td>
                 <td><button class="action-btn" data-dd-case="${escapeHtml(c.id)}">View Case</button></td>
             </tr>`).join('');
         return `
             <div class="table-container"><table class="data-table">
-                <thead><tr><th>Case</th><th>Issue</th><th>Against driver</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Case</th><th>Issue</th><th>Other party</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table></div>`;
     }
@@ -2801,7 +2852,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('pd-title').textContent = pdPassenger.name || 'Passenger Details';
         document.getElementById('pd-meta').innerHTML = renderBadge(status);
         document.getElementById('pd-bookings-count').textContent = `(${bookingsForPassenger(pdPassenger).length})`;
-        document.getElementById('pd-complaints-count').textContent = `(${complaintsForPassenger(pdPassenger).length})`;
+        document.getElementById('pd-complaints-count').textContent = `(${passengerCaseHistory(pdPassenger).length})`;
         body.innerHTML = pdTab === 'bookings' ? pdBookingsHtml(pdPassenger)
             : pdTab === 'complaints' ? pdComplaintsHtml(pdPassenger)
             : pdInfoHtml(pdPassenger);
@@ -2858,6 +2909,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             const caseBtn = e.target.closest('[data-dd-case]');
             if (caseBtn) {
                 openCaseFrom('passengerDetailsModal', caseBtn.dataset.ddCase);
+                return;
+            }
+            const reportBtn = e.target.closest('[data-dd-report]');
+            if (reportBtn) {
+                openFrom('passengerDetailsModal', 'xModal', () => window.openPassengerReport(reportBtn.dataset.ddReport));
                 return;
             }
             const actionBtn = e.target.closest('[data-pd-action]');
@@ -4069,10 +4125,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (typeof window.setAppealSearch === 'function') window.setAppealSearch(listSearchTerm);
                 return;
             }
-            if (document.getElementById('reportsPanel')?.style.display !== 'none') {
-                if (typeof window.setReportSearch === 'function') window.setReportSearch(listSearchTerm);
-                return;
-            }
             complaintTablePage = 1;
             renderComplaintTable(getComplaintsForFilter(window.complaintMgmtStatusFilter));
         },
@@ -4085,7 +4137,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         listSearchTerm = '';
         Object.values(SEARCH_REDRAW).forEach((redraw) => redraw());
         if (typeof window.setAppealSearch === 'function') window.setAppealSearch('');
-        if (typeof window.setReportSearch === 'function') window.setReportSearch('');
+
     };
 
     if (globalSearchInput) {
