@@ -205,6 +205,9 @@ const ParaFirestore = (() => {
             // What the driver typed when signing up (DriverSignupScreen); the
             // document photos themselves are in Storage, see fetchDriverDocuments.
             governmentId: getField(data, 'governmentId'),
+            // Which ID the number is (the app's GovernmentIdType); blank for
+            // drivers who registered before it was asked.
+            governmentIdType: GOVERNMENT_ID_TYPES[getField(data, 'governmentIdType')] || getField(data, 'governmentIdType'),
             licenseExpiry: getField(data, 'licenseExpiryDate'),
             vehicleRegistrationDate: getField(data, 'vehicleRegistrationDate'),
             todaName: getField(data, 'todaName'),
@@ -296,7 +299,15 @@ const ParaFirestore = (() => {
             // Booking cooldown, kept by the app's countRideOutcome function: 3
             // late cancels / no-shows in 24 h pause booking (30 min, 2 h, 24 h).
             // 3 pauses in 30 days set cancelReviewFlag for the admin to review.
-            bookingBlockedUntil: Number(data.bookingBlockedUntil) || 0,
+            // The app also pauses for 24 h after every no-show from the 3rd on
+            // (NoShowPolicy, from lastNoShowAt), so this is the later of the two:
+            // when the app will let them book again.
+            bookingBlockedUntil: Math.max(
+                Number(data.bookingBlockedUntil) || 0,
+                (Number(data.noShowCount) || 0) >= 3 && Number(data.lastNoShowAt) > 0
+                    ? Number(data.lastNoShowAt) + 24 * 60 * 60 * 1000
+                    : 0
+            ),
             cooldownCount30d: Array.isArray(data.cooldownAts)
                 ? data.cooldownAts.filter((t) => Date.now() - Number(t) < 30 * 24 * 60 * 60 * 1000).length
                 : 0,
@@ -315,6 +326,29 @@ const ParaFirestore = (() => {
         return { lat, lng };
     }
 
+    // The app's GovernmentIdType names (util/IdFormats.kt) and their labels.
+    const GOVERNMENT_ID_TYPES = {
+        PHILSYS: 'PhilSys National ID',
+        UMID: 'UMID',
+        SSS: 'SSS ID',
+        PHILHEALTH: 'PhilHealth ID',
+        TIN: 'TIN ID',
+        PASSPORT: 'Philippine Passport',
+        PRC: 'PRC ID'
+    };
+
+    // "SSS ID 12-3456789-0", or just the number when the type isn't known.
+    function governmentIdLabel(driver) {
+        if (!driver || !driver.governmentId) return '';
+        return driver.governmentIdType ? `${driver.governmentIdType} ${driver.governmentId}` : driver.governmentId;
+    }
+
+    // The ride kind the app stores (RideType + SharedRideMode) in words.
+    function rideKindLabel(rideType, sharedMode) {
+        if (String(rideType).toUpperCase() !== 'SHARED') return 'Solo ride';
+        return String(sharedMode).toUpperCase() === 'FRIENDS' ? 'Shared ride (friends)' : 'Shared ride';
+    }
+
     function mapBookingDoc(doc) {
         const data = doc.data() || {};
         const rawCreatedAt = toDate(getField(data, 'timestamp', 'createdAt', 'created_at', 'date'));
@@ -325,7 +359,9 @@ const ParaFirestore = (() => {
 
         return {
             id: doc.id,
-            ref: getField(data, 'bookingId', 'bookingRef', 'ref') || doc.id,
+            ref: getField(data, 'refNo', 'bookingId', 'bookingRef', 'ref') || doc.id,
+            rideType: getField(data, 'rideType') || 'SOLO',
+            rideKind: rideKindLabel(getField(data, 'rideType'), getField(data, 'sharedMode')),
             status: normalizeStatus(getField(data, 'status') || getField(data, 'paymentStatus')) || 'processing',
             date: formatDateTime(createdAt),
             dateLabel: formatDateLabel(createdAt),
@@ -343,8 +379,9 @@ const ParaFirestore = (() => {
             passengerName: getField(data, 'passengerName', 'passenger'),
             totalFare: Number(getField(data, 'fare', 'totalFare', 'amountPaid', 'amount', 'price', 'total_amount')) || 0,
             // The service fee on top of the fare, from the percentages the app
-            // saved on the booking. Not rounded per ride, so totals equal the fares
-            // times the percentage; screens round only when they show an amount.
+            // saved on the booking. Each share is rounded to the centavo per ride,
+            // the same as the app and functions/src/fees.ts (feeBreakdown), so
+            // totals match what was collected, fee_ledger and the president app.
             // Bookings made before the fee have none: hasServiceFee is false and
             // the screens estimate.
             ...bookingServiceFee(data),
@@ -396,11 +433,12 @@ const ParaFirestore = (() => {
         if (totalPct <= 0 || totalPct > 100 || fare <= 0) {
             return { hasServiceFee: false, serviceFee: 0, paraShare: 0, driverShare: 0, todaShare: 0, amountPaid: fare };
         }
-        const paraShare = fare * paraPct / 100;
-        const driverShare = fare * driverPct / 100;
-        const todaShare = fare * todaPct / 100;
-        const serviceFee = fare * totalPct / 100;
-        return { hasServiceFee: true, serviceFee, paraShare, driverShare, todaShare, amountPaid: fare + serviceFee };
+        const round2 = (n) => Math.round(n * 100) / 100;
+        const paraShare = round2(fare * paraPct / 100);
+        const driverShare = round2(fare * driverPct / 100);
+        const todaShare = round2(fare * todaPct / 100);
+        const serviceFee = round2(paraShare + driverShare + todaShare);
+        return { hasServiceFee: true, serviceFee, paraShare, driverShare, todaShare, amountPaid: round2(fare + serviceFee) };
     }
 
     // Per-driver stats from bookings — the app stores neither on the driver doc.
@@ -492,7 +530,7 @@ const ParaFirestore = (() => {
 
         return {
             id: doc.id,
-            ref: getField(data, 'complaintId', 'complaint_id', 'caseId', 'case_id', 'ref') || doc.id,
+            ref: getField(data, 'refNo', 'complaintId', 'complaint_id', 'caseId', 'case_id', 'ref') || doc.id,
             // Placeholder names — overwritten by resolveComplaintNames() once
             // the driver/passenger lists are loaded. Left as '—' here so
             // nothing breaks if a caller reads this before that runs.
@@ -522,37 +560,140 @@ const ParaFirestore = (() => {
         };
     }
 
-    async function fetchDrivers(verificationStatus) {
-        const snapshot = await db.collection(COLLECTIONS.users).get();
-        let drivers = snapshot.docs.filter((doc) => isDriverRole(doc.data())).map(mapDriverDoc);
-        if (verificationStatus) {
-            drivers = drivers.filter((d) => d.verificationStatus === verificationStatus);
+    // One live listener per collection, shared by every screen. Firestore bills a
+    // read for every document a listener loads and for every change after that,
+    // so the same collection watched by five screens cost five full reads on each
+    // page load. [subscribe] adds a callback (the latest snapshot is replayed to
+    // it) and returns the function that removes it; the listener closes when the
+    // last callback leaves. [once] gives the latest snapshot without keeping a
+    // listener of its own. [inspect] sees every snapshot before the callbacks do.
+    function sharedFeed(getQuery, inspect) {
+        const subscribers = new Map(); // callback -> error handler
+        let latest = null;
+        let stop = null;
+
+        function begin() {
+            stop = getQuery().onSnapshot((snapshot) => {
+                latest = snapshot;
+                if (inspect) inspect(snapshot);
+                Array.from(subscribers.keys()).forEach((callback) => callback(snapshot));
+            }, (error) => {
+                console.error('[ParaFirestore] Listener failed:', error);
+                Array.from(subscribers.values()).forEach((handler) => { if (handler) handler(error); });
+            });
         }
-        return drivers;
+
+        function subscribe(callback, onError) {
+            subscribers.set(callback, onError || null);
+            if (latest) Promise.resolve().then(() => { if (subscribers.has(callback)) callback(latest); });
+            if (!stop) begin();
+            return () => {
+                subscribers.delete(callback);
+                if (!subscribers.size && stop) {
+                    stop();
+                    stop = null;
+                    latest = null;
+                }
+            };
+        }
+
+        function once() {
+            if (latest) return Promise.resolve(latest);
+            return new Promise((resolve, reject) => {
+                let unsubscribe = null;
+                const done = (settle, value) => {
+                    settle(value);
+                    Promise.resolve().then(() => { if (unsubscribe) unsubscribe(); });
+                };
+                unsubscribe = subscribe((snapshot) => done(resolve, snapshot), (error) => done(reject, error));
+            });
+        }
+
+        return { subscribe, once, latest: () => latest };
     }
 
-    function listenDrivers(verificationStatus, callback) {
-        return db.collection(COLLECTIONS.users).onSnapshot(async (snapshot) => {
-            const now = Date.now();
-            const driverDocs = snapshot.docs.filter((doc) => isDriverRole(doc.data()));
-            const expiredDocs = driverDocs.filter((doc) => {
-                const data = doc.data() || {};
-                const status = normalizeStatus(getField(data, 'accountStatus', 'status'));
-                const suspendedUntil = toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until'));
-                return status === 'suspended' && suspendedUntil && suspendedUntil.getTime() <= now;
-            });
+    const usersFeed = sharedFeed(
+        () => db.collection(COLLECTIONS.users),
+        (snapshot) => { liftExpiredSuspensions(snapshot.docs); }
+    );
+    const bookingsFeed = sharedFeed(() => db.collection(COLLECTIONS.bookings));
+    const complaintsFeed = sharedFeed(() => db.collection(COLLECTIONS.complaints));
 
-            if (expiredDocs.length) {
-                await Promise.all(expiredDocs.map((doc) => db.collection(COLLECTIONS.users).doc(doc.id).update({
+    // Suspensions whose end date has passed are lifted from the users already
+    // loaded, so checking costs no reads; only the accounts that really expired
+    // are read again (inside liftExpiredSuspension's transaction).
+    const liftingNow = new Set();
+    async function liftExpiredSuspensions(docs) {
+        const now = Date.now();
+        const ids = docs.filter((doc) => {
+            const data = doc.data() || {};
+            if (!isDriverRole(data) && !isPassengerRole(data)) return false;
+            const suspendedUntil = toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until'));
+            return resolveAccountStatus(data) === 'suspended' && suspendedUntil && suspendedUntil.getTime() <= now
+                && !liftingNow.has(doc.id);
+        }).map((doc) => doc.id);
+        if (!ids.length) return 0;
+        ids.forEach((id) => liftingNow.add(id));
+        try {
+            const lifted = await Promise.all(ids.map((id) => liftExpiredSuspension(id)));
+            return lifted.filter(Boolean).length;
+        } finally {
+            ids.forEach((id) => liftingNow.delete(id));
+        }
+    }
+
+    // Run on a timer: an end date can pass with no change to any document.
+    async function sweepExpiredSuspensions() {
+        const snapshot = usersFeed.latest();
+        return snapshot ? liftExpiredSuspensions(snapshot.docs) : 0;
+    }
+
+    // Ends a timed suspension whose end date has passed, the same way the app's
+    // hourly reactivateExpiredSuspensions function does (functions/src/
+    // suspensions.ts): the same fields, plus the "Suspension ended"
+    // notification. Without it the user is never told when the site gets
+    // there first, since the function then finds nothing left to lift.
+    // Re-checked in a transaction so the site and the function (or two admin
+    // tabs) never both lift and notify. Resolves true if this call lifted it.
+    async function liftExpiredSuspension(userId) {
+        const ref = db.collection(COLLECTIONS.users).doc(userId);
+        try {
+            return await db.runTransaction(async (tx) => {
+                const snap = await tx.get(ref);
+                const data = snap.exists ? snap.data() || {} : {};
+                const until = toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until'));
+                if (resolveAccountStatus(data) !== 'suspended' || !until || until.getTime() > Date.now()) return false;
+                tx.update(ref, {
                     accountStatus: 'active',
                     isSuspended: false,
                     suspendedUntil: null,
                     suspendedAt: null,
+                    suspensionReason: '',
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                })));
-            }
+                });
+                const note = db.collection('notifications').doc();
+                tx.set(note, {
+                    notificationId: note.id,
+                    userId,
+                    title: 'Suspension ended',
+                    message: 'Your suspension has ended. You can use PARA again.',
+                    bookingId: '',
+                    type: 'suspension_ended',
+                    refId: userId,
+                    isRead: false,
+                    createdAt: Date.now()
+                });
+                return true;
+            });
+        } catch (error) {
+            console.error('Could not lift an expired suspension:', userId, error);
+            return false;
+        }
+    }
 
-            let drivers = driverDocs.map(mapDriverDoc);
+    function listenDrivers(verificationStatus, callback) {
+        return usersFeed.subscribe((snapshot) => {
+            let drivers = snapshot.docs.filter((doc) => isDriverRole(doc.data())).map(mapDriverDoc);
             if (verificationStatus) {
                 drivers = drivers.filter((d) => d.verificationStatus === verificationStatus);
             }
@@ -560,8 +701,13 @@ const ParaFirestore = (() => {
         });
     }
 
+    // Every user document, for screens that look people up by id (extras.js).
+    function listenUsers(callback, onError) {
+        return usersFeed.subscribe(callback, onError);
+    }
+
     async function fetchApprovedDrivers() {
-        const snapshot = await db.collection(COLLECTIONS.users).get();
+        const snapshot = await usersFeed.once();
         return snapshot.docs
             .filter((doc) => isDriverRole(doc.data()))
             .map(mapDriverDoc)
@@ -569,7 +715,7 @@ const ParaFirestore = (() => {
     }
 
     function listenApprovedDrivers(callback) {
-        return db.collection(COLLECTIONS.users).onSnapshot((snapshot) => {
+        return usersFeed.subscribe((snapshot) => {
             const drivers = snapshot.docs
                 .filter((doc) => isDriverRole(doc.data()))
                 .map(mapDriverDoc)
@@ -800,9 +946,10 @@ const ParaFirestore = (() => {
             notificationId: ref.id,
             userId: driverId,
             title: 'Profile photo rejected',
-            message: reason
+            // The rules refuse notification messages over 500 characters.
+            message: clampText(reason
                 ? `Your profile photo was not accepted: ${reason}. Please add a new photo from your profile.`
-                : 'Your profile photo was not accepted. Please add a new photo from your profile.',
+                : 'Your profile photo was not accepted. Please add a new photo from your profile.', NOTIFICATION_MESSAGE_MAX),
             type: 'profile_photo',
             refId: driverId,
             bookingId: '',
@@ -834,78 +981,40 @@ const ParaFirestore = (() => {
         } else {
             payload.suspendedUntil = null;
             payload.suspendedAt = null;
-            payload.suspensionReason = null;
+            payload.suspensionReason = '';
         }
 
         await db.collection(COLLECTIONS.users).doc(driverId).update(payload);
     }
 
+    // Asks the driver for new documents. The app shows the request on the
+    // driver's home screen; the notification (type documents_requested, which
+    // the app opens on its Documents screen) tells them about it right away.
     async function requestDriverInfo(driverId, { documents, note }) {
-        await db.collection(COLLECTIONS.users).doc(driverId).update({
+        const list = documents || [];
+        const batch = db.batch();
+        batch.update(db.collection(COLLECTIONS.users).doc(driverId), {
             infoRequest: {
-                documents: documents || [],
+                documents: list,
                 note: note || '',
                 requestedBy: auth.currentUser ? auth.currentUser.uid : '',
                 requestedAt: firebase.firestore.FieldValue.serverTimestamp()
             }
         });
-    }
-
-    async function reactivateExpiredDrivers() {
-        const snapshot = await db.collection(COLLECTIONS.users).get();
-        const now = Date.now();
-        const expiredDrivers = snapshot.docs.filter((doc) => {
-            if (!isDriverRole(doc.data())) return false;
-            const data = doc.data() || {};
-            const status = normalizeStatus(getField(data, 'accountStatus', 'status'));
-            const suspendedUntil = toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until'));
-            return status === 'suspended' && suspendedUntil && suspendedUntil.getTime() <= now;
+        const ref = db.collection('notifications').doc();
+        const what = list.length ? list.join(', ') : 'some of your documents';
+        batch.set(ref, {
+            notificationId: ref.id,
+            userId: driverId,
+            title: 'Documents requested',
+            message: clampText(`PARA admin asked you to send again: ${what}.${note ? ` Note: ${note}` : ''} Open Documents to upload them.`, NOTIFICATION_MESSAGE_MAX),
+            type: 'documents_requested',
+            refId: driverId,
+            bookingId: '',
+            isRead: false,
+            createdAt: Date.now()
         });
-
-        if (!expiredDrivers.length) return 0;
-
-        await Promise.all(expiredDrivers.map((doc) => db.collection(COLLECTIONS.users).doc(doc.id).update({
-            accountStatus: 'active',
-            isSuspended: false,
-            suspendedUntil: null,
-            suspendedAt: null,
-            suspensionReason: null,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        })));
-
-        return expiredDrivers.length;
-    }
-
-    async function ensurePassengerProfile(userId, profile = {}) {
-        const ref = db.collection(COLLECTIONS.users).doc(userId);
-        const snapshot = await ref.get();
-
-        if (!snapshot.exists) {
-            await ref.set({
-                fullName: profile.fullName || '',
-                email: profile.email || '',
-                phone: profile.phone || '',
-                status: profile.status || 'active',
-                totalRides: Number(profile.totalRides || 0),
-                cancelledRides: Number(profile.cancelledRides || 0),
-                suspendedUntil: null,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            return;
-        }
-
-        const current = snapshot.data() || {};
-        await ref.set({
-            fullName: profile.fullName ?? current.fullName ?? '',
-            email: profile.email ?? current.email ?? '',
-            phone: profile.phone ?? current.phone ?? '',
-            status: profile.status ?? current.status ?? 'active',
-            totalRides: Number(profile.totalRides ?? current.totalRides ?? 0),
-            cancelledRides: Number(profile.cancelledRides ?? current.cancelledRides ?? 0),
-            suspendedUntil: current.suspendedUntil ?? null,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        await batch.commit();
     }
 
     // The users collection can hold non-passenger accounts too (role: "PASSENGER"
@@ -915,13 +1024,6 @@ const ParaFirestore = (() => {
     function isPassengerRole(data) {
         const role = String(data.role || '').toUpperCase();
         return !role || role === 'PASSENGER';
-    }
-
-    async function fetchPassengers() {
-        const snapshot = await db.collection(COLLECTIONS.users).get();
-        return snapshot.docs
-            .filter((doc) => isPassengerRole(doc.data() || {}))
-            .map(mapPassengerDoc);
     }
 
     // Same shape as driver_actions (actionId/actionType/.../issuedAt/reason) for
@@ -948,26 +1050,7 @@ const ParaFirestore = (() => {
     }
 
     function listenPassengers(callback) {
-        return db.collection(COLLECTIONS.users).onSnapshot(async (snapshot) => {
-            const now = Date.now();
-            const expiredDocs = snapshot.docs.filter((doc) => {
-                const data = doc.data() || {};
-                if (!isPassengerRole(data)) return false;
-                const suspendedUntil = toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until'));
-                return resolveAccountStatus(data) === 'suspended' && suspendedUntil && suspendedUntil.getTime() <= now;
-            });
-
-            if (expiredDocs.length) {
-                await Promise.all(expiredDocs.map((doc) => db.collection(COLLECTIONS.users).doc(doc.id).update({
-                    accountStatus: 'active',
-                    isSuspended: false,
-                    suspendedUntil: null,
-                    suspendedAt: null,
-                    suspensionReason: null,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                })));
-            }
-
+        return usersFeed.subscribe((snapshot) => {
             callback(snapshot.docs
                 .filter((doc) => isPassengerRole(doc.data() || {}))
                 .map(mapPassengerDoc));
@@ -989,85 +1072,34 @@ const ParaFirestore = (() => {
         } else {
             payload.suspendedUntil = null;
             payload.suspendedAt = null;
-            payload.suspensionReason = null;
+            payload.suspensionReason = '';
         }
 
         await db.collection(COLLECTIONS.users).doc(userId).update(payload);
     }
 
-    async function reactivateExpiredPassengers() {
-        const snapshot = await db.collection(COLLECTIONS.users).get();
-        const now = Date.now();
-        const expiredUsers = snapshot.docs.filter((doc) => {
-            const data = doc.data() || {};
-            if (!isPassengerRole(data)) return false;
-            const suspendedUntil = toDate(getField(data, 'suspendedUntil', 'suspensionEndsAt', 'suspended_until'));
-            return resolveAccountStatus(data) === 'suspended' && suspendedUntil && suspendedUntil.getTime() <= now;
-        });
-
-        if (!expiredUsers.length) return 0;
-
-        await Promise.all(expiredUsers.map((doc) => db.collection(COLLECTIONS.users).doc(doc.id).update({
-            accountStatus: 'active',
-            isSuspended: false,
-            suspendedUntil: null,
-            suspendedAt: null,
-            suspensionReason: null,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        })));
-
-        return expiredUsers.length;
-    }
-
-    async function fetchBookings() {
-        const snapshot = await db.collection(COLLECTIONS.bookings).get();
-        return snapshot.docs
-            .map(mapBookingDoc)
-            .sort((a, b) => {
-                const aTime = a.createdAtRaw && a.createdAtRaw.getTime ? a.createdAtRaw.getTime() : 0;
-                const bTime = b.createdAtRaw && b.createdAtRaw.getTime ? b.createdAtRaw.getTime() : 0;
-                return bTime - aTime;
-            });
-    }
-
     async function fetchAllBookings() {
-        const snapshot = await db.collection(COLLECTIONS.bookings).get();
+        const snapshot = await bookingsFeed.once();
         return snapshot.docs.map(mapBookingDoc);
     }
 
-    function listenBookings(callback) {
-        return db.collection(COLLECTIONS.bookings).onSnapshot((snapshot) => {
-            const bookings = snapshot.docs.map(mapBookingDoc);
-            bookings.sort((a, b) => {
-                const aTime = a.createdAtRaw && a.createdAtRaw.getTime ? a.createdAtRaw.getTime() : 0;
-                const bTime = b.createdAtRaw && b.createdAtRaw.getTime ? b.createdAtRaw.getTime() : 0;
-                return bTime - aTime;
-            });
-            callback(bookings);
-        }, (error) => {
-            console.error('[ParaFirestore] Bookings listener failed:', error);
-            db.collection(COLLECTIONS.bookings).get().then((fallback) => {
-                const bookings = fallback.docs.map(mapBookingDoc);
-                bookings.sort((a, b) => {
-                    const aTime = a.createdAtRaw && a.createdAtRaw.getTime ? a.createdAtRaw.getTime() : 0;
-                    const bTime = b.createdAtRaw && b.createdAtRaw.getTime ? b.createdAtRaw.getTime() : 0;
-                    return bTime - aTime;
-                });
-                callback(bookings);
-            }).catch((fallbackError) => {
-                console.error('[ParaFirestore] Fallback bookings load failed:', fallbackError);
-                callback([]);
-            });
+    // Newest first.
+    function bookingsFromSnapshot(snapshot) {
+        const bookings = snapshot.docs.map(mapBookingDoc);
+        bookings.sort((a, b) => {
+            const aTime = a.createdAtRaw && a.createdAtRaw.getTime ? a.createdAtRaw.getTime() : 0;
+            const bTime = b.createdAtRaw && b.createdAtRaw.getTime ? b.createdAtRaw.getTime() : 0;
+            return bTime - aTime;
         });
+        return bookings;
     }
 
-    async function fetchComplaints() {
-        const snapshot = await db.collection(COLLECTIONS.complaints).get();
-        return snapshot.docs.map(mapComplaintDoc);
+    function listenBookings(callback) {
+        return bookingsFeed.subscribe((snapshot) => callback(bookingsFromSnapshot(snapshot)), () => callback([]));
     }
 
     function listenComplaints(callback) {
-        return db.collection(COLLECTIONS.complaints).onSnapshot((snapshot) => {
+        return complaintsFeed.subscribe((snapshot) => {
             callback(snapshot.docs.map(mapComplaintDoc));
         });
     }
@@ -1278,23 +1310,57 @@ const ParaFirestore = (() => {
         return { uid: credential.user.uid, emailVerificationSent };
     }
 
-    async function updateTodaPresidentAccount(accountId, { name, todaName, barangay, phone, status }) {
+    // Disabling a president is a suspension like any other: the app shows
+    // suspensionReason and keys their appeal by suspendedAt, so both are
+    // stamped when the account goes from enabled to disabled (not on every
+    // save of a disabled account, which would orphan an appeal already filed).
+    // Enabling clears them the same way the rest of the site does.
+    function presidentStatusFields(current, status) {
+        const disabling = status === 'disabled';
+        const wasDisabled = resolveAccountStatus(current || {}) === 'suspended';
+        if (disabling && !wasDisabled) {
+            return {
+                accountStatus: 'suspended',
+                isSuspended: true,
+                suspendedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                suspendedUntil: null,
+                suspensionReason: 'Account disabled by PARA admin'
+            };
+        }
+        if (!disabling && wasDisabled) {
+            return {
+                accountStatus: 'active',
+                isSuspended: false,
+                suspendedAt: null,
+                suspendedUntil: null,
+                suspensionReason: ''
+            };
+        }
+        return { accountStatus: disabling ? 'suspended' : 'active', isSuspended: disabling };
+    }
+
+    // todaName is not changed (see openTodaPresidentEditModal): the president's
+    // TODA records are all keyed by it.
+    async function updateTodaPresidentAccount(accountId, { name, barangay, phone, status }) {
         const { firstName, lastName } = splitFullName(name);
-        await db.collection(COLLECTIONS.users).doc(accountId).update({
-            firstName,
-            lastName,
-            todaName,
-            barangay,
-            phoneNumber: phone,
-            accountStatus: status === 'disabled' ? 'suspended' : 'active',
-            isSuspended: status === 'disabled'
+        const ref = db.collection(COLLECTIONS.users).doc(accountId);
+        await db.runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            tx.update(ref, {
+                firstName,
+                lastName,
+                barangay,
+                phoneNumber: phone,
+                ...presidentStatusFields(snap.data(), status)
+            });
         });
     }
 
     async function updateTodaPresidentStatus(accountId, status) {
-        await db.collection(COLLECTIONS.users).doc(accountId).update({
-            accountStatus: status === 'disabled' ? 'suspended' : 'active',
-            isSuspended: status === 'disabled'
+        const ref = db.collection(COLLECTIONS.users).doc(accountId);
+        await db.runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            tx.update(ref, presidentStatusFields(snap.data(), status));
         });
     }
 
@@ -1914,8 +1980,8 @@ const ParaFirestore = (() => {
 
     async function getDashboardCounts() {
         const [usersSnap, complaintsSnap] = await Promise.all([
-            db.collection(COLLECTIONS.users).get(),
-            db.collection(COLLECTIONS.complaints).get()
+            usersFeed.once(),
+            complaintsFeed.once()
         ]);
 
         const driverDocs = usersSnap.docs.filter((doc) => isDriverRole(doc.data()));
@@ -1960,33 +2026,76 @@ const ParaFirestore = (() => {
 
     // Takes back one no-show: the passenger's count goes down by 1, never below 0,
     // and the booking is remembered in reversedNoShows so the same no-show can't
-    // be reversed twice. Throws an Error with a plain-language message when it
-    // can't be done.
+    // be reversed twice. It also takes back what that no-show set off: its strike
+    // (cancelStrikeAts), the cooldown it triggered (cooldownAts, cooldownLevel,
+    // bookingBlockedUntil, the review flag), and the app's own 24 h no-show pause
+    // (lastNoShowAt). The no-show's time is when countRideOutcome counted it
+    // (passengerStatsUpdatedAt), which is also when it stamped the strike.
+    // Throws an Error with a plain-language message when it can't be done.
+    const NO_SHOW_MATCH_MS = 10 * 60 * 1000;
+    const NO_SHOW_BLOCK_MS = 24 * 60 * 60 * 1000;
+
     async function reverseNoShow(passengerId, bookingId) {
         const ref = db.collection(COLLECTIONS.users).doc(passengerId);
+        const bookingRef = db.collection(COLLECTIONS.bookings).doc(bookingId);
         await db.runTransaction(async (tx) => {
-            const snap = await tx.get(ref);
+            const [snap, bookingSnap] = await Promise.all([tx.get(ref), tx.get(bookingRef)]);
             if (!snap.exists) throw new Error('The passenger account was not found.');
             const data = snap.data() || {};
             const reversed = Array.isArray(data.reversedNoShows) ? data.reversedNoShows : [];
             if (reversed.includes(bookingId)) throw new Error('This no-show was already reversed.');
             if ((Number(data.noShowCount) || 0) <= 0) throw new Error('This passenger has no no-shows on record to reverse.');
-            tx.update(ref, {
+
+            const update = {
                 noShowCount: firebase.firestore.FieldValue.increment(-1),
                 reversedNoShows: firebase.firestore.FieldValue.arrayUnion(bookingId)
-            });
+            };
+
+            const nums = (value) => (Array.isArray(value) ? value : []).map(Number).filter((n) => n > 0);
+            const counted = bookingSnap.exists ? toDate(bookingSnap.get('passengerStatsUpdatedAt')) : null;
+            const lastNoShowAt = Number(data.lastNoShowAt) || 0;
+            const t = counted && !Number.isNaN(counted.getTime()) ? counted.getTime() : lastNoShowAt;
+            if (t > 0) {
+                const near = (n) => Math.abs(n - t) <= NO_SHOW_MATCH_MS;
+
+                const strikes = nums(data.cancelStrikeAts);
+                if (strikes.some(near)) update.cancelStrikeAts = strikes.filter((n) => !near(n));
+
+                const cooldowns = nums(data.cooldownAts);
+                if (cooldowns.some(near)) {
+                    const left = cooldowns.filter((n) => !near(n));
+                    update.cooldownAts = left;
+                    update.cooldownLevel = Math.max((Number(data.cooldownLevel) || 0) - 1, 0);
+                    if (near(Number(data.lastCooldownAt) || 0)) update.bookingBlockedUntil = 0;
+                    if (data.cancelReviewFlag === true && left.length < 3) update.cancelReviewFlag = false;
+                }
+
+                if (lastNoShowAt > 0 && near(lastNoShowAt)) {
+                    update.lastNoShowAt = 0;
+                    // Only this no-show's 24 h block was holding the pause.
+                    if ((Number(data.bookingBlockedUntil) || 0) <= t + NO_SHOW_BLOCK_MS + NO_SHOW_MATCH_MS) {
+                        update.bookingBlockedUntil = 0;
+                    }
+                }
+            }
+
+            tx.update(ref, update);
         });
     }
 
     // Frequent-cancel review (see mapPassengerDoc): the admin reviewed the
     // passenger and clears the flag; the app re-flags after 3 more pauses.
+    // countRideOutcome flags from the pauses in cooldownAts, so those are
+    // cleared too - otherwise the very next pause would flag again.
     async function clearCancelReviewFlag(passengerId) {
-        await db.collection(COLLECTIONS.users).doc(passengerId).update({ cancelReviewFlag: false });
+        await db.collection(COLLECTIONS.users).doc(passengerId).update({ cancelReviewFlag: false, cooldownAts: [] });
     }
 
-    // Ends a booking cooldown early.
+    // Ends a booking pause early: the server cooldown (bookingBlockedUntil) and
+    // the app's own 24 h pause after a 3rd no-show (NoShowPolicy, timed from
+    // lastNoShowAt). The no-show count itself stays.
     async function liftBookingPause(passengerId) {
-        await db.collection(COLLECTIONS.users).doc(passengerId).update({ bookingBlockedUntil: 0 });
+        await db.collection(COLLECTIONS.users).doc(passengerId).update({ bookingBlockedUntil: 0, lastNoShowAt: 0 });
     }
 
     async function getDriverById(driverId) {
@@ -2008,8 +2117,8 @@ const ParaFirestore = (() => {
         signIn,
         signOut,
         requireAdmin,
-        fetchDrivers,
         listenDrivers,
+        listenUsers,
         fetchApprovedDrivers,
         listenApprovedDrivers,
         updateDriverVerification,
@@ -2029,18 +2138,13 @@ const ParaFirestore = (() => {
         fetchAdminIds,
         settleDriverActions,
         repairAdminSuspensionStatus,
-        reactivateExpiredDrivers,
-        ensurePassengerProfile,
-        fetchPassengers,
+        sweepExpiredSuspensions,
         listenPassengers,
         updatePassengerStatus,
         logPassengerAction,
         fetchPassengerActions,
-        reactivateExpiredPassengers,
-        fetchBookings,
         fetchAllBookings,
         listenBookings,
-        fetchComplaints,
         listenComplaints,
         updateComplaintStatus,
         fetchDriverActionsForComplaint,
@@ -2074,6 +2178,7 @@ const ParaFirestore = (() => {
         normalizePlate,
         getComplaintById,
         formatDateTime,
+        governmentIdLabel,
         normalizeStatus
     };
 })();

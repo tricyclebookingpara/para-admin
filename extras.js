@@ -58,6 +58,23 @@
         el.classList.toggle('hidden', !count);
     }
 
+    // Runs [start] the first time the section [viewId] is opened rather than when
+    // the page loads, so a collection nobody looks at is never read.
+    function whenViewOpens(viewId, start) {
+        const view = document.getElementById(viewId);
+        if (!view) { start(); return; }
+        let started = false;
+        const observer = new MutationObserver(() => check());
+        function check() {
+            if (started || !view.classList.contains('active')) return;
+            started = true;
+            observer.disconnect();
+            start();
+        }
+        observer.observe(view, { attributes: true, attributeFilter: ['class'] });
+        check();
+    }
+
     function row(label, value) {
         const shown = value === undefined || value === null || value === '' ? '—' : value;
         return `<div class="dd-row"><span class="dd-row-label">${esc(label)}</span><span class="dd-row-value">${shown}</span></div>`;
@@ -83,7 +100,9 @@
         return person ? person.name : (id ? id.slice(0, 8) + '…' : '—');
     }
 
-    db.collection('users').onSnapshot((snapshot) => {
+    // The same users listener Driver Management and Passenger Management use,
+    // not another one of its own (every listener re-reads the whole collection).
+    ParaFirestore.listenUsers((snapshot) => {
         people.clear();
         snapshot.docs.forEach((doc) => {
             const d = doc.data() || {};
@@ -179,7 +198,7 @@
     function renderAppeals() {
         const tbody = document.getElementById('appealsBody');
         if (!tbody) return;
-        const matches = (a) => !appealSearch || [personName(a.userId), a.role, a.todaName, a.statement, a.status, a.status === 'UPHELD' ? 'denied' : a.status === 'OVERTURNED' ? 'granted' : '', a.presidentStatement]
+        const matches = (a) => !appealSearch || [a.refNo, personName(a.userId), a.role, a.todaName, a.statement, a.status, a.status === 'UPHELD' ? 'denied' : a.status === 'OVERTURNED' ? 'granted' : '', a.presidentStatement]
             .some((value) => String(value || '').toLowerCase().includes(appealSearch));
         const list = appeals
             .filter((a) => appealFilter === 'ALL' || a.status === appealFilter)
@@ -194,7 +213,7 @@
                 <td><div class="detail-main">${esc(personName(a.userId))}</div><div class="detail-sub">${esc(a.role || '—')}${a.todaName ? ' · ' + esc(a.todaName) : ''}</div></td>
                 <td><div class="detail-main">${a.subjectType === 'DRIVER_ACTION' ? 'Driver warning or suspension' : 'Account suspension'}</div></td>
                 <td><div class="detail-sub" style="max-width:320px;">${esc((a.statement || '').slice(0, 140))}${(a.statement || '').length > 140 ? '…' : ''}</div></td>
-                <td>${esc(fmtDate(a.createdAt))}</td>
+                <td>${esc(fmtDate(a.createdAt))}${a.refNo ? '<div class="detail-sub">' + esc(a.refNo) + '</div>' : ''}</td>
                 <td>${appealStatusBadge(a.status)}${a.presidentStatement ? '<div class="detail-sub" style="margin-top:6px;">President statement added</div>' : ''}</td>
                 <td><button class="action-btn" data-x="view-appeal" data-id="${esc(a.id)}">${a.status === 'PENDING' ? 'Review' : 'View'}</button></td>
             </tr>`).join('');
@@ -252,7 +271,7 @@
         const decision = await decisionParts(appeal);
         const name = personName(appeal.userId);
         const role = appeal.role ? appeal.role.charAt(0) + appeal.role.slice(1).toLowerCase() : '';
-        const sub = [role, appeal.todaName, 'Filed ' + fmtDate(appeal.createdAt)].filter(Boolean).map(esc).join(' · ');
+        const sub = [role, appeal.todaName, appeal.refNo, 'Filed ' + fmtDate(appeal.createdAt)].filter(Boolean).map(esc).join(' · ');
         const presidentTitle = 'TODA president'
             + (appeal.presidentStatementBy ? ' · ' + personName(appeal.presidentStatementBy) : '')
             + (appeal.presidentStatementAt ? ' · ' + fmtDate(appeal.presidentStatementAt) : '');
@@ -288,6 +307,21 @@
             : '';
         openModal('Appeal review', body, footer);
     }
+    // Writes a decision only if nobody decided first (another admin, another tab):
+    // [isOpen] checks the stored status inside the transaction. Otherwise throws
+    // an Error with code 'already-decided' and changes nothing.
+    async function decideOnce(ref, isOpen, fields) {
+        await db.runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            if (!snap.exists || !isOpen(String(snap.get('status') || ''))) {
+                const error = new Error('Already decided');
+                error.code = 'already-decided';
+                throw error;
+            }
+            tx.update(ref, fields);
+        });
+    }
+
     async function decideAppeal(id, status) {
         const noteEl = document.getElementById('xAppealNote');
         const note = noteEl ? noteEl.value.trim() : '';
@@ -299,12 +333,15 @@
         if (!window.confirm(`Are you sure you want to ${label}? This cannot be undone.`)) return;
         try {
             // Only these three fields: the onAppealDecided function does the rest.
-            await db.collection('appeals').doc(id).update({ status, adminNote: note, decidedAt: Date.now() });
+            await decideOnce(db.collection('appeals').doc(id), (s) => s === 'PENDING' || s === '',
+                { status, adminNote: note, decidedAt: Date.now() });
             toast(status === 'OVERTURNED' ? 'Appeal granted.' : 'Appeal denied.', 'success');
             closeModal();
         } catch (error) {
             console.error('Failed to decide appeal:', error);
-            toast('Could not save the decision.', 'error');
+            toast(error && error.code === 'already-decided'
+                ? 'This appeal was already decided by another admin. Nothing was changed.'
+                : 'Could not save the decision.', 'error');
         }
     }
 
@@ -313,6 +350,7 @@
             const d = doc.data() || {};
             return {
                 id: doc.id,
+                refNo: d.refNo || '',
                 userId: d.userId || '',
                 role: d.role || '',
                 subjectType: d.subjectType || '',
@@ -371,7 +409,7 @@
             return {
                 kind: 'report',
                 id: r.id,
-                ref,
+                ref: r.refNo || ref,
                 tripRef: ref,
                 reporter: personName(r.driverId),
                 reported: personName(r.passengerId),
@@ -477,7 +515,7 @@
                    <button class="btn" style="background:#05CD99;color:white;" data-x="report-resolve" data-id="${esc(r.id)}">Mark Resolved</button>
                </div>`
             : '<span style="display:block; width:100%; text-align:center; font-size:13px; color:var(--text-muted);">This case has already been reviewed.</span>';
-        openModal('Case', body, footer, `Case: <span style="color:var(--primary);">${esc(ref)}</span>`);
+        openModal('Case', body, footer, `Case: <span style="color:var(--primary);">${esc(r.refNo || ref)}</span>`);
         loadPastActions(r.passengerId);
     }
 
@@ -505,7 +543,8 @@
         const r = passengerReports.find((x) => x.id === id);
         if (!r) return;
         try {
-            await db.collection('passenger_reports').doc(id).update({ status, adminNote: note, resolvedAt: Date.now() });
+            await decideOnce(db.collection('passenger_reports').doc(id), (s) => s !== 'RESOLVED' && s !== 'REJECTED',
+                { status, adminNote: note, resolvedAt: Date.now() });
             const name = personName(r.passengerId);
             if (actionType === 'Suspension') {
                 await ParaFirestore.updatePassengerStatus(r.passengerId, 'suspended', days || '3', note);
@@ -532,7 +571,9 @@
             closeModal();
         } catch (error) {
             console.error('Failed to update passenger report:', error);
-            toast('Could not update the report.', 'error');
+            toast(error && error.code === 'already-decided'
+                ? 'This report was already closed by another admin. Nothing was changed.'
+                : 'Could not update the report.', 'error');
         }
     }
 
@@ -618,6 +659,7 @@
             const d = doc.data() || {};
             return {
                 id: doc.id,
+                refNo: d.refNo || '',
                 bookingId: d.bookingId || doc.id,
                 driverId: d.driverId || '',
                 passengerId: d.passengerId || '',
@@ -653,7 +695,11 @@
         return `<a href="https://www.google.com/maps?q=${encodeURIComponent(point.lat + ',' + point.lng)}" target="_blank" rel="noopener noreferrer">${esc(text)}</a>`;
     }
 
+    // Both lists load when the Flood Hazards section is first opened.
+    const floodLoaded = { zones: false, reports: false };
+
     function renderFlood() {
+        if (!floodLoaded.zones || !floodLoaded.reports) return;
         const zonesBody = document.getElementById('floodZonesBody');
         const reportsBody = document.getElementById('floodReportsBody');
         if (zonesBody) {
@@ -691,34 +737,46 @@
         setText('floodReportCount', String(floodReports.length));
     }
 
-    db.collection('flood_zones').onSnapshot((snapshot) => {
-        floodZones = snapshot.docs.map((doc) => {
-            const d = doc.data() || {};
-            return {
-                id: doc.id,
-                name: d.name || '',
-                todaName: d.todaName || '',
-                boundary: Array.isArray(d.boundary) ? d.boundary : [],
-                updatedAt: toMs(d.updatedAt)
-            };
+    whenViewOpens('view-flood-hazards', () => {
+        db.collection('flood_zones').onSnapshot((snapshot) => {
+            floodZones = snapshot.docs.map((doc) => {
+                const d = doc.data() || {};
+                return {
+                    id: doc.id,
+                    name: d.name || '',
+                    todaName: d.todaName || '',
+                    boundary: Array.isArray(d.boundary) ? d.boundary : [],
+                    updatedAt: toMs(d.updatedAt)
+                };
+            });
+            floodLoaded.zones = true;
+            renderFlood();
+        }, (error) => {
+            console.error('Could not load flood zones:', error);
+            floodLoaded.zones = true;
+            renderFlood();
         });
-        renderFlood();
-    }, (error) => console.error('Could not load flood zones:', error));
 
-    db.collection('flood_reports').orderBy('createdAt', 'desc').limit(300).onSnapshot((snapshot) => {
-        floodReports = snapshot.docs.map((doc) => {
-            const d = doc.data() || {};
-            return {
-                id: doc.id,
-                depth: d.depth || '',
-                location: d.location || null,
-                reportedBy: d.reportedBy || '',
-                reporterRole: d.reporterRole || '',
-                createdAt: toMs(d.createdAt)
-            };
+        db.collection('flood_reports').orderBy('createdAt', 'desc').limit(300).onSnapshot((snapshot) => {
+            floodReports = snapshot.docs.map((doc) => {
+                const d = doc.data() || {};
+                return {
+                    id: doc.id,
+                    depth: d.depth || '',
+                    location: d.location || null,
+                    reportedBy: d.reportedBy || '',
+                    reporterRole: d.reporterRole || '',
+                    createdAt: toMs(d.createdAt)
+                };
+            });
+            floodLoaded.reports = true;
+            renderFlood();
+        }, (error) => {
+            console.error('Could not load flood reports:', error);
+            floodLoaded.reports = true;
+            renderFlood();
         });
-        renderFlood();
-    }, (error) => console.error('Could not load flood reports:', error));
+    });
 
     // Admins may delete any area or report (firestore.rules), e.g. a stale area or a
     // false report.
@@ -785,28 +843,19 @@
         return badge('declined', 'FAILED');
     }
 
-    // fee_ledger stores each share rounded to the centavo. The percentages the ride
-    // was booked with (12 / 4 / 4 by default) aren't stored, so work them back out of
-    // the row (to the nearest 0.1%, which a centavo can't move on a fare of ₱10 or
-    // more) and take the exact share of the fare. Totals then equal fare x percentage
-    // on a calculator.
-    function exactShares(row) {
-        if (!(row.fare >= 10)) return row;
-        const exact = (share) => row.fare * (Math.round(share / row.fare * 1000) / 1000);
-        const paraShare = exact(row.paraShare);
-        const todaShare = exact(row.todaShare);
-        const driverShare = exact(row.driverShare);
-        return { ...row, paraShare, todaShare, driverShare, serviceFee: paraShare + todaShare + driverShare };
-    }
-
-    // Shown to the centavo but cut, not rounded: ₱19,014.418 reads ₱19,014.41, so the
-    // figures are the exact ones on a calculator with the extra decimals dropped.
+    // fee_ledger stores each ride's shares rounded to the centavo (functions/src/
+    // fees.ts), which is what was collected and what the president app adds up,
+    // so the totals here are plain sums of the stored shares.
     function pesoCut(value) {
-        const cut = Math.floor((Number(value) || 0) * 100 + 1e-6) / 100;
-        return '₱' + cut.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const amount = Math.round((Number(value) || 0) * 100) / 100;
+        return '₱' + amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
+    // The three ledgers load when Fees & Commission is first opened.
+    const ledgerLoaded = { fees: false, trips: false, payments: false };
+
     function renderLedger() {
-        const fees = feeRows.filter((r) => inRange(r.createdAt)).map(exactShares);
+        if (!ledgerLoaded.fees || !ledgerLoaded.trips || !ledgerLoaded.payments) return;
+        const fees = feeRows.filter((r) => inRange(r.createdAt));
         const sum = (list, key) => list.reduce((total, r) => total + (Number(r[key]) || 0), 0);
         const setText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
         const totalFee = sum(fees, 'serviceFee');
@@ -934,38 +983,55 @@
     };
 
     // Not capped: the totals above must cover every paid ride, not just the latest.
-    db.collection('fee_ledger').orderBy('createdAt', 'desc').onSnapshot((snapshot) => {
-        feeRows = snapshot.docs.map((doc) => {
-            const d = doc.data() || {};
-            return {
-                id: doc.id,
-                todaName: d.todaName || '',
-                fare: Number(d.fare) || 0,
-                serviceFee: Number(d.serviceFee) || 0,
-                paraShare: Number(d.paraShare) || 0,
-                todaShare: Number(d.todaShare) || 0,
-                driverShare: Number(d.driverShare) || 0,
-                createdAt: toMs(d.createdAt)
-            };
+    whenViewOpens('view-ledgers', () => {
+        db.collection('fee_ledger').orderBy('createdAt', 'desc').onSnapshot((snapshot) => {
+            feeRows = snapshot.docs.map((doc) => {
+                const d = doc.data() || {};
+                return {
+                    id: doc.id,
+                    todaName: d.todaName || '',
+                    fare: Number(d.fare) || 0,
+                    serviceFee: Number(d.serviceFee) || 0,
+                    paraShare: Number(d.paraShare) || 0,
+                    todaShare: Number(d.todaShare) || 0,
+                    driverShare: Number(d.driverShare) || 0,
+                    createdAt: toMs(d.createdAt)
+                };
+            });
+            ledgerLoaded.fees = true;
+            renderLedger();
+        }, (error) => {
+            console.error('Could not load fee ledger:', error);
+            ledgerLoaded.fees = true;
+            renderLedger();
         });
-        renderLedger();
-    }, (error) => console.error('Could not load fee ledger:', error));
 
-    db.collection('commission_ledger').orderBy('createdAt', 'desc').onSnapshot((snapshot) => {
-        tripRows = snapshot.docs.map((doc) => {
-            const d = doc.data() || {};
-            return { id: doc.id, type: d.type || '', amount: Number(d.amount) || 0, createdAt: toMs(d.createdAt) };
-        }).filter((r) => r.type === 'TRIP');
-        renderLedger();
-    }, (error) => console.error('Could not load commission ledger:', error));
-
-    db.collection('commission_payments').orderBy('createdAt', 'desc').onSnapshot((snapshot) => {
-        commissionPayments = snapshot.docs.map((doc) => {
-            const d = doc.data() || {};
-            return { id: doc.id, driverId: d.driverId || '', amount: Number(d.amount) || 0, status: d.status || '', createdAt: toMs(d.createdAt) };
+        db.collection('commission_ledger').orderBy('createdAt', 'desc').onSnapshot((snapshot) => {
+            tripRows = snapshot.docs.map((doc) => {
+                const d = doc.data() || {};
+                return { id: doc.id, type: d.type || '', amount: Number(d.amount) || 0, createdAt: toMs(d.createdAt) };
+            }).filter((r) => r.type === 'TRIP');
+            ledgerLoaded.trips = true;
+            renderLedger();
+        }, (error) => {
+            console.error('Could not load commission ledger:', error);
+            ledgerLoaded.trips = true;
+            renderLedger();
         });
-        renderLedger();
-    }, (error) => console.error('Could not load commission payments:', error));
+
+        db.collection('commission_payments').orderBy('createdAt', 'desc').onSnapshot((snapshot) => {
+            commissionPayments = snapshot.docs.map((doc) => {
+                const d = doc.data() || {};
+                return { id: doc.id, driverId: d.driverId || '', amount: Number(d.amount) || 0, status: d.status || '', createdAt: toMs(d.createdAt) };
+            });
+            ledgerLoaded.payments = true;
+            renderLedger();
+        }, (error) => {
+            console.error('Could not load commission payments:', error);
+            ledgerLoaded.payments = true;
+            renderLedger();
+        });
+    });
     peopleListeners.push(renderLedger);
 
     // config/commission.settlementDays: how long a driver has to settle the tab.
@@ -1020,7 +1086,11 @@
         window.applyLedgerRange();
     };
     // ── Ratings and messages ─────────────────────────────────────────
-    let ratings = [];
+    // Ratings are read for one driver at a time, when that driver's window opens,
+    // instead of keeping thousands of them loaded for every admin all day.
+    const ratingsByDriver = new Map(); // driverId -> { list, loadedAt }
+    const ratingsLoading = new Set();
+    const RATINGS_REFRESH_MS = 60 * 1000;
 
     function stars(value) {
         const n = Math.max(0, Math.min(5, Math.round(Number(value) || 0)));
@@ -1032,11 +1102,43 @@
     let openThread = null; // { driverId, bookingId, html } - the chat last opened
 
     function driverRatings(driverId) {
-        return ratings.filter((r) => r.driverId === driverId).sort((a, b) => b.timestamp - a.timestamp);
+        const entry = ratingsByDriver.get(driverId);
+        return entry ? entry.list : [];
     }
 
+    // null until that driver's ratings have been read.
     window.driverRatingCount = function (driverId) {
-        return driverRatings(driverId).length;
+        const entry = ratingsByDriver.get(driverId);
+        return entry ? entry.list.length : null;
+    };
+
+    // Reads the driver's ratings (again, if the last read is over a minute old).
+    window.loadDriverRatings = async function (driverId) {
+        const entry = ratingsByDriver.get(driverId);
+        if (!driverId || ratingsLoading.has(driverId) || (entry && Date.now() - entry.loadedAt < RATINGS_REFRESH_MS)) return;
+        ratingsLoading.add(driverId);
+        try {
+            const snapshot = await db.collection('ratings').where('driverId', '==', driverId).get();
+            const list = snapshot.docs.map((doc) => {
+                const d = doc.data() || {};
+                return {
+                    id: doc.id,
+                    bookingId: d.bookingId || doc.id,
+                    driverId: d.driverId || '',
+                    passengerId: d.passengerId || '',
+                    rating: Number(d.rating) || 0,
+                    comment: d.comment || '',
+                    timestamp: toMs(d.timestamp || d.createdAt)
+                };
+            }).sort((a, b) => b.timestamp - a.timestamp);
+            ratingsByDriver.set(driverId, { list, loadedAt: Date.now() });
+        } catch (error) {
+            console.error('Could not load ratings:', error);
+            if (!entry) ratingsByDriver.set(driverId, { list: [], loadedAt: Date.now() });
+        } finally {
+            ratingsLoading.delete(driverId);
+        }
+        notifyRatings();
     };
 
     // The ratings table is paged (newest first) so a driver with many ratings
@@ -1045,6 +1147,7 @@
     let ratingPaging = { driverId: '', page: 1 };
 
     function ratingsTableHtml(driverId) {
+        if (!ratingsByDriver.has(driverId)) return '<div class="dd-empty" style="padding:28px 20px;">Loading ratings…</div>';
         const list = driverRatings(driverId);
         if (!list.length) return '<div class="dd-empty" style="padding:28px 20px;">No ratings yet.</div>';
         const pages = Math.max(1, Math.ceil(list.length / RATINGS_PAGE_SIZE));
@@ -1196,23 +1299,7 @@
         if (e.target.id === 'rmSearch') { rmFilter.text = e.target.value; redrawRideList(); }
         else if (e.target.id === 'rmDate') { rmFilter.date = e.target.value; redrawRideList(); }
     });
-    db.collection('ratings').limit(5000).onSnapshot((snapshot) => {
-        ratings = snapshot.docs.map((doc) => {
-            const d = doc.data() || {};
-            return {
-                id: doc.id,
-                bookingId: d.bookingId || doc.id,
-                driverId: d.driverId || '',
-                passengerId: d.passengerId || '',
-                rating: Number(d.rating) || 0,
-                comment: d.comment || '',
-                timestamp: toMs(d.timestamp || d.createdAt)
-            };
-        });
-        notifyRatings();
-    }, (error) => console.error('Could not load ratings:', error));
-
-    // Tells the driver window (firestore-ui.js) to redraw if its Ratings tab is open.
+    // Tells the driver window (firestore-ui.js) to redraw.
     function notifyRatings() {
         document.dispatchEvent(new CustomEvent('para:ratings-updated'));
     }

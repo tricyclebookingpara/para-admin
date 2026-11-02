@@ -176,7 +176,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // The score, what it suggests, why, and (in a case) how it compares with
     // what the TODA president recommended.
-    function riskBodyHtml(risk, presidentSuspension = false) {
+    // [presidentRecommends]: what the TODA president is asking the admin for
+    // ('Suspension' or 'Further Review'), '' when nothing is waiting.
+    function riskBodyHtml(risk, presidentRecommends = '') {
         const level = ['HIGH', 'MEDIUM', 'LOW'].includes(risk.level) ? risk.level : 'LOW';
         const cls = level.toLowerCase();
         const score = Math.round(risk.score);
@@ -185,10 +187,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             ? `<ul class="risk-reasons">${risk.reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>`
             : '<div class="risk-quiet">Nothing is raising this driver’s score.</div>';
         let comparison = '';
-        if (presidentSuspension) {
+        if (presidentRecommends === 'Suspension' || presidentRecommends === true) {
             comparison = risk.suggestedAction === 'Suspension'
                 ? '<div class="risk-compare ok">The TODA president recommends a suspension — the score agrees.</div>'
                 : `<div class="risk-compare differs"><strong>The TODA president recommends a suspension, but the score suggests ${escapeHtml(risk.suggestedAction)}.</strong> Look at why they differ before deciding.</div>`;
+        } else if (presidentRecommends === 'Further Review') {
+            // Asking for a review agrees with a score that suggests a review or more.
+            comparison = ['Further Review', 'Suspension'].includes(risk.suggestedAction)
+                ? '<div class="risk-compare ok">The TODA president asks for a further review — the score agrees.</div>'
+                : `<div class="risk-compare differs"><strong>The TODA president asks for a further review, but the score suggests ${escapeHtml(risk.suggestedAction)}.</strong> Look at why they differ before deciding.</div>`;
         }
         return `<div class="risk-top">
                 <div class="risk-num"><span class="risk-num-value ${cls}">${score}</span><span class="risk-num-max">/ 100</span></div>
@@ -465,12 +472,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             if (!isPending) {
-                // The decision log: when, who, and (for a rejection) why.
+                // The decision log: when, and (for a rejection) why.
                 const decision = verificationDecisions.get(driver.id);
                 const decidedAt = driver.verifiedAtRaw || (decision && decision.issuedAt ? new Date(decision.issuedAt) : null);
-                const detail = currentVerificationFilter === 'rejected'
-                    ? (decision && decision.reason ? decision.reason : '')
-                    : (decision && decision.issuedByName ? `By ${decision.issuedByName}` : '');
+                const detail = currentVerificationFilter === 'rejected' && decision && decision.reason ? decision.reason : '';
                 return `<tr>
                     ${nameCell}${vehicleCell}
                     <td style="font-size:13px; color:var(--text-muted);">${escapeHtml(decidedAt ? ParaFirestore.formatDateTime(decidedAt) : '—')}</td>
@@ -1420,7 +1425,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!booking || !passenger) return;
         showConfirmModal(
             `Reverse this no-show?`,
-            `${passenger.name || 'The passenger'}’s no-show count goes down by 1 (now ${passenger.noShowCount}). This can only be done once for this trip.`,
+            `${passenger.name || 'The passenger'}’s no-show count goes down by 1 (now ${passenger.noShowCount}), and any booking pause this no-show caused is lifted. This can only be done once for this trip.`,
             'Reverse No-show',
             '#1A73E8',
             async () => {
@@ -1496,7 +1501,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             .slice(0, 3)
             .map((booking) => ({
                 bookingId: booking.ref,
-                subtitle: booking.rideType || 'Tricycle Ride',
+                subtitle: booking.rideKind || 'Solo ride',
                 status: booking.status,
                 passenger: booking.passengerName || 'Unknown passenger',
                 driver: booking.driverName || 'Unknown driver',
@@ -1534,10 +1539,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         // any verification status) before giving up.
         const driver = (window.driverManagementDrivers || []).find((d) => d.id === complaint.driverId)
             || (window.allDriversForLookup || []).find((d) => d.id === complaint.driverId);
+        // The trip's readable refNo (BK-...) once bookings are loaded, else its ID.
+        const booking = complaint.bookingId
+            ? (window.allBookings || []).find((b) => b.id === complaint.bookingId)
+            : null;
         return {
             ...complaint,
             reporter: (passenger && passenger.name) || complaint.reporter || '—',
-            reported: (driver && driver.name) || complaint.reported || '—'
+            reported: (driver && driver.name) || complaint.reported || '—',
+            tripRef: booking ? booking.ref : complaint.tripRef
         };
     }
 
@@ -1545,9 +1555,77 @@ document.addEventListener('DOMContentLoaded', async () => {
     // number, passenger, driver, issue, description or trip).
     // The case list holds complaints about drivers and the reports drivers filed
     // about passengers (kind 'report', supplied by extras.js).
+    // ...and the president's recommendations that no complaint case carries
+    // (kind 'recommendation', see recommendationCases).
     function allCases() {
         const reports = typeof window.getPassengerReportCases === 'function' ? window.getPassengerReportCases() : [];
-        return allComplaints.concat(reports);
+        return allComplaints.concat(reports, recommendationCases());
+    }
+
+    // 'Suspension' if any of [actions] asks for one, else 'Further Review' if any
+    // asks for that, else ''.
+    function strongestRecommendation(actions) {
+        if (actions.some((a) => a.actionType === 'Suspension')) return 'Suspension';
+        return actions.some((a) => a.actionType === 'Further Review') ? 'Further Review' : '';
+    }
+
+    // A president's Suspension / Further Review recommendation normally shows on
+    // the driver's complaint case. One for a driver with no open case (sent from
+    // the president's driver monitoring, or after the cases were closed) would
+    // otherwise show nowhere and stay "Awaiting admin" in their app, so it gets
+    // a row of its own. Decided ones stay listed only for drivers who have no
+    // complaint at all (otherwise their cases already show them).
+    function recommendationCases() {
+        let actions;
+        try {
+            actions = presidentSuspensionRecommendations();
+        } catch (error) {
+            return []; // the recommendation listener isn't set up yet
+        }
+        const drivers = window.allDriversForLookup || window.driverManagementDrivers || [];
+        const isOpenCase = (c) => ['pending', 'reviewing'].includes(c.status);
+        return actions.filter((a) => {
+            const cases = allComplaints.filter((c) => c.driverId === a.driverId);
+            if (a.complaintId && cases.some((c) => c.id === a.complaintId)) return false;
+            if (isAwaitingAdmin(a)) return !cases.some(isOpenCase);
+            return cases.length === 0;
+        }).map((a) => {
+            const driver = drivers.find((d) => d.id === a.driverId);
+            const status = String(a.status || '').toUpperCase();
+            return {
+                kind: 'recommendation',
+                id: a.id,
+                ref: a.actionType === 'Suspension' ? 'Suspension request' : 'Review request',
+                reporter: a.issuedByName || 'TODA president',
+                reported: (driver && driver.name) || a.driverName || 'Unknown driver',
+                driverId: a.driverId,
+                issue: a.actionType === 'Suspension' ? 'Suspension recommended' : 'Further review requested',
+                description: a.reason || '',
+                severity: a.actionType === 'Suspension' ? 'HIGH' : 'MEDIUM',
+                status: status === 'APPROVED' ? 'resolved' : status === 'REJECTED' ? 'rejected' : 'pending',
+                createdAtRaw: new Date(a.issuedAt || 0)
+            };
+        });
+    }
+
+    // Closes a recommendation without suspending the driver (suspending them from
+    // Driver Management settles it as carried out, see settleOnSuspension).
+    function closeRecommendation(actionId) {
+        const action = presidentSuspensionRecommendations().find((a) => a.id === actionId);
+        if (!action || !isAwaitingAdmin(action)) return;
+        showConfirmModal(
+            'Close this recommendation?',
+            '',
+            'Close Without Action',
+            '#1A73E8',
+            async () => {
+                const note = (document.getElementById('recCloseNote')?.value || '').trim();
+                await settleRecommendations([action], 'REJECTED', note || 'Reviewed by PARA admin; no action taken.');
+                window.showToast('Recommendation closed. The TODA president will see it was reviewed.', 'success');
+            },
+            `<div style="text-align:left;">The driver is not suspended. The TODA president's app shows the recommendation as closed.
+                <textarea id="recCloseNote" rows="3" maxlength="300" placeholder="Note for the president (optional)" style="width:100%; margin-top:12px;"></textarea></div>`
+        );
     }
 
     function getComplaintsForFilter(filterKey) {
@@ -1555,7 +1633,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const cases = allCases();
         let list = cases;
         if (key === 'pending') list = cases.filter((c) => ['pending', 'reviewing'].includes(c.status));
-        else if (key === 'warned') list = cases.filter((c) => c.kind !== 'report' && wasWarnedByAdmin(c));
+        else if (key === 'warned') list = cases.filter((c) => !c.kind && wasWarnedByAdmin(c));
         else if (key === 'resolved') list = cases.filter((c) => c.status === 'resolved');
         else if (key === 'dismissed') list = cases.filter((c) => c.status === 'rejected');
         return listSearchTerm
@@ -1618,7 +1696,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         // Only a recommended suspension is compared with the score; a "further
         // review" request names no penalty.
-        box.innerHTML = riskBodyHtml(risk, suspensionRecommendationsFor(complaint).some((a) => a.actionType === 'Suspension'));
+        box.innerHTML = riskBodyHtml(risk, strongestRecommendation(suspensionRecommendationsFor(complaint).filter(isAwaitingAdmin)));
     }
 
     // A new, changed or removed passenger report (extras.js) redraws the case list
@@ -1673,7 +1751,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const pageStart = (complaintTablePage - 1) * COMPLAINTS_PAGE_SIZE;
         const pageItems = sortedComplaints.slice(pageStart, pageStart + COMPLAINTS_PAGE_SIZE);
 
-        tbody.innerHTML = pageItems.map((complaint) => complaint.kind === 'report' ? `
+        tbody.innerHTML = pageItems.map((complaint) => complaint.kind === 'recommendation' ? `
+            <tr>
+                <td><div class="book-id">${escapeHtml(complaint.ref)}</div><div class="book-time">From: ${escapeHtml(complaint.reporter)}</div><div class="case-kind">President's recommendation</div></td>
+                <td><div class="detail-main">${escapeHtml(complaint.reported)} ${riskChipHtml(riskOf(complaint.driverId))}</div><div class="detail-sub">${escapeHtml(ParaFirestore.formatDateTime(complaint.createdAtRaw))}</div></td>
+                <td><div class="detail-main issue-line"><span>${escapeHtml(complaint.issue)}</span>${complaintSeverityBadge(complaint.severity)}</div><div class="detail-sub">${escapeHtml(complaint.description || 'No reason given.')}</div></td>
+                <td>${complaintBadge(complaint.status)}</td>
+                <td><button class="action-btn" data-action="view-driver" data-id="${escapeHtml(complaint.driverId)}">View Driver</button>${complaint.status === 'pending' ? `<button class="action-btn" data-action="close-recommendation" data-id="${escapeHtml(complaint.id)}" style="margin-left:6px;">Close</button>` : ''}</td>
+            </tr>` : complaint.kind === 'report' ? `
             <tr>
                 <td><div class="book-id">${escapeHtml(complaint.ref)}</div><div class="book-time">Reporter: ${escapeHtml(complaint.reporter)}</div><div class="case-kind">Driver's report</div></td>
                 <td><div class="detail-main">${escapeHtml(complaint.reported)}</div><div class="detail-sub">Trip: ${escapeHtml(complaint.tripRef)}</div></td>
@@ -1703,6 +1788,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         bindRowActions(tbody, {
+            'view-driver': (ds) => window.openDriverDetailsModal(ds.id),
+            'close-recommendation': (ds) => closeRecommendation(ds.id),
             'view-complaint': (ds) => {
                 if (ds.kind === 'report') {
                     if (typeof window.openPassengerReport === 'function') window.openPassengerReport(ds.id);
@@ -1798,6 +1885,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('todaPresidentPasswordGroup').style.display = '';
         document.getElementById('todaPresidentPasswordHelp').style.display = '';
         document.getElementById('toda-president-email').readOnly = false;
+        document.getElementById('toda-president-toda-name').readOnly = false;
+        document.getElementById('toda-president-toda-name').title = '';
         document.getElementById('todaPresidentAccountModal').classList.add('active');
     };
 
@@ -1812,6 +1901,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('toda-president-email').value = account.email || '';
         document.getElementById('toda-president-phone').value = account.phone || '';
         document.getElementById('toda-president-email').readOnly = true;
+        // The TODA name is how drivers, bookings, complaints, appeals and the
+        // TODA's territory are tied to this president, and the app can't
+        // rename a territory. Renaming here would cut them all off.
+        document.getElementById('toda-president-toda-name').readOnly = true;
+        document.getElementById('toda-president-toda-name').title = 'A TODA can\'t be renamed here: its drivers, rides and records are tied to the name. Contact the PARA app team.';
         document.getElementById('todaPresidentAccountModalTitle').textContent = 'Edit TODA President Account';
         document.getElementById('createTodaPresidentBtn').textContent = 'Save Changes';
         document.getElementById('todaPresidentPasswordGroup').style.display = 'none';
@@ -2051,7 +2145,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('v-plate').textContent = mapped.plate;
 
             document.getElementById('v-lic-expiry').textContent = mapped.licenseExpiry || '—';
-            document.getElementById('v-gov-no').textContent = mapped.governmentId || '—';
+            document.getElementById('v-gov-no').textContent = ParaFirestore.governmentIdLabel(mapped) || '—';
             document.getElementById('v-reg-date').textContent = mapped.vehicleRegistrationDate || '—';
             const request = mapped.infoRequest;
             const requestNote = !request ? ''
@@ -2470,7 +2564,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function driverRiskCardBody(driver) {
         const risk = riskOf(driver.id);
-        return risk ? riskBodyHtml(risk) : '<div class="risk-note" style="margin-top:0;">Not scored yet — treated as LOW.</div>';
+        const waiting = presidentSuspensionRecommendations().filter((a) => a.driverId === driver.id && isAwaitingAdmin(a));
+        return risk ? riskBodyHtml(risk, strongestRecommendation(waiting)) : '<div class="risk-note" style="margin-top:0;">Not scored yet — treated as LOW.</div>';
     }
 
     function ddInfoHtml(driver) {
@@ -2516,7 +2611,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <div class="dd-card-title">License &amp; identification</div>
                     ${ddRow('License number', driver.license)}
                     ${ddRow('License expiry', licenseExpiryRowHtml(driver), { html: true })}
-                    ${ddRow('Government ID', driver.governmentId)}
+                    ${ddRow('Government ID', ParaFirestore.governmentIdLabel(driver))}
                 </div>
                 <div class="dd-card">
                     <div class="dd-card-title">Activity</div>
@@ -2622,8 +2717,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             + (vehicle ? `<span>${escapeHtml(vehicle)}</span>` : '');
         document.getElementById('dd-bookings-count').textContent = `(${bookingsForDriver(ddDriver).length})`;
         document.getElementById('dd-complaints-count').textContent = `(${complaintsForDriver(ddDriver).length})`;
+        // Ratings are read when the window opens, so the count is blank until they arrive.
         const ratingCount = typeof window.driverRatingCount === 'function' ? window.driverRatingCount(ddDriver.id) : 0;
-        document.getElementById('dd-ratings-count').textContent = `(${ratingCount})`;
+        document.getElementById('dd-ratings-count').textContent = ratingCount === null ? '' : `(${ratingCount})`;
         body.innerHTML = ddTab === 'bookings' ? ddBookingsHtml(ddDriver)
             : ddTab === 'complaints' ? ddComplaintsHtml(ddDriver)
             : ddTab === 'ratings' ? (typeof window.driverRatingsHtml === 'function' ? window.driverRatingsHtml(ddDriver.id) : ddEmpty('Ratings are not available.'))
@@ -2641,10 +2737,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderDriverDetails();
     }
 
-    // New ratings or names arriving (extras.js) redraw the tab if it is open.
-    document.addEventListener('para:ratings-updated', () => {
-        if (ddTab === 'ratings') refreshDriverDetails();
-    });
+    // The driver's ratings arriving, or new names (extras.js), redraw the window.
+    document.addEventListener('para:ratings-updated', () => refreshDriverDetails());
 
     window.openDriverDetailsModal = function(driverId) {
         const driver = (window.driverManagementDrivers || []).find((d) => d.id === driverId);
@@ -2655,6 +2749,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         ddBookingFilter = 'all';
         renderDriverDetails();
         document.getElementById('driverDetailsModal').classList.add('active');
+        if (typeof window.loadDriverRatings === 'function') window.loadDriverRatings(driverId);
     };
 
     (function bindDriverDetailsModal() {
@@ -3320,22 +3415,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         );
     };
 
-    async function loadBookingsData() {
-        try {
-            const bookings = await ParaFirestore.fetchBookings();
-            renderBookingTable(bookings);
-            if (typeof window.renderDashboardCharts === 'function') {
-                window.renderDashboardCharts(bookings);
-            }
-        } catch (error) {
-            console.error('Failed to load bookings:', error);
-            renderBookingTable([]);
-            if (typeof window.renderDashboardCharts === 'function') {
-                window.renderDashboardCharts([]);
-            }
-        }
-    }
-
     window.saveFareSettings = function() {
         const settings = {
             minimumFare: Number(document.getElementById('fare-min').value),
@@ -3717,7 +3796,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             field('Account ID', complaint.driverId);
             field('Driver\'s license no.', driver && driver.license);
             field('License expiry', driver && driver.licenseExpiry);
-            field('Government ID no.', driver && driver.governmentId);
+            field('Government ID no.', ParaFirestore.governmentIdLabel(driver));
             field('Tricycle number', driver && driver.vehicle);
             field('Motorcycle model', driver && driver.motorcycleModel);
             field('Plate number', driver && driver.plate);
@@ -4027,18 +4106,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshComplaintDisplay();
         refreshRecommendationUi();
     });
-    ParaFirestore.reactivateExpiredDrivers().catch((error) => {
-        console.error('Failed to auto-reactivate expired drivers:', error);
-    });
-    ParaFirestore.reactivateExpiredPassengers().catch((error) => {
-        console.error('Failed to auto-reactivate expired passengers:', error);
-    });
+    // A suspension's end date can pass with no change to any document, so check
+    // now and then. This looks at the users already loaded: it costs no reads.
     setInterval(() => {
-        ParaFirestore.reactivateExpiredDrivers().catch((error) => {
-            console.error('Failed to auto-reactivate expired drivers:', error);
-        });
-        ParaFirestore.reactivateExpiredPassengers().catch((error) => {
-            console.error('Failed to auto-reactivate expired passengers:', error);
+        ParaFirestore.sweepExpiredSuspensions().catch((error) => {
+            console.error('Failed to auto-reactivate expired suspensions:', error);
         });
     }, 60000);
     ParaFirestore.listenPassengers((passengers) => {
@@ -4047,7 +4119,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshComplaintDisplay();
         refreshTripModal();
     });
-    loadBookingsData();
     ParaFirestore.listenBookings((bookings) => {
         renderBookingTable(bookings);
         if (typeof window.renderDashboardCharts === 'function') {
